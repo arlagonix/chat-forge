@@ -18,6 +18,71 @@ async function readProviderResponse(response: Response) {
   }
 }
 
+function getDeltaText(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => {
+        if (typeof item === "string") return item;
+        if (item && typeof item === "object" && "text" in item && typeof item.text === "string") {
+          return item.text;
+        }
+        if (item && typeof item === "object" && "content" in item && typeof item.content === "string") {
+          return item.content;
+        }
+        return "";
+      })
+      .join("");
+  }
+  return "";
+}
+
+function readContentDelta(data: unknown): string {
+  if (!data || typeof data !== "object") return "";
+  const choices = "choices" in data ? data.choices : undefined;
+  if (!Array.isArray(choices)) return "";
+  const delta = choices[0]?.delta;
+  if (!delta || typeof delta !== "object") return "";
+  return getDeltaText("content" in delta ? delta.content : undefined);
+}
+
+function readReasoningDelta(data: unknown): string {
+  if (!data || typeof data !== "object") return "";
+  const choices = "choices" in data ? data.choices : undefined;
+  if (!Array.isArray(choices)) return "";
+  const delta = choices[0]?.delta;
+  if (!delta || typeof delta !== "object") return "";
+  return (
+    getDeltaText("reasoning_content" in delta ? delta.reasoning_content : undefined) ||
+    getDeltaText("reasoning" in delta ? delta.reasoning : undefined) ||
+    getDeltaText("thinking" in delta ? delta.thinking : undefined)
+  );
+}
+
+function buildApiMessages({
+  systemPrompt,
+  messages,
+  userMessage,
+}: {
+  systemPrompt: string;
+  messages: ChatMessage[];
+  userMessage: string;
+}): ApiChatMessage[] {
+  return [
+    ...(systemPrompt.trim()
+      ? [{ role: "system" as const, content: systemPrompt.trim() }]
+      : []),
+    ...messages.map((message) => ({
+      role: message.role,
+      content: message.content,
+    })),
+    {
+      role: "user" as const,
+      content: userMessage,
+    },
+  ];
+}
+
 export async function loadProviderModels(provider: ProviderConfig): Promise<string[]> {
   if (!provider.baseUrl.trim()) {
     throw new Error("Provider base URL is required.");
@@ -64,20 +129,6 @@ export async function sendProviderChat({
     throw new Error("Message is required.");
   }
 
-  const apiMessages: ApiChatMessage[] = [
-    ...(systemPrompt.trim()
-      ? [{ role: "system" as const, content: systemPrompt.trim() }]
-      : []),
-    ...messages.map((message) => ({
-      role: message.role,
-      content: message.content,
-    })),
-    {
-      role: "user",
-      content: userMessage,
-    },
-  ];
-
   const response = await fetch(`${normalizeBaseUrl(provider.baseUrl)}/chat/completions`, {
     method: "POST",
     headers: {
@@ -86,7 +137,7 @@ export async function sendProviderChat({
     },
     body: JSON.stringify({
       model: provider.model,
-      messages: apiMessages,
+      messages: buildApiMessages({ systemPrompt, messages, userMessage }),
       stream: false,
     }),
   });
@@ -99,4 +150,104 @@ export async function sendProviderChat({
   }
 
   return content;
+}
+
+export async function streamProviderChat({
+  provider,
+  systemPrompt,
+  messages,
+  userMessage,
+  signal,
+  onContentDelta,
+  onReasoningDelta,
+}: {
+  provider: ProviderConfig;
+  systemPrompt: string;
+  messages: ChatMessage[];
+  userMessage: string;
+  signal?: AbortSignal;
+  onContentDelta: (delta: string) => void;
+  onReasoningDelta?: (delta: string) => void;
+}): Promise<void> {
+  if (!provider.baseUrl.trim()) {
+    throw new Error("Provider base URL is required.");
+  }
+
+  if (!provider.model.trim()) {
+    throw new Error("Model name is required.");
+  }
+
+  if (!userMessage.trim()) {
+    throw new Error("Message is required.");
+  }
+
+  const response = await fetch(`${normalizeBaseUrl(provider.baseUrl)}/chat/completions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${provider.apiKey || "not-needed"}`,
+    },
+    body: JSON.stringify({
+      model: provider.model,
+      messages: buildApiMessages({ systemPrompt, messages, userMessage }),
+      stream: true,
+    }),
+    signal,
+  });
+
+  if (!response.ok) {
+    const responseText = await response.text();
+    throw new Error(responseText || `Provider returned ${response.status}`);
+  }
+
+  if (!response.body) {
+    throw new Error("Provider response did not include a readable stream.");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  function processEvent(rawEvent: string) {
+    const dataLines = rawEvent
+      .split("\n")
+      .map((line) => line.trimEnd())
+      .filter((line) => line.startsWith("data:"))
+      .map((line) => line.slice(5).trimStart());
+
+    for (const dataLine of dataLines) {
+      if (!dataLine || dataLine === "[DONE]") continue;
+
+      let data: unknown;
+      try {
+        data = JSON.parse(dataLine);
+      } catch {
+        continue;
+      }
+
+      const reasoningDelta = readReasoningDelta(data);
+      if (reasoningDelta) onReasoningDelta?.(reasoningDelta);
+
+      const contentDelta = readContentDelta(data);
+      if (contentDelta) onContentDelta(contentDelta);
+    }
+  }
+
+  while (true) {
+    const { value, done } = await reader.read();
+    buffer += decoder.decode(value, { stream: !done });
+
+    const events = buffer.split(/\r?\n\r?\n/);
+    buffer = events.pop() ?? "";
+
+    for (const event of events) {
+      processEvent(event);
+    }
+
+    if (done) break;
+  }
+
+  if (buffer.trim()) {
+    processEvent(buffer);
+  }
 }
