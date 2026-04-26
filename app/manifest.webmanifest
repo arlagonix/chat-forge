@@ -1,0 +1,34 @@
+{
+  "name": "Prompt Forge",
+  "short_name": "Prompt Forge",
+  "description": "Generate prompts from markdown templates with dynamic parameters",
+  "start_url": "/prompt-forge/",
+  "display": "standalone",
+  "background_color": "#1a1a1a",
+  "theme_color": "#2c2c2c",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/prompt-forge/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["productivity", "utilities"],
+  "shortcuts": [
+    {
+      "name": "Open Folder",
+      "short_name": "Open",
+      "description": "Select a templates folder",
+      "url": "/prompt-forge/",
+      "icons": [
+        {
+          "src": "/prompt-forge/icon.svg",
+          "sizes": "any",
+          "type": "image/svg+xml"
+        }
+      ]
+    }
+  ]
+}
