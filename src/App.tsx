@@ -347,6 +347,20 @@ export default function Home() {
   const didHydrateRef = useRef(false);
   const { resolvedTheme, setTheme } = useTheme();
 
+  function focusDraftTextarea() {
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        const textarea = draftTextareaRef.current;
+        if (!textarea) return;
+
+        textarea.focus({ preventScroll: true });
+
+        const cursorPosition = textarea.value.length;
+        textarea.setSelectionRange(cursorPosition, cursorPosition);
+      });
+    });
+  }
+
   const sortedChats = useMemo(() => sortChatsByUpdatedAt(chats), [chats]);
 
   const activeChat = useMemo(() => {
@@ -1452,6 +1466,7 @@ export default function Home() {
     shouldStickToBottomRef.current = true;
     lastScrollStateRef.current = true;
     setIsNearChatBottom(true);
+    focusDraftTextarea();
 
     try {
       await saveChat(chat);
