@@ -1,60 +1,30 @@
-# AI Chat MVP
+# React + TypeScript + Vite
 
-Client-only OpenAI-compatible chat app rebuilt on the same stack as the attached Prompt Forge app.
+This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 
-## Stack
+Currently, two official plugins are available:
 
-- Next.js 16 app router
-- React 19
-- Tailwind CSS v4
-- `@tailwindcss/postcss`
-- shadcn/ui-style Radix components from the Prompt Forge archive
-- `next-themes`
-- `lucide-react`
-- `cn` utility with `clsx` and `tailwind-merge`
-- Client-side localStorage persistence
+- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react/README.md) uses [Babel](https://babeljs.io/) for Fast Refresh
+- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
 
-## Run
+## Expanding the ESLint configuration
 
-```bash
-npm install
-npm run dev
+If you are developing a production application, we recommend updating the configuration to enable type aware lint rules:
+
+- Configure the top-level `parserOptions` property like this:
+
+```js
+export default {
+  // other rules...
+  parserOptions: {
+    ecmaVersion: 'latest',
+    sourceType: 'module',
+    project: ['./tsconfig.json', './tsconfig.node.json'],
+    tsconfigRootDir: __dirname,
+  },
+}
 ```
 
-Open:
-
-```txt
-http://localhost:3000
-```
-
-## Notes
-
-This version has no backend proxy routes. It sends requests directly from the browser to the configured OpenAI-compatible provider URL.
-
-That is fine for a local personal app, but cloud API keys are stored in localStorage and are visible to the browser runtime. Some providers may also block direct browser requests through CORS.
-
-## Example providers
-
-### LM Studio
-
-```txt
-Base URL: http://localhost:1234/v1
-API key: not-needed
-Model: load models or enter the model name shown in LM Studio
-```
-
-### Ollama
-
-```txt
-Base URL: http://localhost:11434/v1
-API key: not-needed
-Model: llama3.1
-```
-
-### OpenRouter
-
-```txt
-Base URL: https://openrouter.ai/api/v1
-API key: your OpenRouter key
-Model: openai/gpt-4o-mini
-```
+- Replace `plugin:@typescript-eslint/recommended` to `plugin:@typescript-eslint/recommended-type-checked` or `plugin:@typescript-eslint/strict-type-checked`
+- Optionally add `plugin:@typescript-eslint/stylistic-type-checked`
+- Install [eslint-plugin-react](https://github.com/jsx-eslint/eslint-plugin-react) and add `plugin:react/recommended` & `plugin:react/jsx-runtime` to the `extends` list
