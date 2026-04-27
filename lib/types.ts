@@ -8,11 +8,32 @@ export type ProviderConfig = {
 
 export type ChatRole = "system" | "user" | "assistant";
 
+export type ChatMessageStatus = "streaming" | "done" | "error";
+
+export type ChatTokenUsage = {
+  promptTokens?: number;
+  completionTokens?: number;
+  totalTokens?: number;
+};
+
+export type ChatMessageMetrics = {
+  startedAt: string;
+  completedAt?: string;
+  durationMs?: number;
+  tokenUsage?: ChatTokenUsage;
+  outputTokens?: number;
+  tokensPerSecond?: number;
+  isApproximate?: boolean;
+};
+
 export type ChatMessage = {
   id: string;
   role: Exclude<ChatRole, "system">;
   content: string;
+  reasoning?: string;
+  status?: ChatMessageStatus;
   createdAt: string;
+  metrics?: ChatMessageMetrics;
 };
 
 export type ApiChatMessage = {

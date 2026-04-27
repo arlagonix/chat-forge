@@ -1,4 +1,11 @@
-import type { ApiChatMessage, ChatMessage, ProviderConfig } from "./types";
+import type { ApiChatMessage, ChatMessage, ChatTokenUsage, ProviderConfig } from "./types";
+
+function getActiveAssistantContent(message: ChatMessage) {
+  if (message.role !== "assistant") return message.content;
+
+  const variant = message.variants[message.activeVariantIndex];
+  return variant?.content ?? "";
+}
 
 function normalizeBaseUrl(baseUrl: string) {
   return baseUrl.replace(/\/+$/, "");
@@ -59,6 +66,37 @@ function readReasoningDelta(data: unknown): string {
   );
 }
 
+function readNumber(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function readUsage(data: unknown): ChatTokenUsage | undefined {
+  if (!data || typeof data !== "object" || !("usage" in data)) return undefined;
+
+  const usage = data.usage;
+  if (!usage || typeof usage !== "object") return undefined;
+
+  const promptTokens = readNumber("prompt_tokens" in usage ? usage.prompt_tokens : undefined);
+  const completionTokens = readNumber(
+    "completion_tokens" in usage ? usage.completion_tokens : undefined,
+  );
+  const totalTokens = readNumber("total_tokens" in usage ? usage.total_tokens : undefined);
+
+  if (
+    promptTokens === undefined &&
+    completionTokens === undefined &&
+    totalTokens === undefined
+  ) {
+    return undefined;
+  }
+
+  return {
+    promptTokens,
+    completionTokens,
+    totalTokens,
+  };
+}
+
 function buildApiMessages({
   systemPrompt,
   messages,
@@ -74,7 +112,7 @@ function buildApiMessages({
       : []),
     ...messages.map((message) => ({
       role: message.role,
-      content: message.content,
+      content: getActiveAssistantContent(message),
     })),
     {
       role: "user" as const,
@@ -152,6 +190,10 @@ export async function sendProviderChat({
   return content;
 }
 
+export type StreamProviderChatResult = {
+  usage?: ChatTokenUsage;
+};
+
 export async function streamProviderChat({
   provider,
   systemPrompt,
@@ -168,7 +210,7 @@ export async function streamProviderChat({
   signal?: AbortSignal;
   onContentDelta: (delta: string) => void;
   onReasoningDelta?: (delta: string) => void;
-}): Promise<void> {
+}): Promise<StreamProviderChatResult> {
   if (!provider.baseUrl.trim()) {
     throw new Error("Provider base URL is required.");
   }
@@ -191,6 +233,9 @@ export async function streamProviderChat({
       model: provider.model,
       messages: buildApiMessages({ systemPrompt, messages, userMessage }),
       stream: true,
+      stream_options: {
+        include_usage: true,
+      },
     }),
     signal,
   });
@@ -207,6 +252,7 @@ export async function streamProviderChat({
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
+  let usage: ChatTokenUsage | undefined;
 
   function processEvent(rawEvent: string) {
     const dataLines = rawEvent
@@ -224,6 +270,9 @@ export async function streamProviderChat({
       } catch {
         continue;
       }
+
+      const eventUsage = readUsage(data);
+      if (eventUsage) usage = eventUsage;
 
       const reasoningDelta = readReasoningDelta(data);
       if (reasoningDelta) onReasoningDelta?.(reasoningDelta);
@@ -250,4 +299,6 @@ export async function streamProviderChat({
   if (buffer.trim()) {
     processEvent(buffer);
   }
+
+  return { usage };
 }
