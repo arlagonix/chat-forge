@@ -312,19 +312,24 @@ export default function Home() {
   useEffect(() => {
     function handleGlobalShortcut(event: KeyboardEvent) {
       if (event.defaultPrevented) return;
+      if (event.repeat) return;
       if (!event.ctrlKey || event.shiftKey || event.altKey || event.metaKey)
         return;
       if (event.code !== "KeyN") return;
-      if (isEditableShortcutTarget(event.target)) return;
 
       event.preventDefault();
+      event.stopPropagation();
       void createNewChat();
     }
 
-    window.addEventListener("keydown", handleGlobalShortcut);
+    document.addEventListener("keydown", handleGlobalShortcut, {
+      capture: true,
+    });
 
     return () => {
-      window.removeEventListener("keydown", handleGlobalShortcut);
+      document.removeEventListener("keydown", handleGlobalShortcut, {
+        capture: true,
+      });
     };
   }, [isSending]);
 
@@ -1006,11 +1011,7 @@ export default function Home() {
                   {resolvedTheme === "dark" ? "Light theme" : "Dark theme"}
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  variant="destructive"
-                  className="transition-colors hover:bg-destructive/10 hover:text-destructive focus:bg-destructive/10 focus:text-destructive"
-                  onClick={clearCurrentChat}
-                >
+                <DropdownMenuItem onClick={clearCurrentChat}>
                   <Trash2 className="size-4" />
                   Clear current chat
                 </DropdownMenuItem>
