@@ -121,25 +121,141 @@
 }
 
 @layer utilities {
-  .streaming-caret::after {
-    display: inline-block;
-    width: 0.375rem;
-    height: 1rem;
-    margin-left: 0.125rem;
-    vertical-align: -0.125em;
-    border-radius: 0.125rem;
-    background: currentColor;
-    opacity: 0.6;
-    animation: streaming-caret-pulse 1.4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-    content: "";
+  .chat-scrollbar {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .chat-scrollbar::-webkit-scrollbar {
+    display: none;
   }
 }
 
-@keyframes streaming-caret-pulse {
-  0%, 100% {
-    opacity: 0.25;
+@layer components {
+  .chat-markdown {
+    @apply min-w-0 max-w-full leading-6 [overflow-wrap:anywhere];
   }
-  50% {
-    opacity: 0.7;
+
+  .chat-markdown-compact {
+    @apply text-xs leading-5;
+  }
+
+  .chat-markdown > *:first-child {
+    margin-top: 0;
+  }
+
+  .chat-markdown > *:last-child {
+    margin-bottom: 0;
+  }
+
+  .chat-markdown p {
+    @apply my-4;
+  }
+
+  .chat-markdown-compact p {
+    @apply my-2;
+  }
+
+  .chat-markdown ul,
+  .chat-markdown ol {
+    @apply my-4 pl-6;
+  }
+
+  .chat-markdown-compact ul,
+  .chat-markdown-compact ol {
+    @apply my-2 pl-5;
+  }
+
+  .chat-markdown ul {
+    @apply list-disc;
+  }
+
+  .chat-markdown ol {
+    @apply list-decimal;
+  }
+
+  .chat-markdown li {
+    @apply my-1;
+  }
+
+  .chat-markdown li > p {
+    @apply my-1;
+  }
+
+  .chat-markdown blockquote {
+    @apply my-4 border-l-2 border-border pl-4 text-muted-foreground;
+  }
+
+  .chat-markdown-compact blockquote {
+    @apply my-2 pl-3;
+  }
+
+  .chat-markdown h1 {
+    @apply mt-5 mb-3 text-2xl font-semibold leading-8;
+  }
+
+  .chat-markdown h2 {
+    @apply mt-5 mb-3 text-xl font-semibold leading-7;
+  }
+
+  .chat-markdown h3 {
+    @apply mt-4 mb-2 text-lg font-semibold leading-7;
+  }
+
+  .chat-markdown h4 {
+    @apply mt-4 mb-2 text-base font-semibold;
+  }
+
+  .chat-markdown-compact h1,
+  .chat-markdown-compact h2,
+  .chat-markdown-compact h3,
+  .chat-markdown-compact h4 {
+    @apply mt-3 mb-2 text-sm font-semibold leading-5;
+  }
+
+  .chat-markdown hr {
+    @apply my-4 border-border;
+  }
+
+  .chat-markdown table {
+    @apply my-3 block max-w-full table-auto border-collapse overflow-hidden text-sm;
+  }
+
+  .chat-markdown th,
+  .chat-markdown td {
+    @apply border px-2 py-1 align-top break-words;
+  }
+
+  .chat-markdown th {
+    @apply bg-muted font-medium;
+  }
+
+  .chat-markdown code {
+    @apply bg-muted px-1 py-0.5 font-mono text-[0.9em] break-words;
+  }
+
+  .chat-markdown .chat-code-block {
+    @apply relative my-4 max-w-full overflow-hidden border bg-muted text-sm leading-6;
+  }
+
+  .chat-markdown .chat-code-block pre {
+    @apply m-0 max-w-full overflow-x-hidden whitespace-pre-wrap break-words bg-transparent p-3 pr-12 text-sm leading-6;
+  }
+
+  .chat-markdown .chat-code-block code {
+    @apply whitespace-pre-wrap break-words bg-transparent p-0 text-sm;
+  }
+
+  .chat-markdown a {
+    @apply font-medium break-words;
+  }
+
+  .chat-markdown strong {
+    @apply font-semibold;
+  }
+
+  .chat-markdown em,
+  .chat-markdown i {
+    font-style: oblique 8deg;
   }
 }

@@ -2,16 +2,22 @@
 
 import {
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   ChevronUp,
+  MessageSquarePlus,
   MessageSquareText,
+  Plus,
   RefreshCcw,
   Send,
   Settings,
   Square,
   Trash2,
 } from "lucide-react";
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import type { FormEvent, WheelEvent } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
+import { MarkdownMessage } from "@/components/ai-chat/markdown-message";
 import { ThemeToggle } from "@/components/prompt-forge/theme-toggle";
 import { Button } from "@/components/ui/button";
 import {
@@ -43,14 +49,26 @@ import {
   providerPresets,
 } from "@/lib/ai-chat/provider-presets";
 import {
-  loadMessages,
+  createEmptyChat,
+  deleteAllChats,
+  deleteChat,
+  loadActiveChatId,
+  loadChats,
   loadProvider,
   loadSystemPrompt,
-  saveMessages,
+  saveActiveChatId,
+  saveChat,
   saveProvider,
   saveSystemPrompt,
 } from "@/lib/ai-chat/storage";
-import type { ChatMessage, ProviderConfig } from "@/lib/ai-chat/types";
+import type {
+  ChatAssistantMessage,
+  ChatAssistantVariant,
+  ChatMessage,
+  ChatSession,
+  ChatTokenUsage,
+  ProviderConfig,
+} from "@/lib/ai-chat/types";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -67,25 +85,75 @@ function providerLabel(provider: ProviderConfig) {
   return `${provider.name || "Custom provider"} · ${model}`;
 }
 
-function takeBufferedChunk(buffer: string) {
-  if (!buffer) return "";
+function estimateTokens(text: string) {
+  const trimmedText = text.trim();
+  if (!trimmedText) return 0;
 
-  const maxChunkLength =
-    buffer.length > 900 ? 24 : buffer.length > 300 ? 12 : 5;
-  if (buffer.length <= maxChunkLength) return buffer;
+  return Math.max(1, Math.ceil(trimmedText.length / 4));
+}
 
-  const slice = buffer.slice(0, maxChunkLength);
-  const lastWhitespace = Math.max(
-    slice.lastIndexOf(" "),
-    slice.lastIndexOf("\n"),
-    slice.lastIndexOf("\t"),
-  );
+function formatDuration(durationMs: number) {
+  if (durationMs < 1000) return `${Math.round(durationMs)}ms`;
 
-  if (lastWhitespace >= 4) {
-    return buffer.slice(0, lastWhitespace + 1);
-  }
+  return `${(durationMs / 1000).toFixed(2)}s`;
+}
 
-  return slice;
+function buildTokenMetrics({
+  content,
+  durationMs,
+  usage,
+}: {
+  content: string;
+  durationMs: number;
+  usage?: ChatTokenUsage;
+}) {
+  const exactOutputTokens = usage?.completionTokens;
+  const outputTokens = exactOutputTokens ?? estimateTokens(content);
+  const tokensPerSecond =
+    outputTokens > 0 ? outputTokens / (durationMs / 1000) : 0;
+
+  return {
+    durationMs,
+    tokenUsage: usage,
+    outputTokens,
+    tokensPerSecond,
+    isApproximate: exactOutputTokens === undefined,
+  };
+}
+
+function formatTokenMetrics(
+  metrics: NonNullable<ChatAssistantVariant["metrics"]>,
+) {
+  const approximatePrefix = metrics.isApproximate ? "~" : "";
+  const outputTokens = metrics.outputTokens ?? 0;
+  const tokensPerSecond = metrics.tokensPerSecond ?? 0;
+  const totalTokens = metrics.tokenUsage?.totalTokens;
+
+  return [
+    `${approximatePrefix}${tokensPerSecond.toFixed(1)} tok/s`,
+    formatDuration(metrics.durationMs ?? 0),
+    `${approximatePrefix}${outputTokens} output tokens`,
+    totalTokens !== undefined ? `${totalTokens} total tokens` : undefined,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+function getActiveVariant(message: ChatAssistantMessage) {
+  return message.variants[message.activeVariantIndex] ?? message.variants[0];
+}
+
+function getAssistantContent(message: ChatMessage) {
+  if (message.role === "user") return message.content;
+
+  return getActiveVariant(message)?.content ?? "";
+}
+
+function titleFromMessage(message: string) {
+  const firstLine = message.replace(/\s+/g, " ").trim();
+  if (!firstLine) return "New chat";
+
+  return firstLine.length > 44 ? `${firstLine.slice(0, 44)}...` : firstLine;
 }
 
 export default function Home() {
@@ -94,7 +162,8 @@ export default function Home() {
   const [systemPrompt, setSystemPrompt] = useState(
     "You are a helpful assistant.",
   );
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [chats, setChats] = useState<ChatSession[]>([]);
+  const [activeChatId, setActiveChatId] = useState<string | undefined>();
   const [draft, setDraft] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [isLoadingModels, setIsLoadingModels] = useState(false);
@@ -106,40 +175,110 @@ export default function Home() {
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
   const draftTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const isAutoScrollingRef = useRef(false);
   const shouldStickToBottomRef = useRef(true);
-  const streamBufferRef = useRef({
-    assistantMessageId: "",
-    content: "",
-    reasoning: "",
-  });
-  const streamDrainTimerRef = useRef<ReturnType<
-    typeof window.setInterval
-  > | null>(null);
+  const didHydrateRef = useRef(false);
+
+  const activeChat = useMemo(() => {
+    return chats.find((chat) => chat.id === activeChatId) ?? chats[0];
+  }, [activeChatId, chats]);
+
+  const messages = activeChat?.messages ?? [];
 
   useEffect(() => {
-    setProvider(loadProvider());
-    setSystemPrompt(loadSystemPrompt());
-    setMessages(loadMessages());
-    setMounted(true);
+    let cancelled = false;
+
+    async function hydrate() {
+      try {
+        const [
+          loadedProvider,
+          loadedSystemPrompt,
+          loadedChats,
+          loadedActiveChatId,
+        ] = await Promise.all([
+          loadProvider(),
+          loadSystemPrompt(),
+          loadChats(),
+          loadActiveChatId(),
+        ]);
+
+        if (cancelled) return;
+
+        let nextChats = loadedChats;
+        let nextActiveChatId = loadedActiveChatId;
+
+        if (nextChats.length === 0) {
+          const chat = createEmptyChat();
+          nextChats = [chat];
+          nextActiveChatId = chat.id;
+          await saveChat(chat);
+          await saveActiveChatId(chat.id);
+        } else if (
+          !nextActiveChatId ||
+          !nextChats.some((chat) => chat.id === nextActiveChatId)
+        ) {
+          nextActiveChatId = nextChats[0].id;
+          await saveActiveChatId(nextActiveChatId);
+        }
+
+        if (cancelled) return;
+
+        setProvider(loadedProvider);
+        setSystemPrompt(loadedSystemPrompt);
+        setChats(nextChats);
+        setActiveChatId(nextActiveChatId);
+        didHydrateRef.current = true;
+        setMounted(true);
+      } catch (error) {
+        console.error("Failed to load app data from IndexedDB:", error);
+        const fallbackChat = createEmptyChat();
+        setChats([fallbackChat]);
+        setActiveChatId(fallbackChat.id);
+        didHydrateRef.current = true;
+        setMounted(true);
+        showError("Storage failed", labelForError(error));
+      }
+    }
+
+    hydrate();
 
     return () => {
-      if (streamDrainTimerRef.current) {
-        window.clearInterval(streamDrainTimerRef.current);
-      }
+      cancelled = true;
     };
   }, []);
 
   useEffect(() => {
-    if (mounted) saveProvider(provider);
-  }, [mounted, provider]);
+    if (!didHydrateRef.current) return;
+    saveProvider(provider).catch((error) =>
+      console.error("Failed to save provider:", error),
+    );
+  }, [provider]);
 
   useEffect(() => {
-    if (mounted) saveSystemPrompt(systemPrompt);
-  }, [mounted, systemPrompt]);
+    if (!didHydrateRef.current) return;
+    saveSystemPrompt(systemPrompt).catch((error) =>
+      console.error("Failed to save system prompt:", error),
+    );
+  }, [systemPrompt]);
 
   useEffect(() => {
-    if (mounted) saveMessages(messages);
-  }, [mounted, messages]);
+    if (!didHydrateRef.current || !activeChatId) return;
+    saveActiveChatId(activeChatId).catch((error) =>
+      console.error("Failed to save active chat id:", error),
+    );
+  }, [activeChatId]);
+
+  useEffect(() => {
+    if (!didHydrateRef.current || chats.length === 0) return;
+
+    const timeoutId = window.setTimeout(() => {
+      Promise.all(chats.map((chat) => saveChat(chat))).catch((error) =>
+        console.error("Failed to save chats:", error),
+      );
+    }, 250);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [chats]);
 
   useEffect(() => {
     const textarea = draftTextareaRef.current;
@@ -162,7 +301,11 @@ export default function Home() {
     const scrollElement = chatScrollRef.current;
     if (!scrollElement || !shouldStickToBottomRef.current) return;
 
+    isAutoScrollingRef.current = true;
     scrollElement.scrollTop = scrollElement.scrollHeight;
+    window.requestAnimationFrame(() => {
+      isAutoScrollingRef.current = false;
+    });
   }, [messages]);
 
   const canSend = useMemo(() => {
@@ -170,9 +313,10 @@ export default function Home() {
       provider.baseUrl.trim() &&
       provider.model.trim() &&
       draft.trim() &&
-      !isSending,
+      !isSending &&
+      activeChat,
     );
-  }, [draft, isSending, provider.baseUrl, provider.model]);
+  }, [activeChat, draft, isSending, provider.baseUrl, provider.model]);
 
   function showSuccess(message: string, description?: string) {
     toast(message, description ? { description } : undefined);
@@ -186,15 +330,31 @@ export default function Home() {
     toast(message, description ? { description } : undefined);
   }
 
-  function getReasoningPreview(reasoning: string) {
-    const lines = reasoning.trimEnd().split(/\r?\n/);
-    const previewLines = 6;
+  function updateChat(
+    chatId: string,
+    updater: (chat: ChatSession) => ChatSession,
+  ) {
+    setChats((currentChats) =>
+      currentChats.map((chat) => (chat.id === chatId ? updater(chat) : chat)),
+    );
+  }
 
-    if (lines.length <= previewLines) {
-      return reasoning;
-    }
+  function updateChatMessages(
+    chatId: string,
+    updater: (messages: ChatMessage[]) => ChatMessage[],
+  ) {
+    updateChat(chatId, (chat) => ({
+      ...chat,
+      messages: updater(chat.messages),
+      updatedAt: new Date().toISOString(),
+    }));
+  }
 
-    return lines.slice(-previewLines).join("\n");
+  function updateActiveChatMessages(
+    updater: (messages: ChatMessage[]) => ChatMessage[],
+  ) {
+    if (!activeChatId) return;
+    updateChatMessages(activeChatId, updater);
   }
 
   function toggleReasoning(messageId: string) {
@@ -213,81 +373,94 @@ export default function Home() {
       scrollElement.scrollTop -
       scrollElement.clientHeight;
     shouldStickToBottomRef.current = distanceFromBottom < 96;
+
+    if (isAutoScrollingRef.current) return;
   }
 
-  function appendToAssistantMessage(
+  function handleChatWheel(event: WheelEvent<HTMLDivElement>) {
+    const scrollElement = chatScrollRef.current;
+    if (!scrollElement) return;
+
+    const target = event.target as HTMLElement | null;
+    if (target?.closest("[data-chat-scroll]")) return;
+    if (target?.closest("[data-draft-input]")) return;
+
+    scrollElement.scrollTop += event.deltaY;
+    handleChatScroll();
+  }
+
+  function appendToAssistantVariant(
+    chatId: string,
     assistantMessageId: string,
-    patch: Partial<Pick<ChatMessage, "content" | "reasoning">>,
+    variantId: string,
+    patch: Partial<Pick<ChatAssistantVariant, "content" | "reasoning">>,
   ) {
-    setMessages((currentMessages) =>
+    updateChatMessages(chatId, (currentMessages) =>
       currentMessages.map((message) => {
-        if (message.id !== assistantMessageId) return message;
+        if (message.id !== assistantMessageId || message.role !== "assistant") {
+          return message;
+        }
 
         return {
           ...message,
-          content: patch.content
-            ? message.content + patch.content
-            : message.content,
-          reasoning: patch.reasoning
-            ? `${message.reasoning ?? ""}${patch.reasoning}`
-            : message.reasoning,
+          variants: message.variants.map((variant) => {
+            if (variant.id !== variantId) return variant;
+
+            return {
+              ...variant,
+              content: patch.content
+                ? variant.content + patch.content
+                : variant.content,
+              reasoning: patch.reasoning
+                ? `${variant.reasoning ?? ""}${patch.reasoning}`
+                : variant.reasoning,
+            };
+          }),
         };
       }),
     );
   }
 
-  function drainStreamBuffer(assistantMessageId: string, flushAll = false) {
-    const buffer = streamBufferRef.current;
-    if (buffer.assistantMessageId !== assistantMessageId) return;
+  function updateAssistantVariant(
+    chatId: string,
+    assistantMessageId: string,
+    variantId: string,
+    updater: (variant: ChatAssistantVariant) => ChatAssistantVariant,
+  ) {
+    updateChatMessages(chatId, (currentMessages) =>
+      currentMessages.map((message) => {
+        if (message.id !== assistantMessageId || message.role !== "assistant") {
+          return message;
+        }
 
-    const contentDelta = flushAll
-      ? buffer.content
-      : takeBufferedChunk(buffer.content);
-    const reasoningDelta = flushAll
-      ? buffer.reasoning
-      : takeBufferedChunk(buffer.reasoning);
-
-    if (!contentDelta && !reasoningDelta) return;
-
-    buffer.content = buffer.content.slice(contentDelta.length);
-    buffer.reasoning = buffer.reasoning.slice(reasoningDelta.length);
-
-    appendToAssistantMessage(assistantMessageId, {
-      content: contentDelta,
-      reasoning: reasoningDelta,
-    });
-  }
-
-  function hasPendingStreamBuffer(assistantMessageId: string) {
-    const buffer = streamBufferRef.current;
-    return (
-      buffer.assistantMessageId === assistantMessageId &&
-      Boolean(buffer.content || buffer.reasoning)
+        return {
+          ...message,
+          variants: message.variants.map((variant) =>
+            variant.id === variantId ? updater(variant) : variant,
+          ),
+        };
+      }),
     );
   }
 
-  async function finishStreamBufferDrain(assistantMessageId: string) {
-    stopStreamBufferDrain();
+  function selectAssistantVariant(messageId: string, variantIndex: number) {
+    updateActiveChatMessages((currentMessages) =>
+      currentMessages.map((message) => {
+        if (message.id !== messageId || message.role !== "assistant") {
+          return message;
+        }
 
-    while (hasPendingStreamBuffer(assistantMessageId)) {
-      drainStreamBuffer(assistantMessageId);
-      await new Promise<void>((resolve) => window.setTimeout(resolve, 35));
-    }
-  }
+        const safeIndex = Math.min(
+          Math.max(variantIndex, 0),
+          message.variants.length - 1,
+        );
 
-  function stopStreamBufferDrain() {
-    if (!streamDrainTimerRef.current) return;
-
-    window.clearInterval(streamDrainTimerRef.current);
-    streamDrainTimerRef.current = null;
-  }
-
-  function startStreamBufferDrain(assistantMessageId: string) {
-    stopStreamBufferDrain();
-
-    streamDrainTimerRef.current = window.setInterval(() => {
-      drainStreamBuffer(assistantMessageId);
-    }, 55);
+        return {
+          ...message,
+          activeVariantIndex: safeIndex,
+        };
+      }),
+    );
   }
 
   function applyPreset(id: string) {
@@ -332,17 +505,11 @@ export default function Home() {
     }
   }
 
-  async function sendMessage(event: FormEvent) {
-    event.preventDefault();
-
-    const userMessage = draft.trim();
-
-    if (isSending) return;
-
+  function validateProviderForGeneration() {
     if (!provider.baseUrl.trim()) {
       showError("Provider base URL is required.");
       setSettingsOpen(true);
-      return;
+      return false;
     }
 
     if (!provider.model.trim()) {
@@ -351,8 +518,120 @@ export default function Home() {
         "Load models or enter the model name manually.",
       );
       setSettingsOpen(true);
-      return;
+      return false;
     }
+
+    return true;
+  }
+
+  async function runAssistantVariant({
+    chatId,
+    contextMessages,
+    userMessage,
+    assistantMessageId,
+    variantId,
+    responseStartedAtMs,
+  }: {
+    chatId: string;
+    contextMessages: ChatMessage[];
+    userMessage: string;
+    assistantMessageId: string;
+    variantId: string;
+    responseStartedAtMs: number;
+  }) {
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+    setIsSending(true);
+    toast.dismiss();
+
+    try {
+      const streamResult = await streamProviderChat({
+        provider,
+        systemPrompt,
+        messages: contextMessages,
+        userMessage,
+        signal: controller.signal,
+        onContentDelta: (delta) => {
+          appendToAssistantVariant(chatId, assistantMessageId, variantId, {
+            content: delta,
+          });
+        },
+        onReasoningDelta: (delta) => {
+          appendToAssistantVariant(chatId, assistantMessageId, variantId, {
+            reasoning: delta,
+          });
+        },
+      });
+
+      const durationMs = Math.max(1, performance.now() - responseStartedAtMs);
+
+      updateAssistantVariant(
+        chatId,
+        assistantMessageId,
+        variantId,
+        (variant) => ({
+          ...variant,
+          status: "done",
+          metrics: {
+            ...variant.metrics,
+            completedAt: new Date().toISOString(),
+            ...buildTokenMetrics({
+              content: variant.content,
+              durationMs,
+              usage: streamResult.usage,
+            }),
+          },
+        }),
+      );
+    } catch (error) {
+      const wasAborted =
+        error instanceof DOMException && error.name === "AbortError";
+
+      const durationMs = Math.max(1, performance.now() - responseStartedAtMs);
+
+      updateAssistantVariant(
+        chatId,
+        assistantMessageId,
+        variantId,
+        (variant) => {
+          const currentContent = variant.content.trim();
+          const content = wasAborted
+            ? variant.content || "Generation stopped."
+            : currentContent
+              ? `${variant.content}\n\nError: ${labelForError(error)}`
+              : `Error: ${labelForError(error)}`;
+
+          return {
+            ...variant,
+            status: wasAborted ? "done" : "error",
+            content,
+            metrics: {
+              ...variant.metrics,
+              completedAt: new Date().toISOString(),
+              ...buildTokenMetrics({
+                content,
+                durationMs,
+              }),
+            },
+          };
+        },
+      );
+    } finally {
+      if (abortControllerRef.current === controller) {
+        abortControllerRef.current = null;
+      }
+      setIsSending(false);
+    }
+  }
+
+  async function sendMessage(event: FormEvent) {
+    event.preventDefault();
+
+    const userMessage = draft.trim();
+
+    if (isSending) return;
+    if (!activeChat) return;
+    if (!validateProviderForGeneration()) return;
 
     if (!userMessage) {
       showError("Message is required.");
@@ -367,96 +646,217 @@ export default function Home() {
     };
 
     const assistantMessageId = createId();
+    const variantId = createId();
+    const responseStartedAtMs = performance.now();
+    const responseStartedAt = new Date().toISOString();
     const assistantMessage: ChatMessage = {
       id: assistantMessageId,
       role: "assistant",
-      content: "",
-      reasoning: "",
-      status: "streaming",
-      createdAt: new Date().toISOString(),
+      variants: [
+        {
+          id: variantId,
+          content: "",
+          reasoning: "",
+          status: "streaming",
+          createdAt: responseStartedAt,
+          metrics: {
+            startedAt: responseStartedAt,
+          },
+        },
+      ],
+      activeVariantIndex: 0,
+      createdAt: responseStartedAt,
     };
 
-    const nextMessages = [...messages, userChatMessage, assistantMessage];
-    const controller = new AbortController();
-    abortControllerRef.current = controller;
+    const contextMessages = activeChat.messages;
+    const nextMessages = [
+      ...activeChat.messages,
+      userChatMessage,
+      assistantMessage,
+    ];
 
     shouldStickToBottomRef.current = true;
-    setMessages(nextMessages);
+    updateChat(activeChat.id, (chat) => ({
+      ...chat,
+      title:
+        chat.messages.length === 0 && chat.title === "New chat"
+          ? titleFromMessage(userMessage)
+          : chat.title,
+      messages: nextMessages,
+      updatedAt: responseStartedAt,
+    }));
     setDraft("");
-    setIsSending(true);
-    toast.dismiss();
 
-    streamBufferRef.current = {
+    await runAssistantVariant({
+      chatId: activeChat.id,
+      contextMessages,
+      userMessage,
       assistantMessageId,
-      content: "",
-      reasoning: "",
-    };
-    startStreamBufferDrain(assistantMessageId);
+      variantId,
+      responseStartedAtMs,
+    });
+  }
 
-    try {
-      await streamProviderChat({
-        provider,
-        systemPrompt,
-        messages,
-        userMessage,
-        signal: controller.signal,
-        onContentDelta: (delta) => {
-          streamBufferRef.current.content += delta;
-        },
-        onReasoningDelta: (delta) => {
-          streamBufferRef.current.reasoning += delta;
-        },
-      });
+  async function regenerateAssistantMessage(assistantMessageId: string) {
+    if (isSending) return;
+    if (!activeChat) return;
+    if (!validateProviderForGeneration()) return;
 
-      await finishStreamBufferDrain(assistantMessageId);
+    const assistantIndex = activeChat.messages.findIndex(
+      (message) =>
+        message.id === assistantMessageId && message.role === "assistant",
+    );
+    if (assistantIndex < 0) return;
 
-      setMessages((currentMessages) =>
-        currentMessages.map((message) =>
-          message.id === assistantMessageId
-            ? { ...message, status: "done" }
-            : message,
-        ),
-      );
-    } catch (error) {
-      const wasAborted =
-        error instanceof DOMException && error.name === "AbortError";
-
-      stopStreamBufferDrain();
-      drainStreamBuffer(assistantMessageId, true);
-
-      setMessages((currentMessages) =>
-        currentMessages.map((message) => {
-          if (message.id !== assistantMessageId) return message;
-
-          const currentContent = message.content.trim();
-          return {
-            ...message,
-            status: wasAborted ? "done" : "error",
-            content: wasAborted
-              ? message.content || "Generation stopped."
-              : currentContent
-                ? `${message.content}\n\nError: ${labelForError(error)}`
-                : `Error: ${labelForError(error)}`,
-          };
-        }),
-      );
-    } finally {
-      stopStreamBufferDrain();
-
-      if (abortControllerRef.current === controller) {
-        abortControllerRef.current = null;
+    let userIndex = -1;
+    for (let index = assistantIndex - 1; index >= 0; index -= 1) {
+      if (activeChat.messages[index]?.role === "user") {
+        userIndex = index;
+        break;
       }
-      setIsSending(false);
     }
+
+    const userMessageSource = activeChat.messages[userIndex];
+    if (!userMessageSource || userMessageSource.role !== "user") {
+      showError("Could not find the user message to regenerate from.");
+      return;
+    }
+
+    const userMessage = userMessageSource.content;
+    const contextMessages = activeChat.messages.slice(0, userIndex);
+    const variantId = createId();
+    const responseStartedAtMs = performance.now();
+    const responseStartedAt = new Date().toISOString();
+
+    updateActiveChatMessages((currentMessages) =>
+      currentMessages.map((message) => {
+        if (message.id !== assistantMessageId || message.role !== "assistant") {
+          return message;
+        }
+
+        return {
+          ...message,
+          variants: [
+            ...message.variants,
+            {
+              id: variantId,
+              content: "",
+              reasoning: "",
+              status: "streaming",
+              createdAt: responseStartedAt,
+              metrics: {
+                startedAt: responseStartedAt,
+              },
+            },
+          ],
+          activeVariantIndex: message.variants.length,
+        };
+      }),
+    );
+
+    shouldStickToBottomRef.current = true;
+
+    await runAssistantVariant({
+      chatId: activeChat.id,
+      contextMessages,
+      userMessage,
+      assistantMessageId,
+      variantId,
+      responseStartedAtMs,
+    });
   }
 
   function stopGeneration() {
     abortControllerRef.current?.abort();
   }
 
-  function clearChat() {
-    setMessages([]);
+  async function createNewChat() {
+    if (isSending) stopGeneration();
+
+    const chat = createEmptyChat();
+    setChats((currentChats) => [chat, ...currentChats]);
+    setActiveChatId(chat.id);
+    setDraft("");
+    setExpandedReasoningIds({});
+    shouldStickToBottomRef.current = true;
+
+    try {
+      await saveChat(chat);
+      await saveActiveChatId(chat.id);
+    } catch (error) {
+      console.error("Failed to save new chat:", error);
+    }
+  }
+
+  async function switchChat(chatId: string) {
+    if (isSending) stopGeneration();
+
+    setActiveChatId(chatId);
+    setDraft("");
+    setExpandedReasoningIds({});
+    shouldStickToBottomRef.current = true;
+  }
+
+  async function clearCurrentChat() {
+    if (!activeChat) return;
+
+    if (isSending) stopGeneration();
+
+    const now = new Date().toISOString();
+    updateChat(activeChat.id, (chat) => ({
+      ...chat,
+      title: "New chat",
+      messages: [],
+      updatedAt: now,
+    }));
+    setExpandedReasoningIds({});
     showSuccess("Chat cleared.");
+  }
+
+  async function removeChat(chatId: string) {
+    if (isSending) stopGeneration();
+
+    const remainingChats = chats.filter((chat) => chat.id !== chatId);
+    const nextChats =
+      remainingChats.length > 0 ? remainingChats : [createEmptyChat()];
+    const nextActiveId =
+      activeChatId === chatId
+        ? nextChats[0].id
+        : (activeChatId ?? nextChats[0].id);
+
+    setChats(nextChats);
+    setActiveChatId(nextActiveId);
+    setExpandedReasoningIds({});
+
+    try {
+      await deleteChat(chatId);
+      if (remainingChats.length === 0) {
+        await saveChat(nextChats[0]);
+      }
+      await saveActiveChatId(nextActiveId);
+    } catch (error) {
+      console.error("Failed to delete chat:", error);
+    }
+  }
+
+  async function clearAllChats() {
+    if (isSending) stopGeneration();
+
+    const chat = createEmptyChat();
+    setChats([chat]);
+    setActiveChatId(chat.id);
+    setDraft("");
+    setExpandedReasoningIds({});
+
+    try {
+      await deleteAllChats();
+      await saveChat(chat);
+      await saveActiveChatId(chat.id);
+    } catch (error) {
+      console.error("Failed to clear all chats:", error);
+    }
+
+    showSuccess("Chat history cleared.");
   }
 
   if (!mounted) {
@@ -468,173 +868,362 @@ export default function Home() {
   }
 
   return (
-    <main className="flex h-dvh min-h-0 flex-col overflow-hidden bg-background text-foreground">
-      <header className="flex h-14 shrink-0 items-center justify-between border-b bg-card px-3 md:px-4">
-        <div className="flex min-w-0 items-center gap-3">
-          <div className="flex size-8 shrink-0 items-center justify-center rounded-md border bg-background">
-            <MessageSquareText className="size-4" />
+    <main className="flex h-dvh min-h-0 overflow-hidden bg-background text-foreground">
+      <aside
+        data-sidebar
+        className="flex w-64 shrink-0 flex-col border-r bg-card/80"
+      >
+        <div className="border-b p-3">
+          <div className="flex items-center gap-3">
+            <div className="flex size-8 shrink-0 items-center justify-center border bg-background">
+              <MessageSquareText className="size-4" />
+            </div>
+            <div className="min-w-0">
+              <h1 className="truncate text-sm font-semibold leading-5">
+                Chat Forge
+              </h1>
+              <p className="truncate text-xs text-muted-foreground">
+                {provider.model.trim() || "No model selected"}
+              </p>
+            </div>
           </div>
-          <div className="min-w-0">
-            <h1 className="truncate text-sm font-semibold leading-5">
-              AI Chat MVP
-            </h1>
-            <p className="truncate text-xs text-muted-foreground">
-              {providerLabel(provider)}
-            </p>
+
+          <div className="mt-3 grid gap-2">
+            <Button
+              type="button"
+              variant="secondary"
+              className="w-full justify-start rounded-none"
+              onClick={createNewChat}
+            >
+              <Plus className="size-4" />
+              New chat
+            </Button>
+            <div className="grid grid-cols-3 gap-1.5">
+              <ThemeToggle />
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={() => setSettingsOpen(true)}
+                title="Settings"
+                className="rounded-none"
+              >
+                <Settings className="size-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={clearCurrentChat}
+                title="Clear current chat"
+                className="rounded-none"
+              >
+                <Trash2 className="size-4" />
+              </Button>
+            </div>
           </div>
         </div>
 
-        <div className="flex shrink-0 items-center gap-1.5">
-          <ThemeToggle />
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            onClick={() => setSettingsOpen(true)}
-            title="Settings"
+        <div className="min-h-0 flex-1 overflow-y-auto p-2 chat-scrollbar">
+          <div className="mb-2 px-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            Chats
+          </div>
+          <div className="grid gap-1.5">
+            {chats.map((chat) => (
+              <div
+                key={chat.id}
+                className={cn(
+                  "group flex min-w-0 items-center gap-1 border px-2 py-2",
+                  chat.id === activeChat?.id
+                    ? "border-primary/30 bg-accent text-accent-foreground"
+                    : "border-transparent hover:border-border hover:bg-muted/60",
+                )}
+              >
+                <button
+                  type="button"
+                  className="min-w-0 flex-1 text-left"
+                  onClick={() => switchChat(chat.id)}
+                  title={chat.title}
+                >
+                  <div className="truncate text-sm leading-5">{chat.title}</div>
+                  <div className="truncate text-[11px] leading-4 text-muted-foreground">
+                    {chat.messages.length} message
+                    {chat.messages.length === 1 ? "" : "s"}
+                  </div>
+                </button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  className="h-7 w-7 shrink-0 rounded-none opacity-0 group-hover:opacity-100"
+                  onClick={() => removeChat(chat.id)}
+                  title="Delete chat"
+                >
+                  <Trash2 className="size-3.5" />
+                </Button>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="border-t p-3">
+          <div
+            className="truncate text-xs text-muted-foreground"
+            title={providerLabel(provider)}
           >
-            <Settings className="size-4" />
-          </Button>
+            {providerLabel(provider)}
+          </div>
           <Button
+            type="button"
             variant="ghost"
-            size="icon-sm"
-            onClick={clearChat}
-            title="Clear chat"
+            size="sm"
+            className="mt-2 w-full justify-start rounded-none text-xs text-muted-foreground"
+            onClick={clearAllChats}
           >
-            <Trash2 className="size-4" />
+            <Trash2 className="size-3.5" />
+            Clear history
           </Button>
         </div>
-      </header>
+      </aside>
 
       <section className="grid min-h-0 flex-1 grid-rows-[1fr_auto] bg-background">
-        <div
-          ref={chatScrollRef}
-          onScroll={handleChatScroll}
-          className="min-h-0 overflow-y-auto"
-        >
-          <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 py-3 md:py-6">
-            {messages.length === 0 ? (
-              <div className="flex min-h-[calc(100dvh-15rem)] items-center justify-center">
-                <div className="max-w-md rounded-lg border bg-card p-6 text-center shadow-xs">
-                  <h2 className="text-base font-semibold">
-                    Start a conversation
-                  </h2>
-                  <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                    Open settings, choose a provider, load or enter a model
-                    name, and send your first message.
-                  </p>
-                  <Button
-                    className="mt-4"
-                    variant="secondary"
-                    onClick={() => setSettingsOpen(true)}
-                  >
-                    <Settings className="size-4" />
-                    Open settings
-                  </Button>
+        <div className="min-h-0 overflow-hidden" onWheel={handleChatWheel}>
+          <div
+            ref={chatScrollRef}
+            data-chat-scroll
+            onScroll={handleChatScroll}
+            className="chat-scrollbar mx-auto h-full w-full max-w-[800px] overflow-y-auto py-3 md:py-6"
+          >
+            <div className="flex flex-col gap-4">
+              {messages.length === 0 ? (
+                <div className="flex min-h-[calc(100dvh-12rem)] items-center justify-center">
+                  <div className="max-w-md border bg-card p-6 text-center shadow-xs">
+                    <h2 className="text-base font-semibold">
+                      Start a conversation
+                    </h2>
+                    <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                      Configure a provider, choose a model, and send your first
+                      message. Chats are stored locally in IndexedDB.
+                    </p>
+                    <div className="mt-4 flex justify-center gap-2">
+                      <Button
+                        className="rounded-none"
+                        variant="secondary"
+                        onClick={() => setSettingsOpen(true)}
+                      >
+                        <Settings className="size-4" />
+                        Open settings
+                      </Button>
+                      <Button
+                        className="rounded-none"
+                        variant="outline"
+                        onClick={createNewChat}
+                      >
+                        <MessageSquarePlus className="size-4" />
+                        New chat
+                      </Button>
+                    </div>
+                  </div>
                 </div>
-              </div>
-            ) : (
-              messages.map((message) => (
-                <div key={message.id} className="grid gap-2">
-                  {message.role === "assistant" &&
-                    message.reasoning?.trim() &&
-                    (() => {
-                      const isExpanded = Boolean(
-                        expandedReasoningIds[message.id],
-                      );
-                      const reasoningLineCount = message.reasoning
-                        .trimEnd()
-                        .split(/\r?\n/).length;
-                      const reasoningText = isExpanded
-                        ? message.reasoning
-                        : getReasoningPreview(message.reasoning);
-                      const canToggle = reasoningLineCount > 6;
+              ) : (
+                messages.map((message) => {
+                  const activeVariant =
+                    message.role === "assistant"
+                      ? getActiveVariant(message)
+                      : undefined;
+                  const content =
+                    message.role === "assistant"
+                      ? (activeVariant?.content ?? "")
+                      : message.content;
+                  const reasoning = activeVariant?.reasoning ?? "";
+                  const status = activeVariant?.status;
+                  const metrics = activeVariant?.metrics;
+                  const variantCount =
+                    message.role === "assistant" ? message.variants.length : 0;
+                  const activeVariantNumber =
+                    message.role === "assistant"
+                      ? message.activeVariantIndex + 1
+                      : 0;
 
-                      return (
-                        <article className="flex justify-start">
-                          <div className="w-full rounded-lg border border-dashed bg-muted/40 px-4 py-3 text-sm leading-6 text-muted-foreground shadow-xs [overflow-wrap:anywhere]">
-                            <div className="mb-2 flex items-center justify-between gap-3">
-                              <div className="text-xs font-medium uppercase tracking-wide">
-                                Thinking
-                                {message.status === "streaming" ? "..." : ""}
+                  return (
+                    <div key={message.id} className="grid gap-2">
+                      {message.role === "assistant" &&
+                        reasoning.trim() &&
+                        (() => {
+                          const isExpanded = Boolean(
+                            expandedReasoningIds[message.id],
+                          );
+                          const reasoningLineCount = reasoning
+                            .trimEnd()
+                            .split(/\r?\n/).length;
+                          const canToggle = reasoningLineCount > 6;
+
+                          return (
+                            <article className="flex justify-start">
+                              <div className="w-full border border-dashed bg-muted/40 px-4 py-3 text-sm leading-6 text-muted-foreground shadow-xs [overflow-wrap:anywhere]">
+                                <div className="mb-2 flex items-center justify-between gap-3">
+                                  <div className="text-xs font-medium uppercase tracking-wide">
+                                    Thinking
+                                    {status === "streaming" ? "..." : ""}
+                                  </div>
+                                  {canToggle && (
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-6 rounded-none px-2 text-xs text-muted-foreground"
+                                      onClick={() =>
+                                        toggleReasoning(message.id)
+                                      }
+                                    >
+                                      {isExpanded ? (
+                                        <>
+                                          <ChevronUp className="size-3" />
+                                          Shrink
+                                        </>
+                                      ) : (
+                                        <>
+                                          <ChevronDown className="size-3" />
+                                          Expand
+                                        </>
+                                      )}
+                                    </Button>
+                                  )}
+                                </div>
+                                <div
+                                  className={cn(
+                                    "min-w-0 text-xs leading-5",
+                                    isExpanded
+                                      ? "max-h-[32rem] overflow-y-auto overflow-x-hidden pr-1"
+                                      : "flex max-h-40 flex-col justify-end overflow-hidden",
+                                  )}
+                                >
+                                  <MarkdownMessage
+                                    content={reasoning}
+                                    className="chat-markdown-compact shrink-0"
+                                  />
+                                </div>
                               </div>
-                              {canToggle && (
+                            </article>
+                          );
+                        })()}
+
+                      {(content ||
+                        message.role !== "assistant" ||
+                        status !== "streaming") && (
+                        <article
+                          className={cn(
+                            "flex",
+                            message.role === "user"
+                              ? "justify-end"
+                              : "justify-start",
+                          )}
+                        >
+                          <div
+                            className={cn(
+                              "min-w-0 overflow-hidden text-sm leading-6 [overflow-wrap:anywhere]",
+                              message.role === "user"
+                                ? "max-w-[85%] border bg-primary px-4 py-3 text-primary-foreground shadow-xs"
+                                : "w-full max-w-full bg-transparent px-0 py-2 text-foreground",
+                              status === "error" &&
+                                (message.role === "user"
+                                  ? "border-destructive/50"
+                                  : "text-destructive"),
+                            )}
+                          >
+                            {message.role === "assistant" ? (
+                              <MarkdownMessage content={content} />
+                            ) : (
+                              <div className="whitespace-pre-wrap">
+                                {message.content}
+                              </div>
+                            )}
+                          </div>
+                        </article>
+                      )}
+
+                      {message.role === "assistant" && (
+                        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 text-[11px] leading-4 text-muted-foreground">
+                          <div>
+                            {metrics?.durationMs !== undefined &&
+                              formatTokenMetrics(metrics)}
+                          </div>
+
+                          <div className="flex items-center gap-1.5">
+                            {variantCount > 1 && (
+                              <div className="flex items-center gap-1">
                                 <Button
                                   type="button"
                                   variant="ghost"
-                                  size="sm"
-                                  className="h-6 px-2 text-xs text-muted-foreground"
-                                  onClick={() => toggleReasoning(message.id)}
+                                  size="icon-sm"
+                                  className="h-6 w-6 rounded-none text-muted-foreground"
+                                  onClick={() =>
+                                    selectAssistantVariant(
+                                      message.id,
+                                      message.activeVariantIndex - 1,
+                                    )
+                                  }
+                                  disabled={
+                                    message.activeVariantIndex <= 0 || isSending
+                                  }
+                                  title="Previous answer"
                                 >
-                                  {isExpanded ? (
-                                    <>
-                                      <ChevronUp className="size-3" />
-                                      Shrink
-                                    </>
-                                  ) : (
-                                    <>
-                                      <ChevronDown className="size-3" />
-                                      Expand
-                                    </>
-                                  )}
+                                  <ChevronLeft className="size-3.5" />
                                 </Button>
-                              )}
-                            </div>
-                            <div
-                              className={cn(
-                                "whitespace-pre-wrap text-xs leading-5",
-                                isExpanded
-                                  ? "max-h-[32rem] overflow-auto pr-1"
-                                  : "max-h-40 overflow-hidden",
-                              )}
+                                <span className="min-w-9 text-center tabular-nums">
+                                  {activeVariantNumber}/{variantCount}
+                                </span>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon-sm"
+                                  className="h-6 w-6 rounded-none text-muted-foreground"
+                                  onClick={() =>
+                                    selectAssistantVariant(
+                                      message.id,
+                                      message.activeVariantIndex + 1,
+                                    )
+                                  }
+                                  disabled={
+                                    message.activeVariantIndex >=
+                                      variantCount - 1 || isSending
+                                  }
+                                  title="Next answer"
+                                >
+                                  <ChevronRight className="size-3.5" />
+                                </Button>
+                              </div>
+                            )}
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 rounded-none px-2 text-xs text-muted-foreground"
+                              onClick={() =>
+                                regenerateAssistantMessage(message.id)
+                              }
+                              disabled={isSending}
+                              title="Regenerate answer"
                             >
-                              {reasoningText}
-                            </div>
+                              <RefreshCcw className="size-3" />
+                              Regenerate
+                            </Button>
                           </div>
-                        </article>
-                      );
-                    })()}
-
-                  {(message.content ||
-                    message.role !== "assistant" ||
-                    message.status !== "streaming") && (
-                    <article
-                      className={cn(
-                        "flex",
-                        message.role === "user" ? "justify-end" : "justify-start",
-                      )}
-                    >
-                      <div
-                        className={cn(
-                          "animate-in fade-in-0 slide-in-from-bottom-1 duration-200 max-w-[85%] rounded-lg border px-4 py-3 text-sm leading-6 shadow-xs [overflow-wrap:anywhere]",
-                          message.role === "user"
-                            ? "bg-primary text-primary-foreground"
-                            : "bg-card text-card-foreground",
-                          message.status === "error" && "border-destructive/50",
-                        )}
-                      >
-                        <div
-                          className={cn(
-                            "whitespace-pre-wrap",
-                            message.role === "assistant" &&
-                              message.status === "streaming" &&
-                              message.content &&
-                              "streaming-caret",
-                          )}
-                        >
-                          {message.content}
                         </div>
-                      </div>
-                    </article>
-                  )}
-                </div>
-              ))
-            )}
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
           </div>
         </div>
 
-        <form onSubmit={sendMessage} className="bg-background px-3 py-3 md:px-4 md:py-4">
-          <div className="mx-auto w-full max-w-[51rem] rounded-3xl border bg-card p-3 shadow-sm">
-            <div className="mx-auto grid w-full max-w-3xl gap-2">
+        <form
+          onSubmit={sendMessage}
+          className="bg-background px-3 py-3 md:px-4 md:py-4"
+          data-draft-input
+        >
+          <div className="mx-auto w-full max-w-[800px] border bg-card p-3 pt-0 shadow-sm">
+            <div className="mx-auto grid w-full max-w-[800px] gap-2">
               <Textarea
                 ref={draftTextareaRef}
                 value={draft}
@@ -649,7 +1238,7 @@ export default function Home() {
                   event.currentTarget.form?.requestSubmit();
                 }}
                 placeholder="Type your message... Enter to send, Shift+Enter for newline"
-                className="min-h-[5.5rem] resize-none border-0 bg-transparent px-1 shadow-none leading-6 focus-visible:ring-0"
+                className="min-h-[5.5rem] resize-none border-0 !bg-transparent px-1 shadow-none leading-6 focus-visible:ring-0"
               />
               <div className="flex justify-end">
                 {isSending ? (
@@ -657,7 +1246,7 @@ export default function Home() {
                     type="button"
                     variant="secondary"
                     onClick={stopGeneration}
-                    className="shrink-0 rounded-full"
+                    className="shrink-0 rounded-none"
                     title="Stop generation"
                   >
                     <Square className="size-4" />
@@ -667,7 +1256,7 @@ export default function Home() {
                   <Button
                     type="submit"
                     disabled={!canSend}
-                    className="shrink-0 rounded-full"
+                    className="shrink-0 rounded-none"
                     title="Send message"
                   >
                     <Send className="size-4" />
@@ -681,7 +1270,7 @@ export default function Home() {
       </section>
 
       <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
-        <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-hidden p-0 sm:max-w-3xl">
+        <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-hidden p-0 sm:max-w-[800px]">
           <DialogHeader className="border-b px-5 py-4">
             <DialogTitle>Provider settings</DialogTitle>
             <DialogDescription>
@@ -780,7 +1369,7 @@ export default function Home() {
                 variant="secondary"
                 onClick={loadModelsFromProvider}
                 disabled={isLoadingModels || !provider.baseUrl.trim()}
-                className="w-full"
+                className="w-full rounded-none"
               >
                 <RefreshCcw
                   className={cn("size-4", isLoadingModels && "animate-spin")}
@@ -794,11 +1383,11 @@ export default function Home() {
                   <Select
                     value={provider.model}
                     onValueChange={(model) =>
-                      setProvider({ ...provider, model })
+                      setProvider({ ...provider, id: "custom", model })
                     }
                   >
                     <SelectTrigger>
-                      <SelectValue placeholder="Select detected model" />
+                      <SelectValue placeholder="Select model" />
                     </SelectTrigger>
                     <SelectContent>
                       {models.map((model) => (
@@ -819,15 +1408,8 @@ export default function Home() {
                   id="system-prompt"
                   value={systemPrompt}
                   onChange={(event) => setSystemPrompt(event.target.value)}
-                  rows={6}
-                  className="min-h-32"
+                  className="min-h-32 leading-6"
                 />
-              </div>
-
-              <div className="rounded-md border bg-muted/40 p-3 text-xs leading-5 text-muted-foreground">
-                Cloud API keys are stored in localStorage and used directly in
-                the browser. This is intended for a local personal app, not a
-                public deployment.
               </div>
             </div>
           </ScrollArea>
@@ -835,10 +1417,18 @@ export default function Home() {
           <DialogFooter className="border-t px-5 py-4">
             <Button
               type="button"
-              variant="outline"
+              variant="secondary"
+              className="rounded-none"
+              onClick={() => setProvider(defaultProvider)}
+            >
+              Reset provider
+            </Button>
+            <Button
+              type="button"
+              className="rounded-none"
               onClick={() => setSettingsOpen(false)}
             >
-              Close
+              Done
             </Button>
           </DialogFooter>
         </DialogContent>
