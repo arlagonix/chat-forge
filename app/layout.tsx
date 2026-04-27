@@ -11,14 +11,12 @@ const jetbrainsMono = JetBrains_Mono({
   variable: "--font-mono",
 });
 
-const basePath = process.env.NODE_ENV === "production" ? "/chat-forge" : "";
-
 export const metadata: Metadata = {
   title: "Chat Forge",
-  description: "Client-only OpenAI-compatible chat app",
-  manifest: `${basePath}/manifest.webmanifest`,
+  description: "Server-backed OpenAI-compatible chat app",
+  manifest: "/manifest.webmanifest",
   icons: {
-    icon: `${basePath}/icon.png`,
+    icon: "/icon.png",
   },
 };
 

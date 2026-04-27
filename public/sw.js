@@ -1,9 +1,8 @@
-const CACHE_NAME = "chat-forge-v1.0";
-const BASE_PATH = "/chat-forge";
+const CACHE_NAME = "chat-forge-v1.1";
+const BASE_PATH = "";
 const APP_SHELL = [
   `${BASE_PATH}/`,
   `${BASE_PATH}/manifest.webmanifest`,
-  `${BASE_PATH}/icon.svg`,
   `${BASE_PATH}/icon.png`,
 ];
 
@@ -31,12 +30,17 @@ self.addEventListener("activate", (event) => {
 
 self.addEventListener("fetch", (event) => {
   const req = event.request;
+  const url = new URL(req.url);
+
+  // Never intercept API calls. Streaming responses must go directly through
+  // the browser networking stack instead of the service worker cache layer.
+  if (url.origin === self.location.origin && url.pathname.startsWith("/api/")) {
+    return;
+  }
 
   if (req.method !== "GET") {
     return;
   }
-
-  const url = new URL(req.url);
 
   if (req.mode === "navigate") {
     event.respondWith(networkFirst(req, `${BASE_PATH}/`));

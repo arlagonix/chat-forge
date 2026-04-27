@@ -1,21 +1,16 @@
 {
   "name": "Chat Forge",
   "short_name": "Chat Forge",
-  "description": "Client-only OpenAI-compatible chat app",
-  "start_url": "/chat-forge/",
+  "description": "Server-backed OpenAI-compatible chat app",
+  "start_url": "/",
+  "scope": "/",
   "display": "standalone",
   "background_color": "#1e1e1e",
   "theme_color": "#252526",
   "orientation": "any",
   "icons": [
     {
-      "src": "/chat-forge/icon.png",
-      "sizes": "any",
-      "type": "image/svg+xml",
-      "purpose": "any maskable"
-    },
-    {
-      "src": "/chat-forge/icon.png",
+      "src": "/icon.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"
@@ -27,12 +22,12 @@
       "name": "New chat",
       "short_name": "New chat",
       "description": "Start a new chat",
-      "url": "/chat-forge/",
+      "url": "/",
       "icons": [
         {
-          "src": "/chat-forge/icon.png",
-          "sizes": "any",
-          "type": "image/svg+xml"
+          "src": "/icon.png",
+          "sizes": "512x512",
+          "type": "image/png"
         }
       ]
     }
