@@ -2,10 +2,11 @@
 
 import { useEffect } from "react";
 
-const basePath = process.env.NODE_ENV === "production" ? "/prompt-forge" : "";
+const basePath = process.env.NODE_ENV === "production" ? "/chat-forge" : "";
 
 export default function SwRegister() {
   useEffect(() => {
+    if (process.env.NODE_ENV !== "production") return;
     if (!("serviceWorker" in navigator)) return;
 
     navigator.serviceWorker

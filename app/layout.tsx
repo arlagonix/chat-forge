@@ -3,6 +3,7 @@ import { Toaster } from "@/components/ui/sonner";
 import type { Metadata } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
+import SwRegister from "./sw-register";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 const jetbrainsMono = JetBrains_Mono({
@@ -10,9 +11,15 @@ const jetbrainsMono = JetBrains_Mono({
   variable: "--font-mono",
 });
 
+const basePath = process.env.NODE_ENV === "production" ? "/chat-forge" : "";
+
 export const metadata: Metadata = {
-  title: "AI Chat MVP",
+  title: "Chat Forge",
   description: "Client-only OpenAI-compatible chat app",
+  manifest: `${basePath}/manifest.webmanifest`,
+  icons: {
+    icon: `${basePath}/icon.png`,
+  },
 };
 
 export default function RootLayout({
@@ -31,6 +38,7 @@ export default function RootLayout({
           enableSystem={false}
           disableTransitionOnChange
         >
+          <SwRegister />
           {children}
           <Toaster position="bottom-right" />
         </ThemeProvider>

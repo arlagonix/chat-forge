@@ -5,20 +5,22 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronUp,
-  MessageSquarePlus,
-  MessageSquareText,
+  Eye,
+  EyeOff,
+  Moon,
+  MoreVertical,
   Plus,
   RefreshCcw,
   Send,
   Settings,
   Square,
+  Sun,
   Trash2,
 } from "lucide-react";
 import type { FormEvent, WheelEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { MarkdownMessage } from "@/components/ai-chat/markdown-message";
-import { ThemeToggle } from "@/components/prompt-forge/theme-toggle";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -28,6 +30,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -50,7 +59,6 @@ import {
 } from "@/lib/ai-chat/provider-presets";
 import {
   createEmptyChat,
-  deleteAllChats,
   deleteChat,
   loadActiveChatId,
   loadChats,
@@ -70,6 +78,7 @@ import type {
   ProviderConfig,
 } from "@/lib/ai-chat/types";
 import { cn } from "@/lib/utils";
+import { useTheme } from "next-themes";
 import { toast } from "sonner";
 
 function createId() {
@@ -156,6 +165,41 @@ function titleFromMessage(message: string) {
   return firstLine.length > 44 ? `${firstLine.slice(0, 44)}...` : firstLine;
 }
 
+function sortChatsByUpdatedAt(chats: ChatSession[]) {
+  return [...chats].sort(
+    (left, right) =>
+      new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime(),
+  );
+}
+
+function isEditableShortcutTarget(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) return false;
+
+  return Boolean(
+    target.closest(
+      'input, textarea, select, button, [contenteditable="true"], [role="textbox"]',
+    ),
+  );
+}
+
+function getLastChatActivityDate(chat: ChatSession) {
+  const lastMessage = chat.messages.at(-1);
+  return lastMessage?.createdAt ?? chat.updatedAt;
+}
+
+function formatChatActivityDate(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Unknown date";
+
+  const day = String(date.getDate()).padStart(2, "0");
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const year = date.getFullYear();
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+
+  return `${day}.${month}.${year} ${hours}:${minutes}`;
+}
+
 export default function Home() {
   const [mounted, setMounted] = useState(false);
   const [provider, setProvider] = useState<ProviderConfig>(defaultProvider);
@@ -167,7 +211,11 @@ export default function Home() {
   const [draft, setDraft] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [isLoadingModels, setIsLoadingModels] = useState(false);
+  const [modelLoadStatus, setModelLoadStatus] = useState<
+    "idle" | "success" | "empty" | "error"
+  >("idle");
   const [models, setModels] = useState<string[]>([]);
+  const [isApiKeyVisible, setIsApiKeyVisible] = useState(false);
   const [expandedReasoningIds, setExpandedReasoningIds] = useState<
     Record<string, boolean>
   >({});
@@ -175,13 +223,19 @@ export default function Home() {
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
   const draftTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const modelLoadStatusTimerRef = useRef<number | null>(null);
   const isAutoScrollingRef = useRef(false);
   const shouldStickToBottomRef = useRef(true);
   const didHydrateRef = useRef(false);
+  const { resolvedTheme, setTheme } = useTheme();
+
+  const sortedChats = useMemo(() => sortChatsByUpdatedAt(chats), [chats]);
 
   const activeChat = useMemo(() => {
-    return chats.find((chat) => chat.id === activeChatId) ?? chats[0];
-  }, [activeChatId, chats]);
+    return (
+      sortedChats.find((chat) => chat.id === activeChatId) ?? sortedChats[0]
+    );
+  }, [activeChatId, sortedChats]);
 
   const messages = activeChat?.messages ?? [];
 
@@ -246,6 +300,33 @@ export default function Home() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    return () => {
+      if (modelLoadStatusTimerRef.current !== null) {
+        window.clearTimeout(modelLoadStatusTimerRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    function handleGlobalShortcut(event: KeyboardEvent) {
+      if (event.defaultPrevented) return;
+      if (!event.ctrlKey || event.shiftKey || event.altKey || event.metaKey)
+        return;
+      if (event.code !== "KeyN") return;
+      if (isEditableShortcutTarget(event.target)) return;
+
+      event.preventDefault();
+      void createNewChat();
+    }
+
+    window.addEventListener("keydown", handleGlobalShortcut);
+
+    return () => {
+      window.removeEventListener("keydown", handleGlobalShortcut);
+    };
+  }, [isSending]);
 
   useEffect(() => {
     if (!didHydrateRef.current) return;
@@ -472,9 +553,51 @@ export default function Home() {
     showSuccess("Provider preset loaded", preset.name);
   }
 
+  function setTemporaryModelLoadStatus(status: "success" | "empty" | "error") {
+    setModelLoadStatus(status);
+
+    if (modelLoadStatusTimerRef.current !== null) {
+      window.clearTimeout(modelLoadStatusTimerRef.current);
+    }
+
+    modelLoadStatusTimerRef.current = window.setTimeout(() => {
+      setModelLoadStatus("idle");
+      modelLoadStatusTimerRef.current = null;
+    }, 1800);
+  }
+
+  async function saveSettingsChanges() {
+    try {
+      await Promise.all([
+        saveProvider(provider),
+        saveSystemPrompt(systemPrompt),
+      ]);
+      showSuccess("Settings saved.");
+    } catch (error) {
+      console.error("Failed to save settings:", error);
+      showError("Failed to save settings", labelForError(error));
+    }
+  }
+
+  function getLoadModelsButtonLabel() {
+    if (isLoadingModels) return "Loading models...";
+    if (modelLoadStatus === "success") {
+      return `Loaded ${models.length} model${models.length === 1 ? "" : "s"}`;
+    }
+    if (modelLoadStatus === "empty") return "No models returned";
+    if (modelLoadStatus === "error") return "Model lookup failed";
+
+    return "Load models";
+  }
+
   async function loadModelsFromProvider() {
     setIsLoadingModels(true);
-    toast.dismiss();
+    setModelLoadStatus("idle");
+
+    if (modelLoadStatusTimerRef.current !== null) {
+      window.clearTimeout(modelLoadStatusTimerRef.current);
+      modelLoadStatusTimerRef.current = null;
+    }
 
     try {
       const loadedModels = await loadProviderModels(provider);
@@ -487,18 +610,9 @@ export default function Home() {
         }));
       }
 
-      if (loadedModels.length) {
-        showSuccess(
-          `Loaded ${loadedModels.length} model${loadedModels.length === 1 ? "" : "s"}`,
-        );
-      } else {
-        showInfo(
-          "No models returned",
-          "You can enter the model name manually.",
-        );
-      }
+      setTemporaryModelLoadStatus(loadedModels.length ? "success" : "empty");
     } catch (error) {
-      showError("Model lookup failed", labelForError(error));
+      setTemporaryModelLoadStatus("error");
       console.error("Model lookup failed:", error);
     } finally {
       setIsLoadingModels(false);
@@ -771,8 +885,6 @@ export default function Home() {
   }
 
   async function createNewChat() {
-    if (isSending) stopGeneration();
-
     const chat = createEmptyChat();
     setChats((currentChats) => [chat, ...currentChats]);
     setActiveChatId(chat.id);
@@ -789,8 +901,6 @@ export default function Home() {
   }
 
   async function switchChat(chatId: string) {
-    if (isSending) stopGeneration();
-
     setActiveChatId(chatId);
     setDraft("");
     setExpandedReasoningIds({});
@@ -816,7 +926,9 @@ export default function Home() {
   async function removeChat(chatId: string) {
     if (isSending) stopGeneration();
 
-    const remainingChats = chats.filter((chat) => chat.id !== chatId);
+    const remainingChats = sortChatsByUpdatedAt(
+      chats.filter((chat) => chat.id !== chatId),
+    );
     const nextChats =
       remainingChats.length > 0 ? remainingChats : [createEmptyChat()];
     const nextActiveId =
@@ -839,26 +951,6 @@ export default function Home() {
     }
   }
 
-  async function clearAllChats() {
-    if (isSending) stopGeneration();
-
-    const chat = createEmptyChat();
-    setChats([chat]);
-    setActiveChatId(chat.id);
-    setDraft("");
-    setExpandedReasoningIds({});
-
-    try {
-      await deleteAllChats();
-      await saveChat(chat);
-      await saveActiveChatId(chat.id);
-    } catch (error) {
-      console.error("Failed to clear all chats:", error);
-    }
-
-    showSuccess("Chat history cleared.");
-  }
-
   if (!mounted) {
     return (
       <main className="flex h-dvh items-center justify-center bg-background text-muted-foreground">
@@ -871,13 +963,10 @@ export default function Home() {
     <main className="flex h-dvh min-h-0 overflow-hidden bg-background text-foreground">
       <aside
         data-sidebar
-        className="flex w-64 shrink-0 flex-col border-r bg-card/80"
+        className="flex w-96 shrink-0 flex-col border-r bg-card/80"
       >
-        <div className="border-b p-3">
-          <div className="flex items-center gap-3">
-            <div className="flex size-8 shrink-0 items-center justify-center border bg-background">
-              <MessageSquareText className="size-4" />
-            </div>
+        <div className="border-b py-3 pl-3 pr-2">
+          <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
               <h1 className="truncate text-sm font-semibold leading-5">
                 Chat Forge
@@ -886,39 +975,47 @@ export default function Home() {
                 {provider.model.trim() || "No model selected"}
               </p>
             </div>
-          </div>
 
-          <div className="mt-3 grid gap-2">
-            <Button
-              type="button"
-              variant="secondary"
-              className="w-full justify-start rounded-none"
-              onClick={createNewChat}
-            >
-              <Plus className="size-4" />
-              New chat
-            </Button>
-            <div className="grid grid-cols-3 gap-1.5">
-              <ThemeToggle />
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                onClick={() => setSettingsOpen(true)}
-                title="Settings"
-                className="rounded-none"
-              >
-                <Settings className="size-4" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                onClick={clearCurrentChat}
-                title="Clear current chat"
-                className="rounded-none"
-              >
-                <Trash2 className="size-4" />
-              </Button>
-            </div>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  className="shrink-0 rounded-none"
+                  title="Menu"
+                >
+                  <MoreVertical className="size-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="rounded-none">
+                <DropdownMenuItem onClick={() => setSettingsOpen(true)}>
+                  <Settings className="size-4" />
+                  Settings
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() =>
+                    setTheme(resolvedTheme === "dark" ? "light" : "dark")
+                  }
+                >
+                  {resolvedTheme === "dark" ? (
+                    <Sun className="size-4" />
+                  ) : (
+                    <Moon className="size-4" />
+                  )}
+                  {resolvedTheme === "dark" ? "Light theme" : "Dark theme"}
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  variant="destructive"
+                  className="transition-colors hover:bg-destructive/10 hover:text-destructive focus:bg-destructive/10 focus:text-destructive"
+                  onClick={clearCurrentChat}
+                >
+                  <Trash2 className="size-4" />
+                  Clear current chat
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
 
@@ -927,34 +1024,46 @@ export default function Home() {
             Chats
           </div>
           <div className="grid gap-1.5">
-            {chats.map((chat) => (
+            {sortedChats.map((chat) => (
               <div
                 key={chat.id}
+                role="button"
+                tabIndex={0}
                 className={cn(
-                  "group flex min-w-0 items-center gap-1 border px-2 py-2",
+                  "group flex min-w-0 cursor-pointer items-center gap-1 border px-2 py-2 outline-none focus-visible:ring-2 focus-visible:ring-ring",
                   chat.id === activeChat?.id
                     ? "border-primary/30 bg-accent text-accent-foreground"
                     : "border-transparent hover:border-border hover:bg-muted/60",
                 )}
+                onClick={() => switchChat(chat.id)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    switchChat(chat.id);
+                  }
+                }}
+                title={chat.title}
               >
-                <button
-                  type="button"
-                  className="min-w-0 flex-1 text-left"
-                  onClick={() => switchChat(chat.id)}
-                  title={chat.title}
-                >
-                  <div className="truncate text-sm leading-5">{chat.title}</div>
+                <div className="min-w-0 flex-1 text-left">
+                  <div className="truncate text-sm leading-5">
+                    {chat.title}
+                  </div>
                   <div className="truncate text-[11px] leading-4 text-muted-foreground">
                     {chat.messages.length} message
                     {chat.messages.length === 1 ? "" : "s"}
+                    {" · "}
+                    {formatChatActivityDate(getLastChatActivityDate(chat))}
                   </div>
-                </button>
+                </div>
                 <Button
                   type="button"
                   variant="ghost"
                   size="icon-sm"
-                  className="h-7 w-7 shrink-0 rounded-none opacity-0 group-hover:opacity-100"
-                  onClick={() => removeChat(chat.id)}
+                  className="h-7 w-7 shrink-0 rounded-none opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    removeChat(chat.id);
+                  }}
                   title="Delete chat"
                 >
                   <Trash2 className="size-3.5" />
@@ -964,22 +1073,16 @@ export default function Home() {
           </div>
         </div>
 
-        <div className="border-t p-3">
-          <div
-            className="truncate text-xs text-muted-foreground"
-            title={providerLabel(provider)}
-          >
-            {providerLabel(provider)}
-          </div>
+        <div className="grid gap-2 border-t p-3">
           <Button
             type="button"
-            variant="ghost"
-            size="sm"
-            className="mt-2 w-full justify-start rounded-none text-xs text-muted-foreground"
-            onClick={clearAllChats}
+            variant="secondary"
+            className="w-full justify-center rounded-none"
+            onClick={createNewChat}
+            title="New chat (Ctrl+N)"
           >
-            <Trash2 className="size-3.5" />
-            Clear history
+            <Plus className="size-4" />
+            New chat
           </Button>
         </div>
       </aside>
@@ -990,7 +1093,7 @@ export default function Home() {
             ref={chatScrollRef}
             data-chat-scroll
             onScroll={handleChatScroll}
-            className="chat-scrollbar mx-auto h-full w-full max-w-[800px] overflow-y-auto py-3 md:py-6"
+            className="chat-scrollbar mx-auto h-full w-full max-w-3xl overflow-y-auto py-3 md:py-6"
           >
             <div className="flex flex-col gap-4">
               {messages.length === 0 ? (
@@ -1011,14 +1114,6 @@ export default function Home() {
                       >
                         <Settings className="size-4" />
                         Open settings
-                      </Button>
-                      <Button
-                        className="rounded-none"
-                        variant="outline"
-                        onClick={createNewChat}
-                      >
-                        <MessageSquarePlus className="size-4" />
-                        New chat
                       </Button>
                     </div>
                   </div>
@@ -1122,11 +1217,8 @@ export default function Home() {
                               "min-w-0 overflow-hidden text-sm leading-6 [overflow-wrap:anywhere]",
                               message.role === "user"
                                 ? "max-w-[85%] border bg-primary px-4 py-3 text-primary-foreground shadow-xs"
-                                : "w-full max-w-full bg-transparent px-0 py-2 text-foreground",
-                              status === "error" &&
-                                (message.role === "user"
-                                  ? "border-destructive/50"
-                                  : "text-destructive"),
+                                : "w-full max-w-full border bg-card px-4 py-3 text-card-foreground shadow-xs",
+                              status === "error" && "border-destructive/50",
                             )}
                           >
                             {message.role === "assistant" ? (
@@ -1222,8 +1314,8 @@ export default function Home() {
           className="bg-background px-3 py-3 md:px-4 md:py-4"
           data-draft-input
         >
-          <div className="mx-auto w-full max-w-[800px] border bg-card p-3 pt-0 shadow-sm">
-            <div className="mx-auto grid w-full max-w-[800px] gap-2">
+          <div className="mx-auto w-full max-w-3xl border bg-card p-3 pt-0 shadow-sm">
+            <div className="mx-auto grid w-full max-w-3xl gap-2">
               <Textarea
                 ref={draftTextareaRef}
                 value={draft}
@@ -1270,7 +1362,7 @@ export default function Home() {
       </section>
 
       <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
-        <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-hidden p-0 sm:max-w-[800px]">
+        <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-hidden p-0 sm:max-w-3xl">
           <DialogHeader className="border-b px-5 py-4">
             <DialogTitle>Provider settings</DialogTitle>
             <DialogDescription>
@@ -1349,19 +1441,36 @@ export default function Home() {
 
               <div className="grid gap-2">
                 <Label htmlFor="provider-api-key">API key</Label>
-                <Input
-                  id="provider-api-key"
-                  value={provider.apiKey}
-                  onChange={(event) =>
-                    setProvider({
-                      ...provider,
-                      id: "custom",
-                      apiKey: event.target.value,
-                    })
-                  }
-                  placeholder="not-needed"
-                  type="password"
-                />
+                <div className="relative">
+                  <Input
+                    id="provider-api-key"
+                    value={provider.apiKey}
+                    onChange={(event) =>
+                      setProvider({
+                        ...provider,
+                        id: "custom",
+                        apiKey: event.target.value,
+                      })
+                    }
+                    placeholder="not-needed"
+                    type={isApiKeyVisible ? "text" : "password"}
+                    className="pr-10"
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    className="absolute right-1 top-1/2 h-7 w-7 -translate-y-1/2 rounded-none text-muted-foreground"
+                    onClick={() => setIsApiKeyVisible((current) => !current)}
+                    title={isApiKeyVisible ? "Hide API key" : "Show API key"}
+                  >
+                    {isApiKeyVisible ? (
+                      <EyeOff className="size-4" />
+                    ) : (
+                      <Eye className="size-4" />
+                    )}
+                  </Button>
+                </div>
               </div>
 
               <Button
@@ -1374,7 +1483,7 @@ export default function Home() {
                 <RefreshCcw
                   className={cn("size-4", isLoadingModels && "animate-spin")}
                 />
-                {isLoadingModels ? "Loading models..." : "Load models"}
+                {getLoadModelsButtonLabel()}
               </Button>
 
               {models.length > 0 && (
@@ -1426,9 +1535,9 @@ export default function Home() {
             <Button
               type="button"
               className="rounded-none"
-              onClick={() => setSettingsOpen(false)}
+              onClick={saveSettingsChanges}
             >
-              Done
+              Save
             </Button>
           </DialogFooter>
         </DialogContent>
