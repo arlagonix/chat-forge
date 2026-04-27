@@ -18,7 +18,7 @@ import {
   Trash2,
 } from "lucide-react";
 import type { FormEvent, WheelEvent } from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { MarkdownMessage } from "@/components/ai-chat/markdown-message";
 import { Button } from "@/components/ui/button";
@@ -296,6 +296,15 @@ export default function Home() {
   const draftTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const modelLoadStatusTimerRef = useRef<number | null>(null);
+  const scrollFrameRef = useRef<number | null>(null);
+  const streamFlushFrameRef = useRef<number | null>(null);
+  const streamBufferRef = useRef<{
+    chatId: string;
+    assistantMessageId: string;
+    variantId: string;
+    content: string;
+    reasoning: string;
+  } | null>(null);
   const isAutoScrollingRef = useRef(false);
   const shouldStickToBottomRef = useRef(true);
   const didHydrateRef = useRef(false);
@@ -379,6 +388,12 @@ export default function Home() {
       if (modelLoadStatusTimerRef.current !== null) {
         window.clearTimeout(modelLoadStatusTimerRef.current);
       }
+      if (scrollFrameRef.current !== null) {
+        window.cancelAnimationFrame(scrollFrameRef.current);
+      }
+      if (streamFlushFrameRef.current !== null) {
+        window.cancelAnimationFrame(streamFlushFrameRef.current);
+      }
     };
   }, []);
 
@@ -456,16 +471,33 @@ export default function Home() {
       textarea.scrollHeight > maxHeight ? "auto" : "hidden";
   }, [draft]);
 
-  useEffect(() => {
-    const scrollElement = chatScrollRef.current;
-    if (!scrollElement || !shouldStickToBottomRef.current) return;
+  const scheduleChatScrollToBottom = useCallback(
+    (behavior: ScrollBehavior = "auto") => {
+      if (scrollFrameRef.current !== null) return;
 
-    isAutoScrollingRef.current = true;
-    scrollElement.scrollTop = scrollElement.scrollHeight;
-    window.requestAnimationFrame(() => {
-      isAutoScrollingRef.current = false;
-    });
-  }, [messages]);
+      scrollFrameRef.current = window.requestAnimationFrame(() => {
+        scrollFrameRef.current = null;
+
+        const scrollElement = chatScrollRef.current;
+        if (!scrollElement || !shouldStickToBottomRef.current) return;
+
+        isAutoScrollingRef.current = true;
+        scrollElement.scrollTo({
+          top: scrollElement.scrollHeight,
+          behavior,
+        });
+
+        window.requestAnimationFrame(() => {
+          isAutoScrollingRef.current = false;
+        });
+      });
+    },
+    [],
+  );
+
+  useEffect(() => {
+    scheduleChatScrollToBottom("auto");
+  }, [messages, scheduleChatScrollToBottom]);
 
   const canSend = useMemo(() => {
     return Boolean(
@@ -531,15 +563,9 @@ export default function Home() {
   }
 
   function scrollChatToBottom(behavior: ScrollBehavior = "smooth") {
-    const scrollElement = chatScrollRef.current;
-    if (!scrollElement) return;
-
     shouldStickToBottomRef.current = true;
     setIsNearChatBottom(true);
-    scrollElement.scrollTo({
-      top: scrollElement.scrollHeight,
-      behavior,
-    });
+    scheduleChatScrollToBottom(behavior);
   }
 
   function handleChatScroll() {
@@ -601,6 +627,75 @@ export default function Home() {
     );
   }
 
+  function flushBufferedAssistantVariant() {
+    const buffered = streamBufferRef.current;
+    if (!buffered || (!buffered.content && !buffered.reasoning)) return;
+
+    streamBufferRef.current = {
+      ...buffered,
+      content: "",
+      reasoning: "",
+    };
+
+    appendToAssistantVariant(
+      buffered.chatId,
+      buffered.assistantMessageId,
+      buffered.variantId,
+      {
+        content: buffered.content || undefined,
+        reasoning: buffered.reasoning || undefined,
+      },
+    );
+
+    scheduleChatScrollToBottom("auto");
+  }
+
+  function scheduleBufferedAssistantFlush() {
+    if (streamFlushFrameRef.current !== null) return;
+
+    streamFlushFrameRef.current = window.requestAnimationFrame(() => {
+      streamFlushFrameRef.current = null;
+      flushBufferedAssistantVariant();
+    });
+  }
+
+  function appendBufferedAssistantVariant(
+    chatId: string,
+    assistantMessageId: string,
+    variantId: string,
+    patch: Partial<Pick<ChatAssistantVariant, "content" | "reasoning">>,
+  ) {
+    const currentBuffer = streamBufferRef.current;
+    if (
+      currentBuffer &&
+      (currentBuffer.chatId !== chatId ||
+        currentBuffer.assistantMessageId !== assistantMessageId ||
+        currentBuffer.variantId !== variantId)
+    ) {
+      flushBufferedAssistantVariant();
+    }
+
+    const buffered = streamBufferRef.current ?? {
+      chatId,
+      assistantMessageId,
+      variantId,
+      content: "",
+      reasoning: "",
+    };
+
+    streamBufferRef.current = {
+      ...buffered,
+      chatId,
+      assistantMessageId,
+      variantId,
+      content: patch.content ? buffered.content + patch.content : buffered.content,
+      reasoning: patch.reasoning
+        ? buffered.reasoning + patch.reasoning
+        : buffered.reasoning,
+    };
+
+    scheduleBufferedAssistantFlush();
+  }
   function updateAssistantVariant(
     chatId: string,
     assistantMessageId: string,
@@ -818,16 +913,18 @@ export default function Home() {
         userMessage,
         signal: controller.signal,
         onContentDelta: (delta) => {
-          appendToAssistantVariant(chatId, assistantMessageId, variantId, {
+          appendBufferedAssistantVariant(chatId, assistantMessageId, variantId, {
             content: delta,
           });
         },
         onReasoningDelta: (delta) => {
-          appendToAssistantVariant(chatId, assistantMessageId, variantId, {
+          appendBufferedAssistantVariant(chatId, assistantMessageId, variantId, {
             reasoning: delta,
           });
         },
       });
+
+      flushBufferedAssistantVariant();
 
       const durationMs = Math.max(1, performance.now() - responseStartedAtMs);
 
@@ -854,6 +951,8 @@ export default function Home() {
     } catch (error) {
       const wasAborted =
         error instanceof DOMException && error.name === "AbortError";
+
+      flushBufferedAssistantVariant();
 
       const durationMs = Math.max(1, performance.now() - responseStartedAtMs);
 
