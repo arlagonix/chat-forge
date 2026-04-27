@@ -1,9 +1,10 @@
-const CACHE_NAME = "prompt-forge-v2.2";
-const BASE_PATH = "/prompt-forge";
+const CACHE_NAME = "chat-forge-v1.0";
+const BASE_PATH = "/chat-forge";
 const APP_SHELL = [
   `${BASE_PATH}/`,
   `${BASE_PATH}/manifest.webmanifest`,
   `${BASE_PATH}/icon.svg`,
+  `${BASE_PATH}/icon.png`,
 ];
 
 self.addEventListener("install", (event) => {
@@ -37,13 +38,11 @@ self.addEventListener("fetch", (event) => {
 
   const url = new URL(req.url);
 
-  // HTML navigations: network first
   if (req.mode === "navigate") {
     event.respondWith(networkFirst(req, `${BASE_PATH}/`));
     return;
   }
 
-  // Fonts: cache first with background update
   if (
     req.destination === "font" ||
     url.pathname.endsWith(".woff") ||
@@ -55,7 +54,6 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // CSS from font providers can also be cached
   if (
     url.pathname.endsWith(".css") ||
     url.hostname === "fonts.googleapis.com"
@@ -64,7 +62,6 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Same-origin app assets: network first
   if (url.origin === self.location.origin) {
     event.respondWith(networkFirst(req));
   }
