@@ -242,21 +242,22 @@ function buildPayload({
   const topP = normalizeOptionalNumber(settings.topP, 0, 1);
   const maxTokens = normalizeOptionalNumber(settings.maxTokens, 1, 1048576);
 
-  return {
+  const basePayload = {
     model: provider.model,
     messages: buildApiMessages({ systemPrompt, messages, userMessage }),
     stream,
+  };
+
+  if (stream) {
+    return basePayload;
+  }
+
+  return {
+    ...basePayload,
     ...(temperature !== undefined ? { temperature } : {}),
     ...(topP !== undefined ? { top_p: topP } : {}),
     ...(maxTokens !== undefined ? { max_tokens: maxTokens } : {}),
     ...buildReasoningPayload(provider, settings),
-    ...(stream
-      ? {
-          stream_options: {
-            include_usage: true,
-          },
-        }
-      : {}),
   };
 }
 
