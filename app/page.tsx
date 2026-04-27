@@ -1299,7 +1299,10 @@ export default function Home() {
       </aside>
 
       <section className="relative grid min-h-0 flex-1 grid-rows-[1fr_auto] bg-background">
-        <div className="min-h-0 overflow-hidden" onWheel={handleChatWheel}>
+        <div
+          className="relative min-h-0 overflow-hidden"
+          onWheel={handleChatWheel}
+        >
           <div
             ref={chatScrollRef}
             data-chat-scroll
@@ -1570,19 +1573,25 @@ export default function Home() {
               )}
             </div>
           </div>
-        </div>
 
-        {!isNearChatBottom && (
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
-            className="absolute bottom-45 left-[calc(75%)] z-10 -translate-x-1/2 rounded-none shadow-md opacity-75"
-            onClick={() => scrollChatToBottom()}
-          >
-            <ChevronDown className="size-4" />
-          </Button>
-        )}
+          {/* {!isNearChatBottom && (
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 right-[-74px] z-10 px-3 md:px-4">
+              <div className="mx-auto flex w-full max-w-3xl justify-end">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="icon"
+                  className="pointer-events-auto rounded-none shadow-md opacity-80 hover:opacity-100"
+                  onClick={() => scrollChatToBottom()}
+                  title="Scroll to bottom"
+                  aria-label="Scroll to bottom"
+                >
+                  <ChevronDown className="size-4" />
+                </Button>
+              </div>
+            </div>
+          )} */}
+        </div>
 
         <form
           onSubmit={sendMessage}
