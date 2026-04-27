@@ -485,10 +485,18 @@ export async function loadProviderModels(provider: ProviderConfig): Promise<stri
   }
 
   const response = await fetchWithTimeout(
-    `${normalizeBaseUrl(provider.baseUrl)}/models`,
+    "/api/ai-chat/openai-compatible/models",
     {
-      method: "GET",
-      headers: buildOpenAIHeaders({ provider }),
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        baseUrl: provider.baseUrl,
+        apiKey: provider.apiKey,
+        customHeaders: provider.customHeaders,
+      }),
+      cache: "no-store",
     },
     getRequestTimeout(provider),
   );
@@ -521,19 +529,19 @@ export async function sendProviderChat({
   }
 
   const response = await fetchWithTimeout(
-    `${normalizeBaseUrl(provider.baseUrl)}/chat/completions`,
+    "/api/ai-chat/openai-compatible/chat/completions",
     {
       method: "POST",
-      headers: buildOpenAIHeaders({
-        provider,
-        extraHeaders: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-        },
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        baseUrl: provider.baseUrl,
+        apiKey: provider.apiKey,
+        customHeaders: provider.customHeaders,
+        payload: buildPayload({ provider, systemPrompt, messages, userMessage, stream: false }),
       }),
-      body: JSON.stringify(
-        buildPayload({ provider, systemPrompt, messages, userMessage, stream: false }),
-      ),
+      cache: "no-store",
     },
     getRequestTimeout(provider),
   );
@@ -583,22 +591,24 @@ export async function streamProviderChat({
   }
 
   const response = await fetchStreamWithConnectionTimeout(
-    `${normalizeBaseUrl(provider.baseUrl)}/chat/completions`,
+    "/api/ai-chat/openai-compatible/chat/completions",
     {
       method: "POST",
-      headers: buildOpenAIHeaders({
-        provider,
-        extraHeaders: {
-          "Content-Type": "application/json",
-          Accept: "text/event-stream, application/json",
-        },
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        baseUrl: provider.baseUrl,
+        apiKey: provider.apiKey,
+        customHeaders: provider.customHeaders,
+        payload: buildPayload({ provider, systemPrompt, messages, userMessage, stream: true }),
       }),
-      body: JSON.stringify(
-        buildPayload({ provider, systemPrompt, messages, userMessage, stream: true }),
-      ),
       signal,
+      cache: "no-store",
     },
-    getRequestTimeout(provider),
+    // The browser now talks only to the same-origin Next route. Do not abort the
+    // stream just because the upstream provider takes longer to start/finish.
+    0,
   );
 
   if (!response.ok) {
