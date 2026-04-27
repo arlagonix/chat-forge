@@ -11,9 +11,21 @@ export const VITE_DEV_SERVER_URL = process.env["VITE_DEV_SERVER_URL"];
 export const MAIN_DIST = path.join(APP_ROOT, "dist-electron");
 export const RENDERER_DIST = path.join(APP_ROOT, "dist");
 
-process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL
-  ? path.join(APP_ROOT, "public")
-  : RENDERER_DIST;
+function getPackagedAppRoot() {
+  // In production, this points to the real packaged app root, including app.asar.
+  // Example: C:\...\resources\app.asar
+  return app.isPackaged ? app.getAppPath() : APP_ROOT;
+}
+
+function getRendererDist() {
+  return app.isPackaged ? path.join(getPackagedAppRoot(), "dist") : RENDERER_DIST;
+}
+
+function getPublicAssetsPath() {
+  return VITE_DEV_SERVER_URL ? path.join(APP_ROOT, "public") : getRendererDist();
+}
+
+process.env.VITE_PUBLIC = getPublicAssetsPath();
 
 type AiProviderRequest = {
   baseUrl?: unknown;
@@ -225,7 +237,7 @@ function createWindow() {
     minWidth: 940,
     minHeight: 620,
     title: "Chat Forge",
-    icon: path.join(process.env.VITE_PUBLIC ?? RENDERER_DIST, "icon.png"),
+    icon: path.join(getPublicAssetsPath(), "icon.png"),
     webPreferences: {
       preload: resolvePreloadPath(),
       contextIsolation: true,
@@ -234,10 +246,14 @@ function createWindow() {
     },
   });
 
+  win.webContents.on("did-fail-load", (_event, errorCode, errorDescription, validatedURL) => {
+    console.error("Failed to load renderer", { errorCode, errorDescription, validatedURL });
+  });
+
   if (VITE_DEV_SERVER_URL) {
     win.loadURL(VITE_DEV_SERVER_URL);
   } else {
-    win.loadFile(path.join(RENDERER_DIST, "index.html"));
+    win.loadFile(path.join(getRendererDist(), "index.html"));
   }
 }
 

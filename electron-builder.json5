@@ -1,43 +1,47 @@
 // @see - https://www.electron.build/configuration/configuration
 {
-  "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
-  "appId": "com.chatforge.app",
-  "asar": true,
-  "productName": "Chat Forge",
-  "directories": {
-    "output": "release/${version}"
+  $schema: "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
+  appId: "com.codeforge.chatforge",
+  asar: true,
+  productName: "Chat Forge",
+  directories: {
+    output: "release",
   },
-  "files": [
-    "dist",
-    "dist-electron"
-  ],
-  "mac": {
-    "target": [
-      "dmg"
-    ],
-    "artifactName": "${productName}-Mac-${version}-Installer.${ext}"
+  files: ["dist/**/*", "dist-electron/**/*", "package.json"],
+  extraMetadata: {
+    main: "dist-electron/main.js",
   },
-  "win": {
-    "target": [
+  mac: {
+    target: ["dmg"],
+    artifactName: "${productName}-Mac-${version}-Installer.${ext}",
+  },
+  win: {
+    target: [
       {
-        "target": "nsis",
-        "arch": [
-          "x64"
-        ]
-      }
+        target: "nsis",
+        arch: ["x64"],
+      },
+      {
+        target: "portable",
+        arch: ["x64"],
+      },
     ],
-    "artifactName": "${productName}-Windows-${version}-Setup.${ext}"
   },
-  "nsis": {
-    "oneClick": false,
-    "perMachine": false,
-    "allowToChangeInstallationDirectory": true,
-    "deleteAppDataOnUninstall": false
+  nsis: {
+    oneClick: false,
+    perMachine: false,
+    allowToChangeInstallationDirectory: true,
+    createDesktopShortcut: true,
+    createStartMenuShortcut: true,
+    shortcutName: "Chat Forge",
+    deleteAppDataOnUninstall: false,
+    artifactName: "${productName} Setup ${version}.${ext}",
   },
-  "linux": {
-    "target": [
-      "AppImage"
-    ],
-    "artifactName": "${productName}-Linux-${version}.${ext}"
-  }
+  portable: {
+    artifactName: "${productName} Portable ${version}.${ext}",
+  },
+  linux: {
+    target: ["AppImage"],
+    artifactName: "${productName}-Linux-${version}.${ext}",
+  },
 }
