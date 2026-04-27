@@ -39,7 +39,6 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Select,
   SelectContent,
@@ -156,7 +155,9 @@ function sanitizeGenerationSettings(
   settings: ProviderGenerationSettings,
 ): ProviderGenerationSettings {
   return Object.fromEntries(
-    Object.entries(settings).filter(([, value]) => value !== undefined && value !== ""),
+    Object.entries(settings).filter(
+      ([, value]) => value !== undefined && value !== "",
+    ),
   ) as ProviderGenerationSettings;
 }
 
@@ -168,7 +169,12 @@ function formatMetricDetails(
   metrics: NonNullable<ChatAssistantVariant["metrics"]>,
 ) {
   const rows = [
-    ["Duration", metrics.durationMs !== undefined ? formatDuration(metrics.durationMs) : undefined],
+    [
+      "Duration",
+      metrics.durationMs !== undefined
+        ? formatDuration(metrics.durationMs)
+        : undefined,
+    ],
     [
       "Speed",
       metrics.tokensPerSecond !== undefined
@@ -664,7 +670,8 @@ export default function Home() {
   function updateActiveModelSettings(patch: ProviderGenerationSettings) {
     setProvider((currentProvider) => {
       const modelKey = currentProvider.model.trim() || "__default__";
-      const currentModelSettings = currentProvider.modelSettings?.[modelKey] ?? {};
+      const currentModelSettings =
+        currentProvider.modelSettings?.[modelKey] ?? {};
 
       return {
         ...currentProvider,
@@ -1039,7 +1046,11 @@ export default function Home() {
     );
     const assistantMessage = activeChat.messages[assistantIndex];
 
-    if (assistantIndex < 0 || !assistantMessage || assistantMessage.role !== "assistant") {
+    if (
+      assistantIndex < 0 ||
+      !assistantMessage ||
+      assistantMessage.role !== "assistant"
+    ) {
       return;
     }
 
@@ -1052,7 +1063,8 @@ export default function Home() {
     const responseStartedAtMs = performance.now();
     const responseStartedAt = new Date().toISOString();
     const contextMessages = activeChat.messages.slice(0, assistantIndex + 1);
-    const continuePrompt = "Continue from exactly where your previous answer stopped. Do not repeat the previous text.";
+    const continuePrompt =
+      "Continue from exactly where your previous answer stopped. Do not repeat the previous text.";
 
     updateAssistantVariant(
       activeChat.id,
@@ -1246,9 +1258,7 @@ export default function Home() {
                 title={chat.title}
               >
                 <div className="min-w-0 flex-1 text-left">
-                  <div className="truncate text-sm leading-5">
-                    {chat.title}
-                  </div>
+                  <div className="truncate text-sm leading-5">{chat.title}</div>
                   <div className="truncate text-[11px] leading-4 text-muted-foreground">
                     {chat.messages.length} message
                     {chat.messages.length === 1 ? "" : "s"}
@@ -1465,7 +1475,8 @@ export default function Home() {
                                       )
                                     }
                                     disabled={
-                                      message.activeVariantIndex <= 0 || isSending
+                                      message.activeVariantIndex <= 0 ||
+                                      isSending
                                     }
                                     title="Previous answer"
                                   >
@@ -1505,7 +1516,11 @@ export default function Home() {
                                   regenerateAssistantMessage(message.id)
                                 }
                                 disabled={isSending}
-                                title={status === "error" ? "Retry answer" : "Regenerate answer"}
+                                title={
+                                  status === "error"
+                                    ? "Retry answer"
+                                    : "Regenerate answer"
+                                }
                               >
                                 <RefreshCcw className="size-3" />
                                 {status === "error" ? "Retry" : "Regenerate"}
@@ -1516,7 +1531,9 @@ export default function Home() {
                                 variant="ghost"
                                 size="sm"
                                 className="h-6 rounded-none px-2 text-xs text-muted-foreground"
-                                onClick={() => continueAssistantMessage(message.id)}
+                                onClick={() =>
+                                  continueAssistantMessage(message.id)
+                                }
                                 disabled={isSending || !content.trim()}
                                 title="Continue answer"
                               >
@@ -1528,19 +1545,21 @@ export default function Home() {
                           {metrics?.durationMs !== undefined &&
                             expandedMetricsIds[message.id] && (
                               <div className="grid gap-1 border bg-muted/30 p-2">
-                                {formatMetricDetails(metrics).map(([label, value]) => (
-                                  <div
-                                    key={label}
-                                    className="grid grid-cols-[8rem_1fr] gap-2"
-                                  >
-                                    <span className="text-muted-foreground/80">
-                                      {label}
-                                    </span>
-                                    <span className="min-w-0 truncate text-foreground/80">
-                                      {value}
-                                    </span>
-                                  </div>
-                                ))}
+                                {formatMetricDetails(metrics).map(
+                                  ([label, value]) => (
+                                    <div
+                                      key={label}
+                                      className="grid grid-cols-[8rem_1fr] gap-2"
+                                    >
+                                      <span className="text-muted-foreground/80">
+                                        {label}
+                                      </span>
+                                      <span className="min-w-0 truncate text-foreground/80">
+                                        {value}
+                                      </span>
+                                    </div>
+                                  ),
+                                )}
                               </div>
                             )}
                         </div>
@@ -1730,162 +1749,6 @@ export default function Home() {
                 </div>
               </div>
 
-              <div className="grid gap-2">
-                <Label htmlFor="provider-custom-headers">Custom headers</Label>
-                <Textarea
-                  id="provider-custom-headers"
-                  value={provider.customHeaders ?? ""}
-                  onChange={(event) =>
-                    updateProviderSetting({
-                      customHeaders: event.target.value,
-                    })
-                  }
-                  placeholder={"Header-Name: value\nX-Company-Gateway: team-ai"}
-                  className="min-h-24 font-mono text-xs leading-5"
-                />
-                <p className="text-xs leading-5 text-muted-foreground">
-                  One header per line. Authorization is still generated from the API key field.
-                </p>
-              </div>
-
-              <Separator />
-
-              <div className="grid gap-3">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <Label>Generation settings for current model</Label>
-                    <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                      Saved per model. Leave numeric fields empty to use provider defaults.
-                    </p>
-                  </div>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="rounded-none"
-                    onClick={resetActiveModelSettings}
-                  >
-                    Reset
-                  </Button>
-                </div>
-
-                <div className="grid gap-4 md:grid-cols-3">
-                  <div className="grid gap-2">
-                    <Label htmlFor="generation-temperature">Temperature</Label>
-                    <Input
-                      id="generation-temperature"
-                      type="number"
-                      min="0"
-                      max="2"
-                      step="0.1"
-                      value={formatOptionalNumber(activeModelSettings.temperature)}
-                      onChange={(event) =>
-                        updateActiveModelSettings({
-                          temperature: parseOptionalNumber(event.target.value),
-                        })
-                      }
-                      placeholder="Provider default"
-                    />
-                  </div>
-
-                  <div className="grid gap-2">
-                    <Label htmlFor="generation-top-p">Top P</Label>
-                    <Input
-                      id="generation-top-p"
-                      type="number"
-                      min="0"
-                      max="1"
-                      step="0.05"
-                      value={formatOptionalNumber(activeModelSettings.topP)}
-                      onChange={(event) =>
-                        updateActiveModelSettings({
-                          topP: parseOptionalNumber(event.target.value),
-                        })
-                      }
-                      placeholder="Provider default"
-                    />
-                  </div>
-
-                  <div className="grid gap-2">
-                    <Label htmlFor="generation-max-tokens">Max tokens</Label>
-                    <Input
-                      id="generation-max-tokens"
-                      type="number"
-                      min="1"
-                      step="1"
-                      value={formatOptionalNumber(activeModelSettings.maxTokens)}
-                      onChange={(event) =>
-                        updateActiveModelSettings({
-                          maxTokens: parseOptionalNumber(event.target.value),
-                        })
-                      }
-                      placeholder="Provider default"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid gap-4 md:grid-cols-3">
-                  <div className="grid gap-2">
-                    <Label>Thinking controls</Label>
-                    <Select
-                      value={activeModelSettings.reasoningMode ?? "auto"}
-                      onValueChange={(reasoningMode) =>
-                        updateActiveModelSettings({
-                          reasoningMode: reasoningMode as ProviderGenerationSettings["reasoningMode"],
-                        })
-                      }
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="auto">Auto-detect</SelectItem>
-                        <SelectItem value="enabled">Force enabled</SelectItem>
-                        <SelectItem value="off">Off</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="grid gap-2">
-                    <Label>Reasoning effort</Label>
-                    <Select
-                      value={activeModelSettings.reasoningEffort ?? "medium"}
-                      onValueChange={(reasoningEffort) =>
-                        updateActiveModelSettings({
-                          reasoningEffort: reasoningEffort as ProviderGenerationSettings["reasoningEffort"],
-                        })
-                      }
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="low">Low</SelectItem>
-                        <SelectItem value="medium">Medium</SelectItem>
-                        <SelectItem value="high">High</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="grid gap-2">
-                    <Label htmlFor="generation-timeout">Request timeout, ms</Label>
-                    <Input
-                      id="generation-timeout"
-                      type="number"
-                      min="1000"
-                      step="1000"
-                      value={formatOptionalNumber(activeModelSettings.requestTimeoutMs)}
-                      onChange={(event) =>
-                        updateActiveModelSettings({
-                          requestTimeoutMs: parseOptionalNumber(event.target.value),
-                        })
-                      }
-                      placeholder="30000"
-                    />
-                  </div>
-                </div>
-              </div>
-
               <Button
                 type="button"
                 variant="secondary"
@@ -1921,6 +1784,176 @@ export default function Home() {
                   </Select>
                 </div>
               )}
+
+              <div className="grid gap-2">
+                <Label htmlFor="provider-custom-headers">Custom headers</Label>
+                <Textarea
+                  id="provider-custom-headers"
+                  value={provider.customHeaders ?? ""}
+                  onChange={(event) =>
+                    updateProviderSetting({
+                      customHeaders: event.target.value,
+                    })
+                  }
+                  placeholder={"Header-Name: value\nX-Company-Gateway: team-ai"}
+                  className="min-h-24 font-mono text-xs leading-5"
+                />
+                <p className="text-xs leading-5 text-muted-foreground">
+                  One header per line. Authorization is still generated from the
+                  API key field.
+                </p>
+              </div>
+
+              <Separator />
+
+              <div className="grid gap-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <Label>Generation settings for current model</Label>
+                    <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                      Saved per model. Leave numeric fields empty to use
+                      provider defaults.
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="rounded-none"
+                    onClick={resetActiveModelSettings}
+                  >
+                    Reset
+                  </Button>
+                </div>
+
+                <div className="grid gap-4 md:grid-cols-3">
+                  <div className="grid gap-2">
+                    <Label htmlFor="generation-temperature">Temperature</Label>
+                    <Input
+                      id="generation-temperature"
+                      type="number"
+                      min="0"
+                      max="2"
+                      step="0.1"
+                      value={formatOptionalNumber(
+                        activeModelSettings.temperature,
+                      )}
+                      onChange={(event) =>
+                        updateActiveModelSettings({
+                          temperature: parseOptionalNumber(event.target.value),
+                        })
+                      }
+                      placeholder="Provider default"
+                    />
+                  </div>
+
+                  <div className="grid gap-2">
+                    <Label htmlFor="generation-top-p">Top P</Label>
+                    <Input
+                      id="generation-top-p"
+                      type="number"
+                      min="0"
+                      max="1"
+                      step="0.05"
+                      value={formatOptionalNumber(activeModelSettings.topP)}
+                      onChange={(event) =>
+                        updateActiveModelSettings({
+                          topP: parseOptionalNumber(event.target.value),
+                        })
+                      }
+                      placeholder="Provider default"
+                    />
+                  </div>
+
+                  <div className="grid gap-2">
+                    <Label htmlFor="generation-max-tokens">Max tokens</Label>
+                    <Input
+                      id="generation-max-tokens"
+                      type="number"
+                      min="1"
+                      step="1"
+                      value={formatOptionalNumber(
+                        activeModelSettings.maxTokens,
+                      )}
+                      onChange={(event) =>
+                        updateActiveModelSettings({
+                          maxTokens: parseOptionalNumber(event.target.value),
+                        })
+                      }
+                      placeholder="Provider default"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid gap-4 md:grid-cols-3">
+                  <div className="grid gap-2">
+                    <Label>Thinking controls</Label>
+                    <Select
+                      value={activeModelSettings.reasoningMode ?? "auto"}
+                      onValueChange={(reasoningMode) =>
+                        updateActiveModelSettings({
+                          reasoningMode:
+                            reasoningMode as ProviderGenerationSettings["reasoningMode"],
+                        })
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="auto">Auto-detect</SelectItem>
+                        <SelectItem value="enabled">Force enabled</SelectItem>
+                        <SelectItem value="off">Off</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="grid gap-2">
+                    <Label>Reasoning effort</Label>
+                    <Select
+                      value={activeModelSettings.reasoningEffort ?? "medium"}
+                      onValueChange={(reasoningEffort) =>
+                        updateActiveModelSettings({
+                          reasoningEffort:
+                            reasoningEffort as ProviderGenerationSettings["reasoningEffort"],
+                        })
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="low">Low</SelectItem>
+                        <SelectItem value="medium">Medium</SelectItem>
+                        <SelectItem value="high">High</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="grid gap-2">
+                    <Label htmlFor="generation-timeout">
+                      Request timeout, ms
+                    </Label>
+                    <Input
+                      id="generation-timeout"
+                      type="number"
+                      min="1000"
+                      step="1000"
+                      value={formatOptionalNumber(
+                        activeModelSettings.requestTimeoutMs,
+                      )}
+                      onChange={(event) =>
+                        updateActiveModelSettings({
+                          requestTimeoutMs: parseOptionalNumber(
+                            event.target.value,
+                          ),
+                        })
+                      }
+                      placeholder="30000"
+                    />
+                  </div>
+                </div>
+              </div>
 
               <Separator />
 
