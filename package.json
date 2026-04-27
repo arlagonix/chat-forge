@@ -12,6 +12,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@fontsource/jetbrains-mono": "^5.2.8",
     "@hookform/resolvers": "^3.9.1",
     "@monaco-editor/react": "^4.7.0",
     "@radix-ui/react-accordion": "1.2.12",

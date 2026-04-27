@@ -9,6 +9,7 @@ const CHATS_STORE = "chats";
 const PROVIDER_KEY = "provider";
 const SYSTEM_PROMPT_KEY = "system-prompt";
 const ACTIVE_CHAT_ID_KEY = "active-chat-id";
+const MODEL_CACHE_KEY_PREFIX = "provider-models:";
 
 const DEFAULT_SYSTEM_PROMPT = "You are a helpful assistant.";
 
@@ -126,6 +127,51 @@ export async function loadActiveChatId(): Promise<string | undefined> {
 
 export async function saveActiveChatId(chatId: string): Promise<void> {
   await setSetting(ACTIVE_CHAT_ID_KEY, chatId);
+}
+
+function getProviderModelsCacheKey(provider: Pick<ProviderConfig, "baseUrl" | "customHeaders">) {
+  const baseUrl = provider.baseUrl.trim().replace(/\/+$/, "");
+  const customHeaders = (provider.customHeaders ?? "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .join("\n");
+
+  return `${MODEL_CACHE_KEY_PREFIX}${baseUrl}|${customHeaders}`;
+}
+
+export async function loadCachedProviderModels(
+  provider: Pick<ProviderConfig, "baseUrl" | "customHeaders">,
+): Promise<string[]> {
+  if (!provider.baseUrl.trim()) return [];
+
+  const models = await getSetting<string[]>(getProviderModelsCacheKey(provider), []);
+  return Array.isArray(models)
+    ? [
+        ...new Set(
+          models
+            .filter((model) => typeof model === "string" && model.trim())
+            .map((model) => model.trim()),
+        ),
+      ]
+    : [];
+}
+
+export async function saveCachedProviderModels(
+  provider: Pick<ProviderConfig, "baseUrl" | "customHeaders">,
+  models: string[],
+): Promise<void> {
+  if (!provider.baseUrl.trim()) return;
+
+  const normalizedModels = [
+    ...new Set(
+      models
+        .filter((model) => typeof model === "string" && model.trim())
+        .map((model) => model.trim()),
+    ),
+  ].sort((left, right) => left.localeCompare(right));
+
+  await setSetting(getProviderModelsCacheKey(provider), normalizedModels);
 }
 
 export async function loadChats(): Promise<ChatSession[]> {

@@ -1,10 +1,12 @@
 "use client";
 
 import {
+  Check,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
   ChevronUp,
+  ChevronsUpDown,
   Eye,
   EyeOff,
   Moon,
@@ -18,10 +20,25 @@ import {
   Trash2,
 } from "lucide-react";
 import type { FormEvent, WheelEvent } from "react";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import { MarkdownMessage } from "@/components/ai-chat/markdown-message";
 import { Button } from "@/components/ui/button";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
 import {
   Dialog,
   DialogContent,
@@ -39,6 +56,11 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -62,10 +84,12 @@ import {
   createEmptyChat,
   deleteChat,
   loadActiveChatId,
+  loadCachedProviderModels,
   loadChats,
   loadProvider,
   loadSystemPrompt,
   saveActiveChatId,
+  saveCachedProviderModels,
   saveChat,
   saveProvider,
   saveSystemPrompt,
@@ -283,6 +307,8 @@ export default function Home() {
     "idle" | "success" | "empty" | "error"
   >("idle");
   const [models, setModels] = useState<string[]>([]);
+  const [isModelComboboxOpen, setIsModelComboboxOpen] = useState(false);
+  const [modelSearchValue, setModelSearchValue] = useState("");
   const [isApiKeyVisible, setIsApiKeyVisible] = useState(false);
   const [expandedReasoningIds, setExpandedReasoningIds] = useState<
     Record<string, boolean>
@@ -293,10 +319,16 @@ export default function Home() {
   const [isNearChatBottom, setIsNearChatBottom] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
+  const chatBottomRef = useRef<HTMLDivElement | null>(null);
+  const messageElementRefs = useRef(new Map<string, HTMLDivElement>());
+  const pendingAssistantScrollRef = useRef<string | null>(null);
   const draftTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const modelLoadStatusTimerRef = useRef<number | null>(null);
   const scrollFrameRef = useRef<number | null>(null);
+  const scrollStateFrameRef = useRef<number | null>(null);
+  const scrollSettleTimeoutRef = useRef<number | null>(null);
+  const userScrollTimeoutRef = useRef<number | null>(null);
   const streamFlushFrameRef = useRef<number | null>(null);
   const streamBufferRef = useRef<{
     chatId: string;
@@ -306,8 +338,10 @@ export default function Home() {
     reasoning: string;
   } | null>(null);
   const isAutoScrollingRef = useRef(false);
+  const isUserScrollingRef = useRef(false);
   const isStreamingRef = useRef(false);
   const shouldStickToBottomRef = useRef(true);
+  const lastScrollStateRef = useRef(true);
   const didHydrateRef = useRef(false);
   const { resolvedTheme, setTheme } = useTheme();
 
@@ -321,6 +355,34 @@ export default function Home() {
 
   const messages = activeChat?.messages ?? [];
   const activeModelSettings = getSettingsForProvider(provider);
+  const canSend = Boolean(activeChat) && !isSending && draft.trim().length > 0;
+  const modelSuggestions = useMemo(() => {
+    const normalizedModels = [
+      ...new Set(
+        [...models, provider.model]
+          .map((model) => model.trim())
+          .filter(Boolean),
+      ),
+    ];
+
+    return normalizedModels.sort((left, right) => left.localeCompare(right));
+  }, [models, provider.model]);
+
+  const filteredModelSuggestions = useMemo(() => {
+    const search = modelSearchValue.trim().toLowerCase();
+    if (!search) return modelSuggestions;
+
+    return modelSuggestions.filter((model) =>
+      model.toLowerCase().includes(search),
+    );
+  }, [modelSearchValue, modelSuggestions]);
+
+  const trimmedModelSearchValue = modelSearchValue.trim();
+  const canUseCustomModel =
+    trimmedModelSearchValue.length > 0 &&
+    !modelSuggestions.some(
+      (model) => model.toLowerCase() === trimmedModelSearchValue.toLowerCase(),
+    );
 
   useEffect(() => {
     let cancelled = false;
@@ -360,7 +422,11 @@ export default function Home() {
 
         if (cancelled) return;
 
+        const loadedModels = await loadCachedProviderModels(loadedProvider);
+        if (cancelled) return;
+
         setProvider(loadedProvider);
+        setModels(loadedModels);
         setSystemPrompt(loadedSystemPrompt);
         setChats(nextChats);
         setActiveChatId(nextActiveChatId);
@@ -392,8 +458,17 @@ export default function Home() {
       if (scrollFrameRef.current !== null) {
         window.cancelAnimationFrame(scrollFrameRef.current);
       }
+      if (scrollStateFrameRef.current !== null) {
+        window.cancelAnimationFrame(scrollStateFrameRef.current);
+      }
+      if (scrollSettleTimeoutRef.current !== null) {
+        window.clearTimeout(scrollSettleTimeoutRef.current);
+      }
+      if (userScrollTimeoutRef.current !== null) {
+        window.clearTimeout(userScrollTimeoutRef.current);
+      }
       if (streamFlushFrameRef.current !== null) {
-        window.cancelAnimationFrame(streamFlushFrameRef.current);
+        window.clearTimeout(streamFlushFrameRef.current);
       }
     };
   }, []);
@@ -421,6 +496,22 @@ export default function Home() {
       });
     };
   }, [isSending]);
+
+  useEffect(() => {
+    if (!didHydrateRef.current) return;
+
+    let cancelled = false;
+
+    loadCachedProviderModels(provider)
+      .then((cachedModels) => {
+        if (!cancelled) setModels(cachedModels);
+      })
+      .catch((error) => console.error("Failed to load cached models:", error));
+
+    return () => {
+      cancelled = true;
+    };
+  }, [provider.baseUrl, provider.customHeaders]);
 
   useEffect(() => {
     if (!didHydrateRef.current) return;
@@ -472,56 +563,129 @@ export default function Home() {
       textarea.scrollHeight > maxHeight ? "auto" : "hidden";
   }, [draft]);
 
-  const scheduleChatScrollToBottom = useCallback(
-    (behavior: ScrollBehavior = "auto") => {
-      if (scrollFrameRef.current !== null) return;
+  function getChatDistanceFromBottom() {
+    const scrollElement = chatScrollRef.current;
+    if (!scrollElement) return 0;
 
-      scrollFrameRef.current = window.requestAnimationFrame(() => {
-        scrollFrameRef.current = null;
+    return Math.max(
+      0,
+      scrollElement.scrollHeight -
+        scrollElement.scrollTop -
+        scrollElement.clientHeight,
+    );
+  }
 
-        const scrollElement = chatScrollRef.current;
-        if (!scrollElement) return;
-        if (!shouldStickToBottomRef.current && !isStreamingRef.current) return;
+  function isChatNearBottom(threshold = 140) {
+    return getChatDistanceFromBottom() <= threshold;
+  }
 
-        isAutoScrollingRef.current = true;
+  function updateNearBottomState(isNearBottom: boolean) {
+    if (lastScrollStateRef.current === isNearBottom) return;
 
-        if (behavior === "auto") {
-          scrollElement.scrollTop = scrollElement.scrollHeight;
-        } else {
-          scrollElement.scrollTo({
-            top: scrollElement.scrollHeight,
-            behavior,
-          });
-        }
+    lastScrollStateRef.current = isNearBottom;
+    setIsNearChatBottom(isNearBottom);
+  }
 
-        window.requestAnimationFrame(() => {
-          // A second pass catches layout changes from Markdown wrapping after React paints.
-          if (shouldStickToBottomRef.current || isStreamingRef.current) {
-            scrollElement.scrollTop = scrollElement.scrollHeight;
-          }
+  function markUserScrolling() {
+    isUserScrollingRef.current = true;
 
-          isAutoScrollingRef.current = false;
-        });
+    if (userScrollTimeoutRef.current !== null) {
+      window.clearTimeout(userScrollTimeoutRef.current);
+    }
+
+    userScrollTimeoutRef.current = window.setTimeout(() => {
+      isUserScrollingRef.current = false;
+      userScrollTimeoutRef.current = null;
+    }, 180);
+  }
+
+  function scrollToBottomNow() {
+    const bottomElement = chatBottomRef.current;
+    const scrollElement = chatScrollRef.current;
+    if (!bottomElement || !scrollElement) return;
+
+    isAutoScrollingRef.current = true;
+    bottomElement.scrollIntoView({ block: "end", behavior: "auto" });
+    scrollElement.scrollTop = Math.max(
+      0,
+      scrollElement.scrollHeight - scrollElement.clientHeight,
+    );
+    updateNearBottomState(true);
+
+    window.requestAnimationFrame(() => {
+      isAutoScrollingRef.current = false;
+    });
+  }
+
+  const scheduleChatScrollToBottom = useCallback(() => {
+    if (scrollFrameRef.current !== null) {
+      window.cancelAnimationFrame(scrollFrameRef.current);
+    }
+
+    scrollFrameRef.current = window.requestAnimationFrame(() => {
+      scrollFrameRef.current = null;
+
+      if (!shouldStickToBottomRef.current) return;
+
+      scrollToBottomNow();
+
+      window.requestAnimationFrame(() => {
+        if (shouldStickToBottomRef.current) scrollToBottomNow();
       });
-    },
-    [],
-  );
+
+      if (scrollSettleTimeoutRef.current !== null) {
+        window.clearTimeout(scrollSettleTimeoutRef.current);
+      }
+
+      scrollSettleTimeoutRef.current = window.setTimeout(() => {
+        scrollSettleTimeoutRef.current = null;
+        if (shouldStickToBottomRef.current) scrollToBottomNow();
+      }, 60);
+    });
+  }, []);
+
+  const scrollAssistantIntoView = useCallback((messageId: string) => {
+    const messageElement = messageElementRefs.current.get(messageId);
+    if (!messageElement) {
+      pendingAssistantScrollRef.current = messageId;
+      return;
+    }
+
+    isAutoScrollingRef.current = true;
+    messageElement.scrollIntoView({ block: "start", behavior: "auto" });
+
+    window.requestAnimationFrame(() => {
+      isAutoScrollingRef.current = false;
+    });
+  }, []);
+
+  function registerMessageElement(messageId: string) {
+    return (element: HTMLDivElement | null) => {
+      if (element) {
+        messageElementRefs.current.set(messageId, element);
+
+        if (pendingAssistantScrollRef.current === messageId) {
+          pendingAssistantScrollRef.current = null;
+          window.requestAnimationFrame(() =>
+            scrollAssistantIntoView(messageId),
+          );
+        }
+      } else {
+        messageElementRefs.current.delete(messageId);
+      }
+    };
+  }
 
   useLayoutEffect(() => {
-    if (shouldStickToBottomRef.current || isStreamingRef.current) {
-      scheduleChatScrollToBottom("auto");
-    }
-  }, [messages, scheduleChatScrollToBottom]);
+    const pendingAssistantMessageId = pendingAssistantScrollRef.current;
 
-  const canSend = useMemo(() => {
-    return Boolean(
-      provider.baseUrl.trim() &&
-      provider.model.trim() &&
-      draft.trim() &&
-      !isSending &&
-      activeChat,
-    );
-  }, [activeChat, draft, isSending, provider.baseUrl, provider.model]);
+    if (pendingAssistantMessageId) {
+      pendingAssistantScrollRef.current = null;
+      scrollAssistantIntoView(pendingAssistantMessageId);
+    } else if (shouldStickToBottomRef.current) {
+      scheduleChatScrollToBottom();
+    }
+  }, [messages, scheduleChatScrollToBottom, scrollAssistantIntoView]);
 
   function showSuccess(message: string, description?: string) {
     toast(message, description ? { description } : undefined);
@@ -576,41 +740,55 @@ export default function Home() {
     }));
   }
 
-  function scrollChatToBottom(behavior: ScrollBehavior = "smooth") {
+  function scrollChatToBottom() {
     shouldStickToBottomRef.current = true;
-    setIsNearChatBottom(true);
-    scheduleChatScrollToBottom(behavior);
+    updateNearBottomState(true);
+    scheduleChatScrollToBottom();
   }
 
   function handleChatScroll() {
-    const scrollElement = chatScrollRef.current;
-    if (!scrollElement) return;
+    if (scrollStateFrameRef.current !== null) return;
 
-    if (isAutoScrollingRef.current || isStreamingRef.current) {
-      shouldStickToBottomRef.current = true;
-      setIsNearChatBottom(true);
-      return;
-    }
+    scrollStateFrameRef.current = window.requestAnimationFrame(() => {
+      scrollStateFrameRef.current = null;
 
-    const distanceFromBottom =
-      scrollElement.scrollHeight -
-      scrollElement.scrollTop -
-      scrollElement.clientHeight;
-    const isNearBottom = distanceFromBottom < 128;
-    shouldStickToBottomRef.current = isNearBottom;
-    setIsNearChatBottom(isNearBottom);
+      if (isAutoScrollingRef.current) return;
+
+      const isNearBottom = isChatNearBottom();
+      updateNearBottomState(isNearBottom);
+
+      if (isNearBottom) {
+        shouldStickToBottomRef.current = true;
+      } else if (!isStreamingRef.current || isUserScrollingRef.current) {
+        shouldStickToBottomRef.current = false;
+      }
+    });
   }
 
   function handleChatWheel(event: WheelEvent<HTMLDivElement>) {
-    const scrollElement = chatScrollRef.current;
-    if (!scrollElement) return;
+    if (isAutoScrollingRef.current) return;
 
-    const target = event.target as HTMLElement | null;
-    if (target?.closest("[data-chat-scroll]")) return;
-    if (target?.closest("[data-draft-input]")) return;
+    markUserScrolling();
 
-    scrollElement.scrollTop += event.deltaY;
-    handleChatScroll();
+    if (event.deltaY < 0) {
+      shouldStickToBottomRef.current = false;
+      updateNearBottomState(false);
+      return;
+    }
+
+    window.requestAnimationFrame(() => {
+      const isNearBottom = isChatNearBottom();
+      if (isNearBottom) {
+        shouldStickToBottomRef.current = true;
+        scheduleChatScrollToBottom();
+      }
+      updateNearBottomState(isNearBottom);
+    });
+  }
+
+  function handleChatPointerDown() {
+    if (isAutoScrollingRef.current) return;
+    markUserScrolling();
   }
 
   function appendToAssistantVariant(
@@ -665,21 +843,25 @@ export default function Home() {
       },
     );
 
-    if (isStreamingRef.current) {
-      shouldStickToBottomRef.current = true;
-      setIsNearChatBottom(true);
+    if (shouldStickToBottomRef.current) {
+      scheduleChatScrollToBottom();
     }
-
-    scheduleChatScrollToBottom("auto");
   }
 
   function scheduleBufferedAssistantFlush() {
     if (streamFlushFrameRef.current !== null) return;
 
-    streamFlushFrameRef.current = window.requestAnimationFrame(() => {
-      streamFlushFrameRef.current = null;
-      flushBufferedAssistantVariant();
-    });
+    streamFlushFrameRef.current = window.setTimeout(
+      () => {
+        streamFlushFrameRef.current = null;
+        flushBufferedAssistantVariant();
+      },
+      isUserScrollingRef.current
+        ? 160
+        : shouldStickToBottomRef.current
+          ? 50
+          : 110,
+    );
   }
 
   function appendBufferedAssistantVariant(
@@ -844,6 +1026,7 @@ export default function Home() {
         saveProvider(provider),
         saveSystemPrompt(systemPrompt),
       ]);
+      setSettingsOpen(false);
       showSuccess("Settings saved.");
     } catch (error) {
       console.error("Failed to save settings:", error);
@@ -874,6 +1057,7 @@ export default function Home() {
     try {
       const loadedModels = await loadProviderModels(provider);
       setModels(loadedModels);
+      await saveCachedProviderModels(provider, loadedModels);
 
       if (!provider.model.trim() && loadedModels.length > 0) {
         setProvider((currentProvider) => ({
@@ -929,9 +1113,11 @@ export default function Home() {
     abortControllerRef.current = controller;
     isStreamingRef.current = true;
     shouldStickToBottomRef.current = true;
+    pendingAssistantScrollRef.current = assistantMessageId;
+    lastScrollStateRef.current = true;
     setIsNearChatBottom(true);
     setIsSending(true);
-    scheduleChatScrollToBottom("auto");
+    scheduleChatScrollToBottom();
     toast.dismiss();
 
     try {
@@ -1029,7 +1215,9 @@ export default function Home() {
       }
       isStreamingRef.current = false;
       setIsSending(false);
-      scheduleChatScrollToBottom("auto");
+      if (shouldStickToBottomRef.current) {
+        scheduleChatScrollToBottom();
+      }
     }
   }
 
@@ -1085,6 +1273,9 @@ export default function Home() {
     ];
 
     shouldStickToBottomRef.current = true;
+    pendingAssistantScrollRef.current = assistantMessageId;
+    lastScrollStateRef.current = true;
+    setIsNearChatBottom(true);
     updateChat(activeChat.id, (chat) => ({
       ...chat,
       title:
@@ -1164,6 +1355,9 @@ export default function Home() {
     );
 
     shouldStickToBottomRef.current = true;
+    pendingAssistantScrollRef.current = assistantMessageId;
+    lastScrollStateRef.current = true;
+    setIsNearChatBottom(true);
 
     await runAssistantVariant({
       chatId: activeChat.id,
@@ -1222,6 +1416,9 @@ export default function Home() {
     );
 
     shouldStickToBottomRef.current = true;
+    pendingAssistantScrollRef.current = assistantMessageId;
+    lastScrollStateRef.current = true;
+    setIsNearChatBottom(true);
 
     await runAssistantVariant({
       chatId: activeChat.id,
@@ -1245,6 +1442,8 @@ export default function Home() {
     setExpandedReasoningIds({});
     setExpandedMetricsIds({});
     shouldStickToBottomRef.current = true;
+    lastScrollStateRef.current = true;
+    setIsNearChatBottom(true);
 
     try {
       await saveChat(chat);
@@ -1260,6 +1459,8 @@ export default function Home() {
     setExpandedReasoningIds({});
     setExpandedMetricsIds({});
     shouldStickToBottomRef.current = true;
+    lastScrollStateRef.current = true;
+    setIsNearChatBottom(true);
   }
 
   async function clearCurrentChat() {
@@ -1442,12 +1643,13 @@ export default function Home() {
         <div
           className="relative min-h-0 overflow-hidden"
           onWheel={handleChatWheel}
+          onPointerDown={handleChatPointerDown}
         >
           <div
             ref={chatScrollRef}
             data-chat-scroll
             onScroll={handleChatScroll}
-            className="chat-scrollbar mx-auto h-full w-full max-w-3xl overflow-y-auto py-3 md:py-6"
+            className="chat-scrollbar mx-auto h-full w-full max-w-3xl overflow-y-auto py-3 [overflow-anchor:none] md:py-6"
           >
             <div className="flex flex-col gap-4">
               {messages.length === 0 ? (
@@ -1493,7 +1695,12 @@ export default function Home() {
                       : 0;
 
                   return (
-                    <div key={message.id} className="grid gap-2">
+                    <div
+                      key={message.id}
+                      ref={registerMessageElement(message.id)}
+                      data-message-id={message.id}
+                      className="grid gap-2"
+                    >
                       {message.role === "assistant" &&
                         reasoning.trim() &&
                         (() => {
@@ -1690,10 +1897,15 @@ export default function Home() {
                   );
                 })
               )}
+              <div
+                ref={chatBottomRef}
+                aria-hidden="true"
+                className="h-px w-full shrink-0"
+              />
             </div>
           </div>
 
-          {/* {!isNearChatBottom && (
+          {!isNearChatBottom && (
             <div className="pointer-events-none absolute inset-x-0 bottom-0 right-[-74px] z-10 px-3 md:px-4">
               <div className="mx-auto flex w-full max-w-3xl justify-end">
                 <Button
@@ -1709,7 +1921,7 @@ export default function Home() {
                 </Button>
               </div>
             </div>
-          )} */}
+          )}
         </div>
 
         <form
@@ -1795,122 +2007,172 @@ export default function Home() {
 
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="grid gap-2">
-                  <Label htmlFor="provider-name">Name</Label>
+                  <Label htmlFor="provider-url">Base URL</Label>
                   <Input
-                    id="provider-name"
-                    value={provider.name}
+                    id="provider-url"
+                    value={provider.baseUrl}
                     onChange={(event) =>
                       setProvider({
                         ...provider,
                         id: "custom",
-                        name: event.target.value,
+                        baseUrl: event.target.value,
                       })
                     }
+                    placeholder="http://localhost:1234/v1"
                   />
                 </div>
 
                 <div className="grid gap-2">
-                  <Label htmlFor="provider-model">Model</Label>
-                  <Input
-                    id="provider-model"
-                    value={provider.model}
-                    onChange={(event) =>
-                      setProvider({
-                        ...provider,
-                        id: "custom",
-                        model: event.target.value,
-                      })
-                    }
-                    placeholder="qwen/qwen3.5-9b"
-                  />
+                  <Label htmlFor="provider-api-key">API key</Label>
+                  <div className="relative">
+                    <Input
+                      id="provider-api-key"
+                      value={provider.apiKey}
+                      onChange={(event) =>
+                        setProvider({
+                          ...provider,
+                          id: "custom",
+                          apiKey: event.target.value,
+                        })
+                      }
+                      placeholder="not-needed"
+                      type={isApiKeyVisible ? "text" : "password"}
+                      className="pr-10"
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      className="absolute right-1 top-1/2 h-7 w-7 -translate-y-1/2 rounded-none text-muted-foreground"
+                      onClick={() => setIsApiKeyVisible((current) => !current)}
+                      title={isApiKeyVisible ? "Hide API key" : "Show API key"}
+                    >
+                      {isApiKeyVisible ? (
+                        <EyeOff className="size-4" />
+                      ) : (
+                        <Eye className="size-4" />
+                      )}
+                    </Button>
+                  </div>
                 </div>
               </div>
 
               <div className="grid gap-2">
-                <Label htmlFor="provider-url">Base URL</Label>
-                <Input
-                  id="provider-url"
-                  value={provider.baseUrl}
-                  onChange={(event) =>
-                    setProvider({
-                      ...provider,
-                      id: "custom",
-                      baseUrl: event.target.value,
-                    })
-                  }
-                  placeholder="http://localhost:1234/v1"
-                />
-              </div>
+                <Label htmlFor="provider-model">Model</Label>
+                <div className="flex gap-2">
+                  <Popover
+                    open={isModelComboboxOpen}
+                    onOpenChange={(open) => {
+                      setIsModelComboboxOpen(open);
+                      if (open) setModelSearchValue("");
+                    }}
+                  >
+                    <PopoverTrigger asChild>
+                      <Button
+                        id="provider-model"
+                        type="button"
+                        variant="outline"
+                        role="combobox"
+                        aria-expanded={isModelComboboxOpen}
+                        className="min-w-0 flex-1 justify-between rounded-none bg-card px-3 font-normal"
+                      >
+                        <span
+                          className={cn(
+                            "truncate text-left",
+                            !provider.model.trim() && "text-muted-foreground",
+                          )}
+                        >
+                          {provider.model.trim() || "Select or enter a model"}
+                        </span>
+                        <ChevronsUpDown className="ml-2 size-4 shrink-0 opacity-50" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent
+                      className="w-[var(--radix-popover-trigger-width)] p-0"
+                      align="start"
+                    >
+                      <Command shouldFilter={false}>
+                        <CommandInput
+                          value={modelSearchValue}
+                          onValueChange={setModelSearchValue}
+                          placeholder="Search or type a custom model..."
+                        />
+                        <CommandList>
+                          {canUseCustomModel && (
+                            <CommandGroup heading="Custom">
+                              <CommandItem
+                                value={`custom:${trimmedModelSearchValue}`}
+                                onSelect={() => {
+                                  updateProviderSetting({
+                                    model: trimmedModelSearchValue,
+                                  });
+                                  setIsModelComboboxOpen(false);
+                                  setModelSearchValue("");
+                                }}
+                                className="cursor-pointer"
+                              >
+                                <span className="min-w-0 flex-1 truncate">
+                                  Use “{trimmedModelSearchValue}”
+                                </span>
+                              </CommandItem>
+                            </CommandGroup>
+                          )}
 
-              <div className="grid gap-2">
-                <Label htmlFor="provider-api-key">API key</Label>
-                <div className="relative">
-                  <Input
-                    id="provider-api-key"
-                    value={provider.apiKey}
-                    onChange={(event) =>
-                      setProvider({
-                        ...provider,
-                        id: "custom",
-                        apiKey: event.target.value,
-                      })
-                    }
-                    placeholder="not-needed"
-                    type={isApiKeyVisible ? "text" : "password"}
-                    className="pr-10"
-                  />
+                          {filteredModelSuggestions.length > 0 ? (
+                            <CommandGroup heading="Available models">
+                              {filteredModelSuggestions.map((model) => (
+                                <CommandItem
+                                  key={model}
+                                  value={model}
+                                  keywords={[model]}
+                                  onSelect={() => {
+                                    updateProviderSetting({ model });
+                                    setIsModelComboboxOpen(false);
+                                    setModelSearchValue("");
+                                  }}
+                                  className="cursor-pointer"
+                                >
+                                  <span className="min-w-0 flex-1 truncate">
+                                    {model}
+                                  </span>
+                                  <Check
+                                    className={cn(
+                                      "size-4",
+                                      provider.model.trim() === model
+                                        ? "opacity-100"
+                                        : "opacity-0",
+                                    )}
+                                  />
+                                </CommandItem>
+                              ))}
+                            </CommandGroup>
+                          ) : (
+                            <CommandEmpty>No models found.</CommandEmpty>
+                          )}
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
+
                   <Button
                     type="button"
-                    variant="ghost"
-                    size="icon-sm"
-                    className="absolute right-1 top-1/2 h-7 w-7 -translate-y-1/2 rounded-none text-muted-foreground"
-                    onClick={() => setIsApiKeyVisible((current) => !current)}
-                    title={isApiKeyVisible ? "Hide API key" : "Show API key"}
+                    variant="secondary"
+                    size="icon"
+                    onClick={loadModelsFromProvider}
+                    disabled={isLoadingModels || !provider.baseUrl.trim()}
+                    className="shrink-0 rounded-none"
+                    title={getLoadModelsButtonLabel()}
+                    aria-label={getLoadModelsButtonLabel()}
                   >
-                    {isApiKeyVisible ? (
-                      <EyeOff className="size-4" />
-                    ) : (
-                      <Eye className="size-4" />
-                    )}
+                    <RefreshCcw
+                      className={cn(
+                        "size-4",
+                        isLoadingModels && "animate-spin",
+                      )}
+                    />
                   </Button>
                 </div>
               </div>
-
-              <Button
-                type="button"
-                variant="secondary"
-                onClick={loadModelsFromProvider}
-                disabled={isLoadingModels || !provider.baseUrl.trim()}
-                className="w-full rounded-none"
-              >
-                <RefreshCcw
-                  className={cn("size-4", isLoadingModels && "animate-spin")}
-                />
-                {getLoadModelsButtonLabel()}
-              </Button>
-
-              {models.length > 0 && (
-                <div className="grid gap-2">
-                  <Label>Detected models</Label>
-                  <Select
-                    value={provider.model}
-                    onValueChange={(model) =>
-                      setProvider({ ...provider, id: "custom", model })
-                    }
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select model" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {models.map((model) => (
-                        <SelectItem key={model} value={model}>
-                          {model}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
 
               <div className="grid gap-2">
                 <Label htmlFor="provider-custom-headers">Custom headers</Label>
