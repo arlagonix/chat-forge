@@ -1,15 +1,21 @@
-import { ipcMain, app, BrowserWindow } from "electron";
-import { existsSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import path from "node:path";
-const __dirname$1 = path.dirname(fileURLToPath(import.meta.url));
-const APP_ROOT = path.join(__dirname$1, "..");
-process.env.APP_ROOT = APP_ROOT;
-const VITE_DEV_SERVER_URL = process.env["VITE_DEV_SERVER_URL"];
-const MAIN_DIST = path.join(APP_ROOT, "dist-electron");
-const RENDERER_DIST = path.join(APP_ROOT, "dist");
-process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL ? path.join(APP_ROOT, "public") : RENDERER_DIST;
-const blockedUpstreamHeaders = /* @__PURE__ */ new Set([
+import { ipcMain as E, app as f, BrowserWindow as O } from "electron";
+import { existsSync as F } from "node:fs";
+import { fileURLToPath as H } from "node:url";
+import a from "node:path";
+const P = a.dirname(H(import.meta.url)), b = a.join(P, "..");
+process.env.APP_ROOT = b;
+const U = process.env.VITE_DEV_SERVER_URL, ee = a.join(b, "dist-electron"), I = a.join(b, "dist");
+function J() {
+  return f.isPackaged ? f.getAppPath() : b;
+}
+function L() {
+  return f.isPackaged ? a.join(J(), "dist") : I;
+}
+function N() {
+  return U ? a.join(b, "public") : L();
+}
+process.env.VITE_PUBLIC = N();
+const B = /* @__PURE__ */ new Set([
   "host",
   "connection",
   "content-length",
@@ -17,286 +23,230 @@ const blockedUpstreamHeaders = /* @__PURE__ */ new Set([
   "origin",
   "referer",
   "cookie"
-]);
-const activeStreamControllers = /* @__PURE__ */ new Map();
-let win = null;
-function normalizeBaseUrl(baseUrl) {
-  return baseUrl.trim().replace(/\/+$/, "");
+]), R = /* @__PURE__ */ new Map();
+let g = null;
+function A(e) {
+  return e.trim().replace(/\/+$/, "");
 }
-function assertProviderRequest(request) {
-  if (!request || typeof request !== "object") {
+function T(e) {
+  if (!e || typeof e != "object")
     throw new Error("Provider request is required.");
-  }
-  if (typeof request.baseUrl !== "string" || !request.baseUrl.trim()) {
+  if (typeof e.baseUrl != "string" || !e.baseUrl.trim())
     throw new Error("Provider base URL is required.");
-  }
   return {
-    baseUrl: request.baseUrl,
-    apiKey: typeof request.apiKey === "string" ? request.apiKey : "",
-    customHeaders: typeof request.customHeaders === "string" ? request.customHeaders : "",
-    payload: request.payload
+    baseUrl: e.baseUrl,
+    apiKey: typeof e.apiKey == "string" ? e.apiKey : "",
+    customHeaders: typeof e.customHeaders == "string" ? e.customHeaders : "",
+    payload: e.payload
   };
 }
-function buildUpstreamHeaders({
-  apiKey,
-  customHeaders,
-  accept,
-  contentType
+function x({
+  apiKey: e,
+  customHeaders: t,
+  accept: n,
+  contentType: o
 }) {
-  const headers = new Headers();
-  if (contentType) headers.set("Content-Type", contentType);
-  if (accept) headers.set("Accept", accept);
-  for (const rawLine of (customHeaders == null ? void 0 : customHeaders.split(/\r?\n/)) ?? []) {
-    const line = rawLine.trim();
-    if (!line || line.startsWith("#")) continue;
-    const separatorIndex = line.indexOf(":");
-    if (separatorIndex <= 0) continue;
-    const name = line.slice(0, separatorIndex).trim();
-    const value = line.slice(separatorIndex + 1).trim();
-    const lowerName = name.toLowerCase();
-    if (!name || !value || blockedUpstreamHeaders.has(lowerName)) continue;
-    try {
-      headers.set(name, value);
-    } catch {
-    }
+  const r = new Headers();
+  o && r.set("Content-Type", o), n && r.set("Accept", n);
+  for (const h of (t == null ? void 0 : t.split(/\r?\n/)) ?? []) {
+    const l = h.trim();
+    if (!l || l.startsWith("#")) continue;
+    const p = l.indexOf(":");
+    if (p <= 0) continue;
+    const u = l.slice(0, p).trim(), v = l.slice(p + 1).trim(), j = u.toLowerCase();
+    if (!(!u || !v || B.has(j)))
+      try {
+        r.set(u, v);
+      } catch {
+      }
   }
-  const trimmedApiKey = apiKey == null ? void 0 : apiKey.trim();
-  if (trimmedApiKey) {
-    headers.set("Authorization", `Bearer ${trimmedApiKey}`);
-  }
-  return headers;
+  const d = e == null ? void 0 : e.trim();
+  return d && r.set("Authorization", `Bearer ${d}`), r;
 }
-async function readUpstreamJson(response) {
-  const text = await response.text();
-  if (!response.ok) {
-    throw new Error(text || `Provider returned ${response.status}`);
-  }
+async function $(e) {
+  const t = await e.text();
+  if (!e.ok)
+    throw new Error(t || `Provider returned ${e.status}`);
   try {
-    return JSON.parse(text);
+    return JSON.parse(t);
   } catch {
     throw new Error("Provider returned a non-JSON response.");
   }
 }
-function getDeltaText(value) {
-  if (typeof value === "string") return value;
-  if (Array.isArray(value)) {
-    return value.map((item) => {
-      if (typeof item === "string") return item;
-      if (item && typeof item === "object" && "text" in item && typeof item.text === "string") {
-        return item.text;
-      }
-      if (item && typeof item === "object" && "content" in item && typeof item.content === "string") {
-        return item.content;
-      }
-      return "";
-    }).join("");
-  }
-  return "";
+function w(e) {
+  return typeof e == "string" ? e : Array.isArray(e) ? e.map((t) => typeof t == "string" ? t : t && typeof t == "object" && "text" in t && typeof t.text == "string" ? t.text : t && typeof t == "object" && "content" in t && typeof t.content == "string" ? t.content : "").join("") : "";
 }
-function readContentDelta(data) {
-  var _a;
-  if (!data || typeof data !== "object") return "";
-  const choices = "choices" in data ? data.choices : void 0;
-  if (!Array.isArray(choices)) return "";
-  const delta = (_a = choices[0]) == null ? void 0 : _a.delta;
-  if (!delta || typeof delta !== "object") return "";
-  return getDeltaText("content" in delta ? delta.content : void 0);
+function K(e) {
+  var o;
+  if (!e || typeof e != "object") return "";
+  const t = "choices" in e ? e.choices : void 0;
+  if (!Array.isArray(t)) return "";
+  const n = (o = t[0]) == null ? void 0 : o.delta;
+  return !n || typeof n != "object" ? "" : w("content" in n ? n.content : void 0);
 }
-function readReasoningDelta(data) {
-  var _a;
-  if (!data || typeof data !== "object") return "";
-  const choices = "choices" in data ? data.choices : void 0;
-  if (!Array.isArray(choices)) return "";
-  const delta = (_a = choices[0]) == null ? void 0 : _a.delta;
-  if (!delta || typeof delta !== "object") return "";
-  return getDeltaText("reasoning_content" in delta ? delta.reasoning_content : void 0) || getDeltaText("reasoning" in delta ? delta.reasoning : void 0) || getDeltaText("thinking" in delta ? delta.thinking : void 0) || getDeltaText("reasoning_details" in delta ? delta.reasoning_details : void 0);
+function M(e) {
+  var o;
+  if (!e || typeof e != "object") return "";
+  const t = "choices" in e ? e.choices : void 0;
+  if (!Array.isArray(t)) return "";
+  const n = (o = t[0]) == null ? void 0 : o.delta;
+  return !n || typeof n != "object" ? "" : w("reasoning_content" in n ? n.reasoning_content : void 0) || w("reasoning" in n ? n.reasoning : void 0) || w("thinking" in n ? n.thinking : void 0) || w("reasoning_details" in n ? n.reasoning_details : void 0);
 }
-function readNumber(value) {
-  return typeof value === "number" && Number.isFinite(value) ? value : void 0;
+function k(e) {
+  return typeof e == "number" && Number.isFinite(e) ? e : void 0;
 }
-function readUsage(data) {
-  if (!data || typeof data !== "object" || !("usage" in data)) return void 0;
-  const usage = data.usage;
-  if (!usage || typeof usage !== "object") return void 0;
-  const promptTokens = readNumber("prompt_tokens" in usage ? usage.prompt_tokens : void 0);
-  const completionTokens = readNumber(
-    "completion_tokens" in usage ? usage.completion_tokens : void 0
-  );
-  const totalTokens = readNumber("total_tokens" in usage ? usage.total_tokens : void 0);
-  if (promptTokens === void 0 && completionTokens === void 0 && totalTokens === void 0) {
-    return void 0;
-  }
-  return { promptTokens, completionTokens, totalTokens };
+function z(e) {
+  if (!e || typeof e != "object" || !("usage" in e)) return;
+  const t = e.usage;
+  if (!t || typeof t != "object") return;
+  const n = k("prompt_tokens" in t ? t.prompt_tokens : void 0), o = k(
+    "completion_tokens" in t ? t.completion_tokens : void 0
+  ), r = k("total_tokens" in t ? t.total_tokens : void 0);
+  if (!(n === void 0 && o === void 0 && r === void 0))
+    return { promptTokens: n, completionTokens: o, totalTokens: r };
 }
-function readFinishReason(data) {
-  var _a;
-  if (!data || typeof data !== "object") return void 0;
-  const choices = "choices" in data ? data.choices : void 0;
-  if (!Array.isArray(choices)) return void 0;
-  const finishReason = (_a = choices[0]) == null ? void 0 : _a.finish_reason;
-  return typeof finishReason === "string" ? finishReason : void 0;
+function G(e) {
+  var o;
+  if (!e || typeof e != "object") return;
+  const t = "choices" in e ? e.choices : void 0;
+  if (!Array.isArray(t)) return;
+  const n = (o = t[0]) == null ? void 0 : o.finish_reason;
+  return typeof n == "string" ? n : void 0;
 }
-function resolvePreloadPath() {
-  const candidates = [
-    path.join(__dirname$1, "preload.cjs"),
-    path.join(__dirname$1, "preload.js"),
-    path.join(__dirname$1, "preload.mjs")
-  ];
-  const preloadPath = candidates.find((candidate) => existsSync(candidate));
-  if (!preloadPath) {
-    throw new Error(`Unable to find Electron preload script. Checked: ${candidates.join(", ")}`);
-  }
-  return preloadPath;
+function Q() {
+  const e = [
+    a.join(P, "preload.cjs"),
+    a.join(P, "preload.js"),
+    a.join(P, "preload.mjs")
+  ], t = e.find((n) => F(n));
+  if (!t)
+    throw new Error(`Unable to find Electron preload script. Checked: ${e.join(", ")}`);
+  return t;
 }
-function createWindow() {
-  win = new BrowserWindow({
+function C() {
+  g = new O({
     width: 1280,
     height: 860,
     minWidth: 940,
     minHeight: 620,
     title: "Chat Forge",
-    icon: path.join(process.env.VITE_PUBLIC ?? RENDERER_DIST, "icon.png"),
+    icon: a.join(N(), "icon.png"),
     webPreferences: {
-      preload: resolvePreloadPath(),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: false
+      preload: Q(),
+      contextIsolation: !0,
+      nodeIntegration: !1,
+      sandbox: !1
     }
-  });
-  if (VITE_DEV_SERVER_URL) {
-    win.loadURL(VITE_DEV_SERVER_URL);
-  } else {
-    win.loadFile(path.join(RENDERER_DIST, "index.html"));
-  }
+  }), g.webContents.on("did-fail-load", (e, t, n, o) => {
+    console.error("Failed to load renderer", { errorCode: t, errorDescription: n, validatedURL: o });
+  }), U ? g.loadURL(U) : g.loadFile(a.join(L(), "index.html"));
 }
-ipcMain.handle("ai:load-models", async (_event, request) => {
-  const { baseUrl, apiKey, customHeaders } = assertProviderRequest(request);
-  const response = await fetch(`${normalizeBaseUrl(baseUrl)}/models`, {
+E.handle("ai:load-models", async (e, t) => {
+  const { baseUrl: n, apiKey: o, customHeaders: r } = T(t), d = await fetch(`${A(n)}/models`, {
     method: "GET",
-    headers: buildUpstreamHeaders({ apiKey, customHeaders, accept: "application/json" }),
+    headers: x({ apiKey: o, customHeaders: r, accept: "application/json" }),
     cache: "no-store"
   });
-  return readUpstreamJson(response);
+  return $(d);
 });
-ipcMain.handle("ai:send-chat", async (_event, request) => {
-  const { baseUrl, apiKey, customHeaders, payload } = assertProviderRequest(request);
-  const response = await fetch(`${normalizeBaseUrl(baseUrl)}/chat/completions`, {
+E.handle("ai:send-chat", async (e, t) => {
+  const { baseUrl: n, apiKey: o, customHeaders: r, payload: d } = T(t), h = await fetch(`${A(n)}/chat/completions`, {
     method: "POST",
-    headers: buildUpstreamHeaders({
-      apiKey,
-      customHeaders,
+    headers: x({
+      apiKey: o,
+      customHeaders: r,
       contentType: "application/json",
       accept: "application/json"
     }),
-    body: JSON.stringify(payload),
+    body: JSON.stringify(d),
     cache: "no-store"
   });
-  return readUpstreamJson(response);
+  return $(h);
 });
-ipcMain.handle("ai:cancel-stream", (_event, streamId) => {
-  var _a;
-  (_a = activeStreamControllers.get(streamId)) == null ? void 0 : _a.abort();
-  activeStreamControllers.delete(streamId);
+E.handle("ai:cancel-stream", (e, t) => {
+  var n;
+  (n = R.get(t)) == null || n.abort(), R.delete(t);
 });
-ipcMain.handle("ai:stream-chat", async (event, streamId, request) => {
-  const { baseUrl, apiKey, customHeaders, payload } = assertProviderRequest(request);
-  const controller = new AbortController();
-  activeStreamControllers.set(streamId, controller);
-  let usage;
-  let finishReason;
+E.handle("ai:stream-chat", async (e, t, n) => {
+  const { baseUrl: o, apiKey: r, customHeaders: d, payload: h } = T(n), l = new AbortController();
+  R.set(t, l);
+  let p, u;
   try {
-    let sendRawData = function(data) {
-      const eventUsage = readUsage(data);
-      if (eventUsage) usage = eventUsage;
-      const eventFinishReason = readFinishReason(data);
-      if (eventFinishReason) finishReason = eventFinishReason;
-      const reasoningDelta = readReasoningDelta(data);
-      if (reasoningDelta) {
-        event.sender.send(`ai:stream-delta:${streamId}`, {
-          type: "reasoning",
-          delta: reasoningDelta
-        });
-      }
-      const contentDelta = readContentDelta(data);
-      if (contentDelta) {
-        event.sender.send(`ai:stream-delta:${streamId}`, {
-          type: "content",
-          delta: contentDelta
-        });
-      }
-    }, processDataLine = function(dataLine) {
-      const trimmed = dataLine.trim();
-      if (!trimmed || trimmed === "[DONE]") return;
-      try {
-        sendRawData(JSON.parse(trimmed));
-      } catch {
-      }
-    }, processLine = function(rawLine) {
-      const line = rawLine.trimEnd();
-      const trimmedLine = line.trimStart();
-      if (!trimmedLine || trimmedLine.startsWith(":")) return;
-      if (trimmedLine.startsWith("data:")) {
-        processDataLine(trimmedLine.slice(5).trimStart());
-        return;
-      }
-      if (trimmedLine.startsWith("{")) {
-        processDataLine(trimmedLine);
+    let v = function(i) {
+      const c = z(i);
+      c && (p = c);
+      const s = G(i);
+      s && (u = s);
+      const _ = M(i);
+      _ && e.sender.send(`ai:stream-delta:${t}`, {
+        type: "reasoning",
+        delta: _
+      });
+      const D = K(i);
+      D && e.sender.send(`ai:stream-delta:${t}`, {
+        type: "content",
+        delta: D
+      });
+    }, j = function(i) {
+      const c = i.trim();
+      if (!(!c || c === "[DONE]"))
+        try {
+          v(JSON.parse(c));
+        } catch {
+        }
+    }, S = function(i) {
+      const s = i.trimEnd().trimStart();
+      if (!(!s || s.startsWith(":"))) {
+        if (s.startsWith("data:")) {
+          j(s.slice(5).trimStart());
+          return;
+        }
+        s.startsWith("{") && j(s);
       }
     };
-    const response = await fetch(`${normalizeBaseUrl(baseUrl)}/chat/completions`, {
+    const y = await fetch(`${A(o)}/chat/completions`, {
       method: "POST",
-      headers: buildUpstreamHeaders({
-        apiKey,
-        customHeaders,
+      headers: x({
+        apiKey: r,
+        customHeaders: d,
         contentType: "application/json",
         accept: "text/event-stream"
       }),
-      body: JSON.stringify(payload),
+      body: JSON.stringify(h),
       cache: "no-store",
-      signal: controller.signal
+      signal: l.signal
     });
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(text || `Provider returned ${response.status}`);
+    if (!y.ok) {
+      const i = await y.text();
+      throw new Error(i || `Provider returned ${y.status}`);
     }
-    if (!response.body) {
+    if (!y.body)
       throw new Error("Provider response did not include a readable stream.");
+    const W = y.body.getReader(), V = new TextDecoder();
+    let m = "";
+    for (; ; ) {
+      const { value: i, done: c } = await W.read();
+      m += V.decode(i, { stream: !c });
+      const s = m.split(/\r?\n/);
+      m = s.pop() ?? "";
+      for (const _ of s)
+        S(_);
+      if (c) break;
     }
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-    while (true) {
-      const { value, done } = await reader.read();
-      buffer += decoder.decode(value, { stream: !done });
-      const lines = buffer.split(/\r?\n/);
-      buffer = lines.pop() ?? "";
-      for (const line of lines) {
-        processLine(line);
-      }
-      if (done) break;
-    }
-    if (buffer.trim()) {
-      processLine(buffer);
-    }
-    return { usage, finishReason };
+    return m.trim() && S(m), { usage: p, finishReason: u };
   } finally {
-    activeStreamControllers.delete(streamId);
+    R.delete(t);
   }
 });
-app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") {
-    app.quit();
-    win = null;
-  }
+f.on("window-all-closed", () => {
+  process.platform !== "darwin" && (f.quit(), g = null);
 });
-app.on("activate", () => {
-  if (BrowserWindow.getAllWindows().length === 0) {
-    createWindow();
-  }
+f.on("activate", () => {
+  O.getAllWindows().length === 0 && C();
 });
-app.whenReady().then(createWindow);
+f.whenReady().then(C);
 export {
-  MAIN_DIST,
-  RENDERER_DIST,
-  VITE_DEV_SERVER_URL
+  ee as MAIN_DIST,
+  I as RENDERER_DIST,
+  U as VITE_DEV_SERVER_URL
 };

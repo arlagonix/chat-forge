@@ -94,11 +94,11 @@ export function MarkdownMessage({ content, className }: MarkdownMessageProps) {
               {children}
             </code>
           ),
-          pre: ({ className, children, ...props }) => {
+          pre: ({ className, children }) => {
             const code = Children.toArray(children).map(textFromNode).join("");
 
             return (
-              <div className={cn("chat-code-block", className)} {...props}>
+              <div className={cn("chat-code-block", className)}>
                 <CodeCopyButton code={code} />
                 <pre>
                   {children}

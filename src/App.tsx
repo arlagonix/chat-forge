@@ -179,9 +179,11 @@ function sanitizeGenerationSettings(
   settings: ProviderGenerationSettings,
 ): ProviderGenerationSettings {
   return Object.fromEntries(
-    Object.entries(settings).filter(
-      ([, value]) => value !== undefined && value !== "",
-    ),
+    Object.entries(settings).filter(([, value]) => {
+      if (value === undefined) return false;
+      if (typeof value === "string") return value.trim().length > 0;
+      return true;
+    }),
   ) as ProviderGenerationSettings;
 }
 
@@ -1161,6 +1163,9 @@ export default function Home() {
           ...variant,
           status: "done",
           metrics: {
+            startedAt:
+              variant.metrics?.startedAt ??
+              new Date(Date.now() - durationMs).toISOString(),
             ...variant.metrics,
             completedAt: new Date().toISOString(),
             ...buildTokenMetrics({
@@ -1198,6 +1203,9 @@ export default function Home() {
             status: wasAborted ? "done" : "error",
             content,
             metrics: {
+              startedAt:
+                variant.metrics?.startedAt ??
+                new Date(Date.now() - durationMs).toISOString(),
               ...variant.metrics,
               completedAt: new Date().toISOString(),
               ...buildTokenMetrics({
