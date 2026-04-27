@@ -1,9 +1,16 @@
+@import "@fontsource/jetbrains-mono/400.css";
+@import "@fontsource/jetbrains-mono/500.css";
+@import "@fontsource/jetbrains-mono/600.css";
+@import "@fontsource/jetbrains-mono/700.css";
 @import "tailwindcss";
 @import "tw-animate-css";
 
 @custom-variant dark (&:is(.dark *));
 
 :root {
+  --font-jetbrains-mono:
+    "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", "Courier New", monospace;
   --background: oklch(0.955 0.004 95);
   --foreground: oklch(0.24 0.01 95);
 
@@ -67,8 +74,8 @@
 }
 
 @theme inline {
-  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
-  --font-mono: var(--font-mono), ui-monospace, monospace;
+  --font-sans: var(--font-jetbrains-mono), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains-mono);
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -117,6 +124,13 @@
 
   button:not(:disabled) {
     cursor: pointer;
+  }
+
+  code,
+  pre,
+  kbd,
+  samp {
+    font-family: var(--font-jetbrains-mono);
   }
 }
 
@@ -258,4 +272,8 @@
   .chat-markdown i {
     font-style: oblique 8deg;
   }
+}
+
+body {
+  letter-spacing: -0.05em;
 }
