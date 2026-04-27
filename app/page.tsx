@@ -1650,8 +1650,7 @@ export default function Home() {
           <DialogHeader className="h-[96px] shrink-0 overflow-hidden border-b px-5 py-4 pr-12">
             <DialogTitle>Provider settings</DialogTitle>
             <DialogDescription>
-              Configure any OpenAI-compatible endpoint. Requests are routed
-              through the local app API to avoid browser CORS issues.
+              Configure any OpenAI-compatible endpoint. Requests are sent directly from the browser, so the provider must allow CORS.
             </DialogDescription>
           </DialogHeader>
 

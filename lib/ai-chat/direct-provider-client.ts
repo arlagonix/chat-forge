@@ -228,15 +228,187 @@ function buildPayload({
   };
 }
 
-function proxyRequestBody(provider: ProviderConfig) {
-  const settings = getActiveModelSettings(provider);
+const BLOCKED_BROWSER_HEADERS = new Set([
+  "accept-encoding",
+  "connection",
+  "content-length",
+  "cookie",
+  "host",
+  "origin",
+  "referer",
+  "sec-fetch-dest",
+  "sec-fetch-mode",
+  "sec-fetch-site",
+  "transfer-encoding",
+  "upgrade",
+]);
 
-  return {
-    baseUrl: provider.baseUrl,
-    apiKey: provider.apiKey,
-    customHeaders: provider.customHeaders ?? "",
-    timeoutMs: settings.requestTimeoutMs ?? defaultGenerationSettings.requestTimeoutMs,
-  };
+function normalizeBaseUrl(baseUrl: string) {
+  return baseUrl.trim().replace(/\/+$/, "");
+}
+
+function parseCustomHeaders(rawHeaders?: string) {
+  const headers = new Headers();
+  const lines = rawHeaders?.split(/\r?\n/) ?? [];
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) continue;
+
+    const separatorIndex = line.indexOf(":");
+    if (separatorIndex <= 0) continue;
+
+    const name = line.slice(0, separatorIndex).trim();
+    const value = line.slice(separatorIndex + 1).trim();
+    const normalizedName = name.toLowerCase();
+
+    if (!name || !value || BLOCKED_BROWSER_HEADERS.has(normalizedName)) continue;
+
+    try {
+      headers.set(name, value);
+    } catch {
+      // Ignore invalid header names/values instead of breaking the request form.
+    }
+  }
+
+  return headers;
+}
+
+function buildOpenAIHeaders({
+  provider,
+  extraHeaders,
+}: {
+  provider: ProviderConfig;
+  extraHeaders?: HeadersInit;
+}) {
+  const headers = parseCustomHeaders(provider.customHeaders);
+  const additionalHeaders = new Headers(extraHeaders);
+
+  additionalHeaders.forEach((value, key) => {
+    headers.set(key, value);
+  });
+
+  const trimmedApiKey = provider.apiKey.trim();
+  if (trimmedApiKey) {
+    headers.set("Authorization", `Bearer ${trimmedApiKey}`);
+  }
+
+  return headers;
+}
+
+function normalizeTimeout(value: unknown) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return 30000;
+  return Math.min(Math.max(Math.round(value), 1000), 300000);
+}
+
+function mergeSignals(left?: AbortSignal | null, right?: AbortSignal | null) {
+  if (!left) return right ?? undefined;
+  if (!right) return left;
+
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+
+  if (left.aborted || right.aborted) {
+    controller.abort();
+    return controller.signal;
+  }
+
+  left.addEventListener("abort", abort, { once: true });
+  right.addEventListener("abort", abort, { once: true });
+
+  return controller.signal;
+}
+
+async function fetchWithTimeout(
+  input: RequestInfo | URL,
+  init: RequestInit = {},
+  timeoutMs = 30000,
+) {
+  if (timeoutMs <= 0) {
+    return fetch(input, init);
+  }
+
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(input, {
+      ...init,
+      signal: mergeSignals(init.signal, controller.signal),
+    });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new Error("Provider request timed out or was cancelled.");
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
+
+async function fetchStreamWithConnectionTimeout(
+  input: RequestInfo | URL,
+  init: RequestInit = {},
+  timeoutMs = 30000,
+) {
+  if (timeoutMs <= 0) {
+    return fetch(input, init);
+  }
+
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(input, {
+      ...init,
+      signal: mergeSignals(init.signal, controller.signal),
+    });
+    window.clearTimeout(timeoutId);
+    return response;
+  } catch (error) {
+    window.clearTimeout(timeoutId);
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new Error("Provider stream timed out before the response started or was cancelled.");
+    }
+    throw error;
+  }
+}
+
+type ModelLike = {
+  id?: unknown;
+  name?: unknown;
+  display_name?: unknown;
+};
+
+function getModelId(model: ModelLike) {
+  if (typeof model.id === "string" && model.id.trim()) return model.id;
+  if (typeof model.name === "string" && model.name.trim()) return model.name.replace(/^models\//, "");
+  if (typeof model.display_name === "string" && model.display_name.trim()) return model.display_name;
+  return undefined;
+}
+
+function normalizeModelList(data: unknown) {
+  const source = (() => {
+    if (Array.isArray(data)) return data;
+    if (data && typeof data === "object" && "data" in data && Array.isArray(data.data)) return data.data;
+    if (data && typeof data === "object" && "models" in data && Array.isArray(data.models)) return data.models;
+    return [];
+  })();
+
+  const normalized = source
+    .map((model: unknown) => {
+      if (typeof model === "string") return model;
+      if (!model || typeof model !== "object") return undefined;
+      return getModelId(model as ModelLike);
+    })
+    .filter((model: unknown): model is string => typeof model === "string" && model.trim().length > 0);
+
+  return [...new Set(normalized)].sort((left, right) => left.localeCompare(right));
+}
+
+function getRequestTimeout(provider: ProviderConfig) {
+  const settings = getActiveModelSettings(provider);
+  return normalizeTimeout(settings.requestTimeoutMs ?? defaultGenerationSettings.requestTimeoutMs);
 }
 
 function createReasoningTagParser({
@@ -319,25 +491,17 @@ export async function loadProviderModels(provider: ProviderConfig): Promise<stri
     throw new Error("Provider base URL is required.");
   }
 
-  const response = await fetch("/api/ai-chat/openai-compatible/models", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
+  const response = await fetchWithTimeout(
+    `${normalizeBaseUrl(provider.baseUrl)}/models`,
+    {
+      method: "GET",
+      headers: buildOpenAIHeaders({ provider }),
     },
-    body: JSON.stringify(proxyRequestBody(provider)),
-  });
+    getRequestTimeout(provider),
+  );
 
   const data = await readProviderResponse(response);
-
-  if (data?.error && (!Array.isArray(data?.models) || data.models.length === 0)) {
-    throw new Error(String(data.error));
-  }
-
-  if (!Array.isArray(data?.models)) {
-    return [];
-  }
-
-  return data.models.filter((id: unknown): id is string => typeof id === "string");
+  return normalizeModelList(data);
 }
 
 export async function sendProviderChat({
@@ -363,16 +527,23 @@ export async function sendProviderChat({
     throw new Error("Message is required.");
   }
 
-  const response = await fetch("/api/ai-chat/openai-compatible/chat", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
+  const response = await fetchWithTimeout(
+    `${normalizeBaseUrl(provider.baseUrl)}/chat/completions`,
+    {
+      method: "POST",
+      headers: buildOpenAIHeaders({
+        provider,
+        extraHeaders: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+      }),
+      body: JSON.stringify(
+        buildPayload({ provider, systemPrompt, messages, userMessage, stream: false }),
+      ),
     },
-    body: JSON.stringify({
-      ...proxyRequestBody(provider),
-      payload: buildPayload({ provider, systemPrompt, messages, userMessage, stream: false }),
-    }),
-  });
+    getRequestTimeout(provider),
+  );
 
   const data = await readProviderResponse(response);
   const content = data?.choices?.[0]?.message?.content;
@@ -418,17 +589,24 @@ export async function streamProviderChat({
     throw new Error("Message is required.");
   }
 
-  const response = await fetch("/api/ai-chat/openai-compatible/chat", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
+  const response = await fetchStreamWithConnectionTimeout(
+    `${normalizeBaseUrl(provider.baseUrl)}/chat/completions`,
+    {
+      method: "POST",
+      headers: buildOpenAIHeaders({
+        provider,
+        extraHeaders: {
+          "Content-Type": "application/json",
+          Accept: "text/event-stream, application/json",
+        },
+      }),
+      body: JSON.stringify(
+        buildPayload({ provider, systemPrompt, messages, userMessage, stream: true }),
+      ),
+      signal,
     },
-    body: JSON.stringify({
-      ...proxyRequestBody(provider),
-      payload: buildPayload({ provider, systemPrompt, messages, userMessage, stream: true }),
-    }),
-    signal,
-  });
+    getRequestTimeout(provider),
+  );
 
   if (!response.ok) {
     const responseText = await response.text();
