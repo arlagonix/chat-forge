@@ -1619,8 +1619,8 @@ export default function Home() {
       </section>
 
       <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
-        <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-hidden p-0 sm:max-w-3xl">
-          <DialogHeader className="border-b px-5 py-4">
+        <DialogContent className="flex h-[min(760px,calc(100dvh-2rem))] max-h-none flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl">
+          <DialogHeader className="h-[96px] shrink-0 overflow-hidden border-b px-5 py-4 pr-12">
             <DialogTitle>Provider settings</DialogTitle>
             <DialogDescription>
               Configure any OpenAI-compatible endpoint. Requests are routed
@@ -1628,7 +1628,7 @@ export default function Home() {
             </DialogDescription>
           </DialogHeader>
 
-          <ScrollArea className="max-h-[calc(100dvh-12rem)] px-5 py-4">
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4">
             <div className="grid gap-5 pb-1">
               <div className="grid gap-2">
                 <Label>Preset</Label>
@@ -1934,9 +1934,9 @@ export default function Home() {
                 />
               </div>
             </div>
-          </ScrollArea>
+          </div>
 
-          <DialogFooter className="border-t px-5 py-4">
+          <DialogFooter className="h-[72px] shrink-0 items-center border-t px-5 py-3">
             <Button
               type="button"
               variant="secondary"
