@@ -50,10 +50,12 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  getActiveModelSettings,
   loadProviderModels,
   streamProviderChat,
 } from "@/lib/ai-chat/direct-provider-client";
 import {
+  defaultGenerationSettings,
   defaultProvider,
   providerPresets,
 } from "@/lib/ai-chat/provider-presets";
@@ -76,6 +78,7 @@ import type {
   ChatSession,
   ChatTokenUsage,
   ProviderConfig,
+  ProviderGenerationSettings,
 } from "@/lib/ai-chat/types";
 import { cn } from "@/lib/utils";
 import { useTheme } from "next-themes";
@@ -111,10 +114,14 @@ function buildTokenMetrics({
   content,
   durationMs,
   usage,
+  provider,
+  finishReason,
 }: {
   content: string;
   durationMs: number;
   usage?: ChatTokenUsage;
+  provider: ProviderConfig;
+  finishReason?: string;
 }) {
   const exactOutputTokens = usage?.completionTokens;
   const outputTokens = exactOutputTokens ?? estimateTokens(content);
@@ -127,7 +134,62 @@ function buildTokenMetrics({
     outputTokens,
     tokensPerSecond,
     isApproximate: exactOutputTokens === undefined,
+    providerName: provider.name,
+    model: provider.model,
+    finishReason,
   };
+}
+
+function formatOptionalNumber(value: number | undefined) {
+  return value === undefined || !Number.isFinite(value) ? "" : String(value);
+}
+
+function parseOptionalNumber(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+
+  const parsed = Number(trimmed);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function sanitizeGenerationSettings(
+  settings: ProviderGenerationSettings,
+): ProviderGenerationSettings {
+  return Object.fromEntries(
+    Object.entries(settings).filter(([, value]) => value !== undefined && value !== ""),
+  ) as ProviderGenerationSettings;
+}
+
+function getSettingsForProvider(provider: ProviderConfig) {
+  return getActiveModelSettings(provider);
+}
+
+function formatMetricDetails(
+  metrics: NonNullable<ChatAssistantVariant["metrics"]>,
+) {
+  const rows = [
+    ["Duration", metrics.durationMs !== undefined ? formatDuration(metrics.durationMs) : undefined],
+    [
+      "Speed",
+      metrics.tokensPerSecond !== undefined
+        ? `${metrics.isApproximate ? "~" : ""}${metrics.tokensPerSecond.toFixed(1)} tok/s`
+        : undefined,
+    ],
+    [
+      "Output tokens",
+      metrics.outputTokens !== undefined
+        ? `${metrics.isApproximate ? "~" : ""}${metrics.outputTokens}`
+        : undefined,
+    ],
+    ["Prompt tokens", metrics.tokenUsage?.promptTokens],
+    ["Completion tokens", metrics.tokenUsage?.completionTokens],
+    ["Total tokens", metrics.tokenUsage?.totalTokens],
+    ["Finish reason", metrics.finishReason],
+    ["Provider", metrics.providerName],
+    ["Model", metrics.model],
+  ];
+
+  return rows.filter(([, value]) => value !== undefined && value !== "");
 }
 
 function formatTokenMetrics(
@@ -219,6 +281,10 @@ export default function Home() {
   const [expandedReasoningIds, setExpandedReasoningIds] = useState<
     Record<string, boolean>
   >({});
+  const [expandedMetricsIds, setExpandedMetricsIds] = useState<
+    Record<string, boolean>
+  >({});
+  const [isNearChatBottom, setIsNearChatBottom] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
   const draftTextareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -238,6 +304,7 @@ export default function Home() {
   }, [activeChatId, sortedChats]);
 
   const messages = activeChat?.messages ?? [];
+  const activeModelSettings = getSettingsForProvider(provider);
 
   useEffect(() => {
     let cancelled = false;
@@ -450,6 +517,25 @@ export default function Home() {
     }));
   }
 
+  function toggleMetrics(messageId: string) {
+    setExpandedMetricsIds((current) => ({
+      ...current,
+      [messageId]: !current[messageId],
+    }));
+  }
+
+  function scrollChatToBottom(behavior: ScrollBehavior = "smooth") {
+    const scrollElement = chatScrollRef.current;
+    if (!scrollElement) return;
+
+    shouldStickToBottomRef.current = true;
+    setIsNearChatBottom(true);
+    scrollElement.scrollTo({
+      top: scrollElement.scrollHeight,
+      behavior,
+    });
+  }
+
   function handleChatScroll() {
     const scrollElement = chatScrollRef.current;
     if (!scrollElement) return;
@@ -458,7 +544,9 @@ export default function Home() {
       scrollElement.scrollHeight -
       scrollElement.scrollTop -
       scrollElement.clientHeight;
-    shouldStickToBottomRef.current = distanceFromBottom < 96;
+    const isNearBottom = distanceFromBottom < 96;
+    shouldStickToBottomRef.current = isNearBottom;
+    setIsNearChatBottom(isNearBottom);
 
     if (isAutoScrollingRef.current) return;
   }
@@ -553,9 +641,61 @@ export default function Home() {
     const preset = providerPresets.find((item) => item.id === id);
     if (!preset) return;
 
-    setProvider(preset);
+    setProvider({
+      ...preset,
+      defaultSettings: {
+        ...defaultGenerationSettings,
+        ...(preset.defaultSettings ?? {}),
+      },
+      modelSettings: preset.modelSettings ?? {},
+    });
     setModels([]);
     showSuccess("Provider preset loaded", preset.name);
+  }
+
+  function updateProviderSetting(patch: Partial<ProviderConfig>) {
+    setProvider((currentProvider) => ({
+      ...currentProvider,
+      ...patch,
+      id: patch.id ?? "custom",
+    }));
+  }
+
+  function updateActiveModelSettings(patch: ProviderGenerationSettings) {
+    setProvider((currentProvider) => {
+      const modelKey = currentProvider.model.trim() || "__default__";
+      const currentModelSettings = currentProvider.modelSettings?.[modelKey] ?? {};
+
+      return {
+        ...currentProvider,
+        id: "custom",
+        defaultSettings: {
+          ...defaultGenerationSettings,
+          ...(currentProvider.defaultSettings ?? {}),
+        },
+        modelSettings: {
+          ...(currentProvider.modelSettings ?? {}),
+          [modelKey]: sanitizeGenerationSettings({
+            ...currentModelSettings,
+            ...patch,
+          }),
+        },
+      };
+    });
+  }
+
+  function resetActiveModelSettings() {
+    setProvider((currentProvider) => {
+      const modelKey = currentProvider.model.trim() || "__default__";
+      const nextModelSettings = { ...(currentProvider.modelSettings ?? {}) };
+      delete nextModelSettings[modelKey];
+
+      return {
+        ...currentProvider,
+        id: "custom",
+        modelSettings: nextModelSettings,
+      };
+    });
   }
 
   function setTemporaryModelLoadStatus(status: "success" | "empty" | "error") {
@@ -698,6 +838,8 @@ export default function Home() {
               content: variant.content,
               durationMs,
               usage: streamResult.usage,
+              provider,
+              finishReason: streamResult.finishReason,
             }),
           },
         }),
@@ -730,6 +872,7 @@ export default function Home() {
               ...buildTokenMetrics({
                 content,
                 durationMs,
+                provider,
               }),
             },
           };
@@ -885,6 +1028,59 @@ export default function Home() {
     });
   }
 
+  async function continueAssistantMessage(assistantMessageId: string) {
+    if (isSending) return;
+    if (!activeChat) return;
+    if (!validateProviderForGeneration()) return;
+
+    const assistantIndex = activeChat.messages.findIndex(
+      (message) =>
+        message.id === assistantMessageId && message.role === "assistant",
+    );
+    const assistantMessage = activeChat.messages[assistantIndex];
+
+    if (assistantIndex < 0 || !assistantMessage || assistantMessage.role !== "assistant") {
+      return;
+    }
+
+    const activeVariant = getActiveVariant(assistantMessage);
+    if (!activeVariant?.content.trim()) {
+      showError("There is no answer to continue.");
+      return;
+    }
+
+    const responseStartedAtMs = performance.now();
+    const responseStartedAt = new Date().toISOString();
+    const contextMessages = activeChat.messages.slice(0, assistantIndex + 1);
+    const continuePrompt = "Continue from exactly where your previous answer stopped. Do not repeat the previous text.";
+
+    updateAssistantVariant(
+      activeChat.id,
+      assistantMessageId,
+      activeVariant.id,
+      (variant) => ({
+        ...variant,
+        status: "streaming",
+        metrics: {
+          ...variant.metrics,
+          startedAt: responseStartedAt,
+          completedAt: undefined,
+        },
+      }),
+    );
+
+    shouldStickToBottomRef.current = true;
+
+    await runAssistantVariant({
+      chatId: activeChat.id,
+      contextMessages,
+      userMessage: continuePrompt,
+      assistantMessageId,
+      variantId: activeVariant.id,
+      responseStartedAtMs,
+    });
+  }
+
   function stopGeneration() {
     abortControllerRef.current?.abort();
   }
@@ -895,6 +1091,7 @@ export default function Home() {
     setActiveChatId(chat.id);
     setDraft("");
     setExpandedReasoningIds({});
+    setExpandedMetricsIds({});
     shouldStickToBottomRef.current = true;
 
     try {
@@ -909,6 +1106,7 @@ export default function Home() {
     setActiveChatId(chatId);
     setDraft("");
     setExpandedReasoningIds({});
+    setExpandedMetricsIds({});
     shouldStickToBottomRef.current = true;
   }
 
@@ -925,6 +1123,7 @@ export default function Home() {
       updatedAt: now,
     }));
     setExpandedReasoningIds({});
+    setExpandedMetricsIds({});
     showSuccess("Chat cleared.");
   }
 
@@ -944,6 +1143,7 @@ export default function Home() {
     setChats(nextChats);
     setActiveChatId(nextActiveId);
     setExpandedReasoningIds({});
+    setExpandedMetricsIds({});
 
     try {
       await deleteChat(chatId);
@@ -1088,7 +1288,7 @@ export default function Home() {
         </div>
       </aside>
 
-      <section className="grid min-h-0 flex-1 grid-rows-[1fr_auto] bg-background">
+      <section className="relative grid min-h-0 flex-1 grid-rows-[1fr_auto] bg-background">
         <div className="min-h-0 overflow-hidden" onWheel={handleChatWheel}>
           <div
             ref={chatScrollRef}
@@ -1234,72 +1434,115 @@ export default function Home() {
                       )}
 
                       {message.role === "assistant" && (
-                        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 text-[11px] leading-4 text-muted-foreground">
-                          <div>
-                            {metrics?.durationMs !== undefined &&
-                              formatTokenMetrics(metrics)}
+                        <div className="grid gap-2 text-[11px] leading-4 text-muted-foreground">
+                          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+                            <button
+                              type="button"
+                              className="min-h-6 text-left hover:text-foreground disabled:pointer-events-none"
+                              disabled={metrics?.durationMs === undefined}
+                              onClick={() => toggleMetrics(message.id)}
+                              title="Show generation details"
+                            >
+                              {metrics?.durationMs !== undefined
+                                ? formatTokenMetrics(metrics)
+                                : status === "streaming"
+                                  ? "Generating..."
+                                  : ""}
+                            </button>
+
+                            <div className="flex flex-wrap items-center justify-end gap-1.5">
+                              {variantCount > 1 && (
+                                <div className="flex items-center gap-1">
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon-sm"
+                                    className="h-6 w-6 rounded-none text-muted-foreground"
+                                    onClick={() =>
+                                      selectAssistantVariant(
+                                        message.id,
+                                        message.activeVariantIndex - 1,
+                                      )
+                                    }
+                                    disabled={
+                                      message.activeVariantIndex <= 0 || isSending
+                                    }
+                                    title="Previous answer"
+                                  >
+                                    <ChevronLeft className="size-3.5" />
+                                  </Button>
+                                  <span className="min-w-9 text-center tabular-nums">
+                                    {activeVariantNumber}/{variantCount}
+                                  </span>
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon-sm"
+                                    className="h-6 w-6 rounded-none text-muted-foreground"
+                                    onClick={() =>
+                                      selectAssistantVariant(
+                                        message.id,
+                                        message.activeVariantIndex + 1,
+                                      )
+                                    }
+                                    disabled={
+                                      message.activeVariantIndex >=
+                                        variantCount - 1 || isSending
+                                    }
+                                    title="Next answer"
+                                  >
+                                    <ChevronRight className="size-3.5" />
+                                  </Button>
+                                </div>
+                              )}
+
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="h-6 rounded-none px-2 text-xs text-muted-foreground"
+                                onClick={() =>
+                                  regenerateAssistantMessage(message.id)
+                                }
+                                disabled={isSending}
+                                title={status === "error" ? "Retry answer" : "Regenerate answer"}
+                              >
+                                <RefreshCcw className="size-3" />
+                                {status === "error" ? "Retry" : "Regenerate"}
+                              </Button>
+
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="h-6 rounded-none px-2 text-xs text-muted-foreground"
+                                onClick={() => continueAssistantMessage(message.id)}
+                                disabled={isSending || !content.trim()}
+                                title="Continue answer"
+                              >
+                                Continue
+                              </Button>
+                            </div>
                           </div>
 
-                          <div className="flex items-center gap-1.5">
-                            {variantCount > 1 && (
-                              <div className="flex items-center gap-1">
-                                <Button
-                                  type="button"
-                                  variant="ghost"
-                                  size="icon-sm"
-                                  className="h-6 w-6 rounded-none text-muted-foreground"
-                                  onClick={() =>
-                                    selectAssistantVariant(
-                                      message.id,
-                                      message.activeVariantIndex - 1,
-                                    )
-                                  }
-                                  disabled={
-                                    message.activeVariantIndex <= 0 || isSending
-                                  }
-                                  title="Previous answer"
-                                >
-                                  <ChevronLeft className="size-3.5" />
-                                </Button>
-                                <span className="min-w-9 text-center tabular-nums">
-                                  {activeVariantNumber}/{variantCount}
-                                </span>
-                                <Button
-                                  type="button"
-                                  variant="ghost"
-                                  size="icon-sm"
-                                  className="h-6 w-6 rounded-none text-muted-foreground"
-                                  onClick={() =>
-                                    selectAssistantVariant(
-                                      message.id,
-                                      message.activeVariantIndex + 1,
-                                    )
-                                  }
-                                  disabled={
-                                    message.activeVariantIndex >=
-                                      variantCount - 1 || isSending
-                                  }
-                                  title="Next answer"
-                                >
-                                  <ChevronRight className="size-3.5" />
-                                </Button>
+                          {metrics?.durationMs !== undefined &&
+                            expandedMetricsIds[message.id] && (
+                              <div className="grid gap-1 border bg-muted/30 p-2">
+                                {formatMetricDetails(metrics).map(([label, value]) => (
+                                  <div
+                                    key={label}
+                                    className="grid grid-cols-[8rem_1fr] gap-2"
+                                  >
+                                    <span className="text-muted-foreground/80">
+                                      {label}
+                                    </span>
+                                    <span className="min-w-0 truncate text-foreground/80">
+                                      {value}
+                                    </span>
+                                  </div>
+                                ))}
                               </div>
                             )}
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              className="h-6 rounded-none px-2 text-xs text-muted-foreground"
-                              onClick={() =>
-                                regenerateAssistantMessage(message.id)
-                              }
-                              disabled={isSending}
-                              title="Regenerate answer"
-                            >
-                              <RefreshCcw className="size-3" />
-                              Regenerate
-                            </Button>
-                          </div>
                         </div>
                       )}
                     </div>
@@ -1309,6 +1552,19 @@ export default function Home() {
             </div>
           </div>
         </div>
+
+        {!isNearChatBottom && (
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            className="absolute bottom-32 left-1/2 z-10 -translate-x-1/2 rounded-none shadow-md"
+            onClick={() => scrollChatToBottom()}
+          >
+            <ChevronDown className="size-4" />
+            Scroll to bottom
+          </Button>
+        )}
 
         <form
           onSubmit={sendMessage}
@@ -1367,8 +1623,8 @@ export default function Home() {
           <DialogHeader className="border-b px-5 py-4">
             <DialogTitle>Provider settings</DialogTitle>
             <DialogDescription>
-              Configure any OpenAI-compatible endpoint. Requests are sent
-              directly from the browser.
+              Configure any OpenAI-compatible endpoint. Requests are routed
+              through the local app API to avoid browser CORS issues.
             </DialogDescription>
           </DialogHeader>
 
@@ -1474,6 +1730,162 @@ export default function Home() {
                 </div>
               </div>
 
+              <div className="grid gap-2">
+                <Label htmlFor="provider-custom-headers">Custom headers</Label>
+                <Textarea
+                  id="provider-custom-headers"
+                  value={provider.customHeaders ?? ""}
+                  onChange={(event) =>
+                    updateProviderSetting({
+                      customHeaders: event.target.value,
+                    })
+                  }
+                  placeholder={"Header-Name: value\nX-Company-Gateway: team-ai"}
+                  className="min-h-24 font-mono text-xs leading-5"
+                />
+                <p className="text-xs leading-5 text-muted-foreground">
+                  One header per line. Authorization is still generated from the API key field.
+                </p>
+              </div>
+
+              <Separator />
+
+              <div className="grid gap-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <Label>Generation settings for current model</Label>
+                    <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                      Saved per model. Leave numeric fields empty to use provider defaults.
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="rounded-none"
+                    onClick={resetActiveModelSettings}
+                  >
+                    Reset
+                  </Button>
+                </div>
+
+                <div className="grid gap-4 md:grid-cols-3">
+                  <div className="grid gap-2">
+                    <Label htmlFor="generation-temperature">Temperature</Label>
+                    <Input
+                      id="generation-temperature"
+                      type="number"
+                      min="0"
+                      max="2"
+                      step="0.1"
+                      value={formatOptionalNumber(activeModelSettings.temperature)}
+                      onChange={(event) =>
+                        updateActiveModelSettings({
+                          temperature: parseOptionalNumber(event.target.value),
+                        })
+                      }
+                      placeholder="Provider default"
+                    />
+                  </div>
+
+                  <div className="grid gap-2">
+                    <Label htmlFor="generation-top-p">Top P</Label>
+                    <Input
+                      id="generation-top-p"
+                      type="number"
+                      min="0"
+                      max="1"
+                      step="0.05"
+                      value={formatOptionalNumber(activeModelSettings.topP)}
+                      onChange={(event) =>
+                        updateActiveModelSettings({
+                          topP: parseOptionalNumber(event.target.value),
+                        })
+                      }
+                      placeholder="Provider default"
+                    />
+                  </div>
+
+                  <div className="grid gap-2">
+                    <Label htmlFor="generation-max-tokens">Max tokens</Label>
+                    <Input
+                      id="generation-max-tokens"
+                      type="number"
+                      min="1"
+                      step="1"
+                      value={formatOptionalNumber(activeModelSettings.maxTokens)}
+                      onChange={(event) =>
+                        updateActiveModelSettings({
+                          maxTokens: parseOptionalNumber(event.target.value),
+                        })
+                      }
+                      placeholder="Provider default"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid gap-4 md:grid-cols-3">
+                  <div className="grid gap-2">
+                    <Label>Thinking controls</Label>
+                    <Select
+                      value={activeModelSettings.reasoningMode ?? "auto"}
+                      onValueChange={(reasoningMode) =>
+                        updateActiveModelSettings({
+                          reasoningMode: reasoningMode as ProviderGenerationSettings["reasoningMode"],
+                        })
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="auto">Auto-detect</SelectItem>
+                        <SelectItem value="enabled">Force enabled</SelectItem>
+                        <SelectItem value="off">Off</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="grid gap-2">
+                    <Label>Reasoning effort</Label>
+                    <Select
+                      value={activeModelSettings.reasoningEffort ?? "medium"}
+                      onValueChange={(reasoningEffort) =>
+                        updateActiveModelSettings({
+                          reasoningEffort: reasoningEffort as ProviderGenerationSettings["reasoningEffort"],
+                        })
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="low">Low</SelectItem>
+                        <SelectItem value="medium">Medium</SelectItem>
+                        <SelectItem value="high">High</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="grid gap-2">
+                    <Label htmlFor="generation-timeout">Request timeout, ms</Label>
+                    <Input
+                      id="generation-timeout"
+                      type="number"
+                      min="1000"
+                      step="1000"
+                      value={formatOptionalNumber(activeModelSettings.requestTimeoutMs)}
+                      onChange={(event) =>
+                        updateActiveModelSettings({
+                          requestTimeoutMs: parseOptionalNumber(event.target.value),
+                        })
+                      }
+                      placeholder="30000"
+                    />
+                  </div>
+                </div>
+              </div>
+
               <Button
                 type="button"
                 variant="secondary"
@@ -1529,7 +1941,13 @@ export default function Home() {
               type="button"
               variant="secondary"
               className="rounded-none"
-              onClick={() => setProvider(defaultProvider)}
+              onClick={() =>
+                setProvider({
+                  ...defaultProvider,
+                  defaultSettings: defaultGenerationSettings,
+                  modelSettings: {},
+                })
+              }
             >
               Reset provider
             </Button>

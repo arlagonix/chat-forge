@@ -1,9 +1,21 @@
+export type ProviderGenerationSettings = {
+  temperature?: number;
+  topP?: number;
+  maxTokens?: number;
+  reasoningMode?: "auto" | "off" | "enabled";
+  reasoningEffort?: "low" | "medium" | "high";
+  requestTimeoutMs?: number;
+};
+
 export type ProviderConfig = {
   id: string;
   name: string;
   baseUrl: string;
   apiKey: string;
   model: string;
+  customHeaders?: string;
+  defaultSettings?: ProviderGenerationSettings;
+  modelSettings?: Record<string, ProviderGenerationSettings>;
 };
 
 export type ChatRole = "system" | "user" | "assistant";
@@ -24,6 +36,9 @@ export type ChatMessageMetrics = {
   outputTokens?: number;
   tokensPerSecond?: number;
   isApproximate?: boolean;
+  providerName?: string;
+  model?: string;
+  finishReason?: string;
 };
 
 export type ChatAssistantVariant = {
