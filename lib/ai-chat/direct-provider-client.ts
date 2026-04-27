@@ -218,13 +218,6 @@ function buildPayload({
     ...(topP !== undefined ? { top_p: topP } : {}),
     ...(maxTokens !== undefined ? { max_tokens: maxTokens } : {}),
     ...buildReasoningPayload(provider, settings),
-    ...(stream
-      ? {
-          stream_options: {
-            include_usage: true,
-          },
-        }
-      : {}),
   };
 }
 
@@ -624,34 +617,44 @@ export async function streamProviderChat({
   let usage: ChatTokenUsage | undefined;
   let finishReason: string | undefined;
 
-  function processEvent(rawEvent: string) {
-    const dataLines = rawEvent
-      .split("\n")
-      .map((line) => line.trimEnd())
-      .filter((line) => line.startsWith("data:"))
-      .map((line) => line.slice(5).trimStart());
+  function processDataLine(dataLine: string) {
+    const trimmed = dataLine.trim();
+    if (!trimmed || trimmed === "[DONE]") return;
 
-    for (const dataLine of dataLines) {
-      if (!dataLine || dataLine === "[DONE]") continue;
+    let data: unknown;
+    try {
+      data = JSON.parse(trimmed);
+    } catch {
+      return;
+    }
 
-      let data: unknown;
-      try {
-        data = JSON.parse(dataLine);
-      } catch {
-        continue;
-      }
+    const eventUsage = readUsage(data);
+    if (eventUsage) usage = eventUsage;
 
-      const eventUsage = readUsage(data);
-      if (eventUsage) usage = eventUsage;
+    const eventFinishReason = readFinishReason(data);
+    if (eventFinishReason) finishReason = eventFinishReason;
 
-      const eventFinishReason = readFinishReason(data);
-      if (eventFinishReason) finishReason = eventFinishReason;
+    const reasoningDelta = readReasoningDelta(data);
+    if (reasoningDelta) onReasoningDelta?.(reasoningDelta);
 
-      const reasoningDelta = readReasoningDelta(data);
-      if (reasoningDelta) onReasoningDelta?.(reasoningDelta);
+    const contentDelta = readContentDelta(data);
+    if (contentDelta) tagParser.push(contentDelta);
+  }
 
-      const contentDelta = readContentDelta(data);
-      if (contentDelta) tagParser.push(contentDelta);
+  function processLine(rawLine: string) {
+    const line = rawLine.trimEnd();
+    const trimmedLine = line.trimStart();
+
+    if (!trimmedLine || trimmedLine.startsWith(":")) return;
+
+    if (trimmedLine.startsWith("data:")) {
+      processDataLine(trimmedLine.slice(5).trimStart());
+      return;
+    }
+
+    // Some OpenAI-compatible APIs stream JSONL chunks instead of strict SSE events.
+    if (trimmedLine.startsWith("{")) {
+      processDataLine(trimmedLine);
     }
   }
 
@@ -659,18 +662,18 @@ export async function streamProviderChat({
     const { value, done } = await reader.read();
     buffer += decoder.decode(value, { stream: !done });
 
-    const events = buffer.split(/\r?\n\r?\n/);
-    buffer = events.pop() ?? "";
+    const lines = buffer.split(/\r?\n/);
+    buffer = lines.pop() ?? "";
 
-    for (const event of events) {
-      processEvent(event);
+    for (const line of lines) {
+      processLine(line);
     }
 
     if (done) break;
   }
 
   if (buffer.trim()) {
-    processEvent(buffer);
+    processLine(buffer);
   }
 
   tagParser.flush();
