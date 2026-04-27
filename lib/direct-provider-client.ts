@@ -242,18 +242,10 @@ function buildPayload({
   const topP = normalizeOptionalNumber(settings.topP, 0, 1);
   const maxTokens = normalizeOptionalNumber(settings.maxTokens, 1, 1048576);
 
-  const basePayload = {
+  return {
     model: provider.model,
     messages: buildApiMessages({ systemPrompt, messages, userMessage }),
     stream,
-  };
-
-  if (stream) {
-    return basePayload;
-  }
-
-  return {
-    ...basePayload,
     ...(temperature !== undefined ? { temperature } : {}),
     ...(topP !== undefined ? { top_p: topP } : {}),
     ...(maxTokens !== undefined ? { max_tokens: maxTokens } : {}),
@@ -570,6 +562,9 @@ export async function loadProviderModels(
     {
       method: "GET",
       headers: buildOpenAIHeaders({ provider }),
+      cache: "no-store",
+      credentials: "omit",
+      referrerPolicy: "no-referrer",
     },
     getRequestTimeout(provider),
   );
@@ -609,7 +604,6 @@ export async function sendProviderChat({
         provider,
         extraHeaders: {
           "Content-Type": "application/json",
-          Accept: "application/json",
         },
       }),
       body: JSON.stringify(
@@ -621,6 +615,9 @@ export async function sendProviderChat({
           stream: false,
         }),
       ),
+      cache: "no-store",
+      credentials: "omit",
+      referrerPolicy: "no-referrer",
     },
     getRequestTimeout(provider),
   );
@@ -679,7 +676,6 @@ export async function streamProviderChat({
         provider,
         extraHeaders: {
           "Content-Type": "application/json",
-          Accept: "text/event-stream, application/json",
         },
       }),
       body: JSON.stringify(
@@ -692,8 +688,15 @@ export async function streamProviderChat({
         }),
       ),
       signal,
+      cache: "no-store",
+      credentials: "omit",
+      referrerPolicy: "no-referrer",
     },
-    getRequestTimeout(provider),
+    // Disable the artificial "response-start" timeout for streaming requests.
+    // Some custom OpenAI-compatible providers/proxies establish the response late,
+    // or buffer badly for this browser request shape. The user's AbortController
+    // can still cancel the request.
+    0,
   );
 
   if (!response.ok) {
@@ -750,7 +753,7 @@ export async function streamProviderChat({
       return;
     }
 
-    // Some OpenAI-compatible APIs return JSONL-like chunks instead of strict SSE data lines.
+    // Some OpenAI-compatible APIs stream JSONL chunks instead of strict SSE events.
     if (trimmedLine.startsWith("{")) {
       processDataLine(trimmedLine);
     }
