@@ -25,3 +25,5 @@ dist-ssr
 
 release
 *.zip
+dist/*
+dist-electron/*
