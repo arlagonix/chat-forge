@@ -2058,7 +2058,7 @@ export default function Home() {
               </div>
 
               <div className="grid gap-2">
-                <Label htmlFor="provider-model">Model</Label>
+                <Label>Model</Label>
                 <div className="flex gap-2">
                   <Popover
                     open={isModelComboboxOpen}
@@ -2088,8 +2088,10 @@ export default function Home() {
                       </Button>
                     </PopoverTrigger>
                     <PopoverContent
-                      className="w-[var(--radix-popover-trigger-width)] p-0"
+                      className="w-[var(--radix-popover-trigger-width)] overflow-hidden p-0"
                       align="start"
+                      onWheel={(event) => event.stopPropagation()}
+                      onTouchMove={(event) => event.stopPropagation()}
                     >
                       <Command shouldFilter={false}>
                         <CommandInput
@@ -2097,7 +2099,11 @@ export default function Home() {
                           onValueChange={setModelSearchValue}
                           placeholder="Search or type a custom model..."
                         />
-                        <CommandList>
+                        <CommandList
+                          className="max-h-[min(220px,40dvh)] overflow-y-auto overscroll-contain"
+                          onWheel={(event) => event.stopPropagation()}
+                          onTouchMove={(event) => event.stopPropagation()}
+                        >
                           {canUseCustomModel && (
                             <CommandGroup heading="Custom">
                               <CommandItem
