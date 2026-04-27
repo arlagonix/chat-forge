@@ -1577,11 +1577,10 @@ export default function Home() {
             type="button"
             variant="secondary"
             size="sm"
-            className="absolute bottom-32 left-1/2 z-10 -translate-x-1/2 rounded-none shadow-md"
+            className="absolute bottom-45 left-[calc(75%)] z-10 -translate-x-1/2 rounded-none shadow-md opacity-75"
             onClick={() => scrollChatToBottom()}
           >
             <ChevronDown className="size-4" />
-            Scroll to bottom
           </Button>
         )}
 
