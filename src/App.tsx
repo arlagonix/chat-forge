@@ -881,10 +881,13 @@ export default function Home() {
   const scrollFrameRef = useRef<number | null>(null);
   const scrollStateFrameRef = useRef<number | null>(null);
   const scrollSettleTimeoutRef = useRef<number | null>(null);
+  const resizeRestoreFrameRef = useRef<number | null>(null);
+  const resizeSettleTimeoutRef = useRef<number | null>(null);
   const userScrollTimeoutRef = useRef<number | null>(null);
   const streamBuffersRef = useRef<Record<string, StreamBuffer>>({});
   const streamFlushTimeoutRefs = useRef<Record<string, number>>({});
   const isAutoScrollingRef = useRef(false);
+  const isResizingChatRef = useRef(false);
   const isUserScrollingRef = useRef(false);
   const isStreamingRef = useRef(false);
   const shouldStickToBottomRef = useRef(true);
@@ -1105,6 +1108,12 @@ export default function Home() {
       if (scrollSettleTimeoutRef.current !== null) {
         window.clearTimeout(scrollSettleTimeoutRef.current);
       }
+      if (resizeRestoreFrameRef.current !== null) {
+        window.cancelAnimationFrame(resizeRestoreFrameRef.current);
+      }
+      if (resizeSettleTimeoutRef.current !== null) {
+        window.clearTimeout(resizeSettleTimeoutRef.current);
+      }
       if (userScrollTimeoutRef.current !== null) {
         window.clearTimeout(userScrollTimeoutRef.current);
       }
@@ -1207,6 +1216,48 @@ export default function Home() {
     }
 
     return nextIsScrollable;
+  }
+
+  function restoreChatScrollAfterResize(
+    wasStickingToBottom: boolean,
+    previousDistanceFromBottom: number,
+  ) {
+    const scrollElement = chatScrollRef.current;
+    if (!scrollElement) return;
+
+    const nextIsScrollable = canChatScroll();
+    setIsChatScrollable((currentIsScrollable) =>
+      currentIsScrollable === nextIsScrollable
+        ? currentIsScrollable
+        : nextIsScrollable,
+    );
+
+    if (!nextIsScrollable) {
+      shouldStickToBottomRef.current = true;
+      updateNearBottomState(true);
+      lastChatScrollTopRef.current = scrollElement.scrollTop;
+      return;
+    }
+
+    if (wasStickingToBottom) {
+      shouldStickToBottomRef.current = true;
+      scrollToBottomNow();
+      return;
+    }
+
+    const nextScrollTop = Math.max(
+      0,
+      scrollElement.scrollHeight -
+        scrollElement.clientHeight -
+        previousDistanceFromBottom,
+    );
+
+    scrollElement.scrollTop = nextScrollTop;
+    lastChatScrollTopRef.current = nextScrollTop;
+
+    const isNearBottom = isChatNearBottom();
+    shouldStickToBottomRef.current = isNearBottom;
+    updateNearBottomState(isNearBottom);
   }
 
   function isChatNearBottom(threshold = 24) {
@@ -1382,28 +1433,61 @@ export default function Home() {
     const scrollElement = chatScrollRef.current;
     if (!scrollElement) return;
 
-    let frameId: number | null = null;
-    const scheduleSync = () => {
-      if (frameId !== null) return;
-      frameId = window.requestAnimationFrame(() => {
-        frameId = null;
-        syncChatScrollableState();
+    const scheduleResizeRestore = () => {
+      const wasStickingToBottom = shouldStickToBottomRef.current;
+      const previousDistanceFromBottom = getChatDistanceFromBottom();
+
+      isResizingChatRef.current = true;
+
+      if (resizeRestoreFrameRef.current !== null) {
+        window.cancelAnimationFrame(resizeRestoreFrameRef.current);
+      }
+
+      resizeRestoreFrameRef.current = window.requestAnimationFrame(() => {
+        resizeRestoreFrameRef.current = window.requestAnimationFrame(() => {
+          resizeRestoreFrameRef.current = null;
+          restoreChatScrollAfterResize(
+            wasStickingToBottom,
+            previousDistanceFromBottom,
+          );
+
+          if (resizeSettleTimeoutRef.current !== null) {
+            window.clearTimeout(resizeSettleTimeoutRef.current);
+          }
+
+          resizeSettleTimeoutRef.current = window.setTimeout(() => {
+            resizeSettleTimeoutRef.current = null;
+            restoreChatScrollAfterResize(
+              wasStickingToBottom,
+              previousDistanceFromBottom,
+            );
+            isResizingChatRef.current = false;
+          }, 80);
+        });
       });
     };
 
-    scheduleSync();
-    window.addEventListener("resize", scheduleSync);
+    scheduleResizeRestore();
+    window.addEventListener("resize", scheduleResizeRestore);
 
-    const resizeObserver = new ResizeObserver(scheduleSync);
+    const resizeObserver = new ResizeObserver(scheduleResizeRestore);
     resizeObserver.observe(scrollElement);
 
     return () => {
-      window.removeEventListener("resize", scheduleSync);
+      window.removeEventListener("resize", scheduleResizeRestore);
       resizeObserver.disconnect();
 
-      if (frameId !== null) {
-        window.cancelAnimationFrame(frameId);
+      if (resizeRestoreFrameRef.current !== null) {
+        window.cancelAnimationFrame(resizeRestoreFrameRef.current);
+        resizeRestoreFrameRef.current = null;
       }
+
+      if (resizeSettleTimeoutRef.current !== null) {
+        window.clearTimeout(resizeSettleTimeoutRef.current);
+        resizeSettleTimeoutRef.current = null;
+      }
+
+      isResizingChatRef.current = false;
     };
   }, [activeChatId, messages.length]);
 
@@ -1481,6 +1565,11 @@ export default function Home() {
       const scrollElement = chatScrollRef.current;
       if (!scrollElement) return;
 
+      if (isResizingChatRef.current) {
+        lastChatScrollTopRef.current = scrollElement.scrollTop;
+        return;
+      }
+
       if (!syncChatScrollableState()) {
         lastChatScrollTopRef.current = scrollElement.scrollTop;
         return;
@@ -1510,7 +1599,7 @@ export default function Home() {
   function handleChatWheel(event: WheelEvent<HTMLDivElement>) {
     closeMessageContextMenu();
 
-    if (isAutoScrollingRef.current) return;
+    if (isAutoScrollingRef.current || isResizingChatRef.current) return;
 
     if (!syncChatScrollableState()) {
       return;
