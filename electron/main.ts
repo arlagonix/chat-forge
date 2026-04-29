@@ -258,6 +258,10 @@ function resolvePreloadPath() {
   return preloadPath;
 }
 
+function getWindowIconPath() {
+  return path.join(getPublicAssetsPath(), process.platform === "win32" ? "icon.ico" : "icon.png");
+}
+
 function createWindow() {
   win = new BrowserWindow({
     width: 1280,
@@ -265,7 +269,7 @@ function createWindow() {
     minWidth: 940,
     minHeight: 620,
     title: "Chat Forge",
-    icon: path.join(getPublicAssetsPath(), "icon.png"),
+    icon: getWindowIconPath(),
     webPreferences: {
       preload: resolvePreloadPath(),
       contextIsolation: true,

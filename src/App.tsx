@@ -315,11 +315,19 @@ function formatChatActivityDate(value: string) {
 const AssistantMessageContent = memo(function AssistantMessageContent({
   content,
   className,
+  isStreaming = false,
 }: {
   content: string;
   className?: string;
+  isStreaming?: boolean;
 }) {
-  return <MarkdownMessage content={content} className={className} />;
+  return (
+    <MarkdownMessage
+      content={content}
+      className={className}
+      isStreaming={isStreaming}
+    />
+  );
 });
 
 const UserMessageEditor = memo(function UserMessageEditor({
@@ -2505,13 +2513,10 @@ export default function Home() {
                               >
                                 {message.role === "assistant" ? (
                                   <>
-                                    <AssistantMessageContent content={content} />
-                                    {isStreamingMessage && (
-                                      <span
-                                        className="streaming-cursor"
-                                        aria-hidden="true"
-                                      />
-                                    )}
+                                    <AssistantMessageContent
+                                      content={content}
+                                      isStreaming={isStreamingMessage}
+                                    />
                                   </>
                                 ) : (
                                   <div className="whitespace-pre-wrap">
