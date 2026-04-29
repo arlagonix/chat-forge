@@ -39,3 +39,61 @@ contextBridge.exposeInMainWorld("codeForgeAI", {
     };
   },
 });
+
+contextBridge.exposeInMainWorld("chatForgeStorage", {
+  isInitialized() {
+    return ipcRenderer.invoke("storage:is-initialized");
+  },
+
+  migrateFromIndexedDb(snapshot: unknown) {
+    return ipcRenderer.invoke("storage:migrate-from-indexeddb", snapshot);
+  },
+
+  loadProvidersState() {
+    return ipcRenderer.invoke("storage:providers-state:load");
+  },
+
+  saveProvidersState(value: unknown) {
+    return ipcRenderer.invoke("storage:providers-state:save", value);
+  },
+
+  loadSystemPrompt() {
+    return ipcRenderer.invoke("storage:system-prompt:load");
+  },
+
+  saveSystemPrompt(value: unknown) {
+    return ipcRenderer.invoke("storage:system-prompt:save", value);
+  },
+
+  loadActiveChatId() {
+    return ipcRenderer.invoke("storage:active-chat-id:load");
+  },
+
+  saveActiveChatId(chatId: unknown) {
+    return ipcRenderer.invoke("storage:active-chat-id:save", chatId);
+  },
+
+  loadCachedProviderModels(cacheKey: unknown) {
+    return ipcRenderer.invoke("storage:provider-models-cache:load", cacheKey);
+  },
+
+  saveCachedProviderModels(cacheKey: unknown, models: unknown) {
+    return ipcRenderer.invoke("storage:provider-models-cache:save", cacheKey, models);
+  },
+
+  loadChats() {
+    return ipcRenderer.invoke("storage:chats:load");
+  },
+
+  saveChat(chat: unknown) {
+    return ipcRenderer.invoke("storage:chat:save", chat);
+  },
+
+  deleteChat(chatId: unknown) {
+    return ipcRenderer.invoke("storage:chat:delete", chatId);
+  },
+
+  deleteAllChats() {
+    return ipcRenderer.invoke("storage:chats:delete-all");
+  },
+});

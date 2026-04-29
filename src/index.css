@@ -144,6 +144,19 @@
     display: none;
   }
 
+  .chat-message-scrollbar {
+    scrollbar-width: thin;
+  }
+
+  .chat-message-scrollbar::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  .chat-message-scrollbar::-webkit-scrollbar-thumb {
+    border-radius: 999px;
+    background-color: color-mix(in oklab, currentColor 22%, transparent);
+  }
+
   @keyframes generating-gradient-slide {
     from {
       background-position: 0% center;

@@ -35,3 +35,32 @@ declare global {
 }
 
 export {};
+
+type ChatForgeIndexedDbSnapshot = {
+  providersState?: unknown;
+  systemPrompt?: string;
+  activeChatId?: string;
+  providerModelsCache: Record<string, string[]>;
+  chats: unknown[];
+};
+
+declare global {
+  interface Window {
+    chatForgeStorage?: {
+      isInitialized: () => Promise<boolean>;
+      migrateFromIndexedDb: (snapshot: ChatForgeIndexedDbSnapshot) => Promise<unknown>;
+      loadProvidersState: () => Promise<any>;
+      saveProvidersState: (value: unknown) => Promise<void>;
+      loadSystemPrompt: () => Promise<string | undefined>;
+      saveSystemPrompt: (value: string) => Promise<void>;
+      loadActiveChatId: () => Promise<string | undefined>;
+      saveActiveChatId: (chatId: string) => Promise<void>;
+      loadCachedProviderModels: (cacheKey: string) => Promise<string[]>;
+      saveCachedProviderModels: (cacheKey: string, models: string[]) => Promise<void>;
+      loadChats: () => Promise<any[]>;
+      saveChat: (chat: unknown) => Promise<void>;
+      deleteChat: (chatId: string) => Promise<void>;
+      deleteAllChats: () => Promise<void>;
+    };
+  }
+}

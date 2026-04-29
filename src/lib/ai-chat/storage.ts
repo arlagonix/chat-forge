@@ -19,6 +19,33 @@ type KeyValueRecord<T = unknown> = {
   value: T;
 };
 
+type IndexedDbSnapshot = {
+  providersState?: ProvidersState;
+  systemPrompt?: string;
+  activeChatId?: string;
+  providerModelsCache: Record<string, string[]>;
+  chats: ChatSession[];
+};
+
+type ChatForgeStorageApi = {
+  isInitialized: () => Promise<boolean>;
+  migrateFromIndexedDb: (snapshot: IndexedDbSnapshot) => Promise<unknown>;
+  loadProvidersState: () => Promise<ProvidersState | undefined>;
+  saveProvidersState: (value: ProvidersState) => Promise<void>;
+  loadSystemPrompt: () => Promise<string | undefined>;
+  saveSystemPrompt: (value: string) => Promise<void>;
+  loadActiveChatId: () => Promise<string | undefined>;
+  saveActiveChatId: (chatId: string) => Promise<void>;
+  loadCachedProviderModels: (cacheKey: string) => Promise<string[]>;
+  saveCachedProviderModels: (cacheKey: string, models: string[]) => Promise<void>;
+  loadChats: () => Promise<ChatSession[]>;
+  saveChat: (chat: ChatSession) => Promise<void>;
+  deleteChat: (chatId: string) => Promise<void>;
+  deleteAllChats: () => Promise<void>;
+};
+
+let jsonStorageReadyPromise: Promise<void> | undefined;
+
 function createId() {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
@@ -84,6 +111,29 @@ export function normalizeProvider(provider: Partial<ProviderConfig>): ProviderCo
   };
 }
 
+function normalizeProvidersState(value?: ProvidersState): ProvidersState {
+  if (value?.providers?.length) {
+    const providers = value.providers.map(normalizeProvider);
+    const activeProviderId = providers.some((provider) => provider.id === value.activeProviderId)
+      ? value.activeProviderId
+      : providers[0].id;
+
+    return { providers, activeProviderId };
+  }
+
+  const provider = normalizeProvider(defaultProvider);
+  return {
+    providers: [provider],
+    activeProviderId: provider.id,
+  };
+}
+
+function getJsonStorageApi() {
+  return typeof window !== "undefined"
+    ? (window as Window & { chatForgeStorage?: ChatForgeStorageApi }).chatForgeStorage
+    : undefined;
+}
+
 function openDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
@@ -121,7 +171,7 @@ function transactionDone(transaction: IDBTransaction): Promise<void> {
   });
 }
 
-async function getSetting<T>(key: string, fallback: T): Promise<T> {
+async function legacyGetSetting<T>(key: string, fallback: T): Promise<T> {
   if (typeof window === "undefined") return fallback;
 
   const db = await openDatabase();
@@ -136,7 +186,7 @@ async function getSetting<T>(key: string, fallback: T): Promise<T> {
   }
 }
 
-async function setSetting<T>(key: string, value: T): Promise<void> {
+async function legacySetSetting<T>(key: string, value: T): Promise<void> {
   if (typeof window === "undefined") return;
 
   const db = await openDatabase();
@@ -150,112 +200,26 @@ async function setSetting<T>(key: string, value: T): Promise<void> {
   }
 }
 
-export async function loadProvider(): Promise<ProviderConfig> {
-  const provider = await getSetting<ProviderConfig | undefined>(PROVIDER_KEY, undefined);
+async function legacyLoadProvider(): Promise<ProviderConfig> {
+  const provider = await legacyGetSetting<ProviderConfig | undefined>(PROVIDER_KEY, undefined);
   return provider ? normalizeProvider(provider) : normalizeProvider(defaultProvider);
 }
 
-export async function saveProvider(provider: ProviderConfig): Promise<void> {
-  await setSetting(PROVIDER_KEY, normalizeProvider(provider));
-}
-
-export async function loadProvidersState(): Promise<ProvidersState> {
-  const providersState = await getSetting<ProvidersState | undefined>(PROVIDERS_STATE_KEY, undefined);
+async function legacyLoadProvidersState(): Promise<ProvidersState> {
+  const providersState = await legacyGetSetting<ProvidersState | undefined>(PROVIDERS_STATE_KEY, undefined);
 
   if (providersState?.providers?.length) {
-    const providers = providersState.providers.map(normalizeProvider);
-    const activeProviderId = providers.some((provider) => provider.id === providersState.activeProviderId)
-      ? providersState.activeProviderId
-      : providers[0].id;
-
-    return { providers, activeProviderId };
+    return normalizeProvidersState(providersState);
   }
 
-  const provider = await loadProvider();
+  const provider = await legacyLoadProvider();
   return {
     providers: [provider],
     activeProviderId: provider.id,
   };
 }
 
-export async function saveProvidersState(value: ProvidersState): Promise<void> {
-  const providers = value.providers.length
-    ? value.providers.map(normalizeProvider)
-    : [normalizeProvider(defaultProvider)];
-  const activeProviderId = providers.some((provider) => provider.id === value.activeProviderId)
-    ? value.activeProviderId
-    : providers[0].id;
-
-  await setSetting(PROVIDERS_STATE_KEY, { providers, activeProviderId });
-}
-
-export async function loadSystemPrompt(): Promise<string> {
-  return getSetting(SYSTEM_PROMPT_KEY, DEFAULT_SYSTEM_PROMPT);
-}
-
-export async function saveSystemPrompt(value: string): Promise<void> {
-  await setSetting(SYSTEM_PROMPT_KEY, value);
-}
-
-export async function loadActiveChatId(): Promise<string | undefined> {
-  return getSetting<string | undefined>(ACTIVE_CHAT_ID_KEY, undefined);
-}
-
-export async function saveActiveChatId(chatId: string): Promise<void> {
-  await setSetting(ACTIVE_CHAT_ID_KEY, chatId);
-}
-
-function getHeadersCacheKey(headers?: Record<string, string>) {
-  return Object.entries(headers ?? {})
-    .map(([name, value]) => [name.trim().toLowerCase(), value.trim()] as const)
-    .filter(([name, value]) => name && value)
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([name, value]) => `${name}: ${value}`)
-    .join("\n");
-}
-
-function getProviderModelsCacheKey(provider: Pick<ProviderConfig, "baseUrl" | "headers" | "customHeaders">) {
-  const baseUrl = provider.baseUrl.trim().replace(/\/+$/, "");
-  const headers = provider.headers ?? parseCustomHeaders(provider.customHeaders);
-
-  return `${MODEL_CACHE_KEY_PREFIX}${baseUrl}|${getHeadersCacheKey(headers)}`;
-}
-
-export async function loadCachedProviderModels(
-  provider: Pick<ProviderConfig, "baseUrl" | "headers" | "customHeaders">,
-): Promise<string[]> {
-  if (!provider.baseUrl.trim()) return [];
-
-  const models = await getSetting<string[]>(getProviderModelsCacheKey(provider), []);
-  return Array.isArray(models)
-    ? [
-        ...new Set(
-          models
-            .filter((model) => typeof model === "string" && model.trim())
-            .map((model) => model.trim()),
-        ),
-      ]
-    : [];
-}
-
-export async function saveCachedProviderModels(
-  provider: Pick<ProviderConfig, "baseUrl" | "headers" | "customHeaders">,
-  models: string[],
-): Promise<void> {
-  if (!provider.baseUrl.trim()) return;
-
-  const normalizedModels = [
-    ...new Set(
-      models
-        .filter((model) => typeof model === "string" && model.trim())
-        .map((model) => model.trim()),
-    ),
-  ].sort((left, right) => left.localeCompare(right));
-
-  await setSetting(getProviderModelsCacheKey(provider), normalizedModels);
-}
-
-export async function loadChats(): Promise<ChatSession[]> {
+async function legacyLoadChats(): Promise<ChatSession[]> {
   if (typeof window === "undefined") return [];
 
   const db = await openDatabase();
@@ -274,7 +238,7 @@ export async function loadChats(): Promise<ChatSession[]> {
   }
 }
 
-export async function saveChat(chat: ChatSession): Promise<void> {
+async function legacySaveChat(chat: ChatSession): Promise<void> {
   if (typeof window === "undefined") return;
 
   const db = await openDatabase();
@@ -288,7 +252,7 @@ export async function saveChat(chat: ChatSession): Promise<void> {
   }
 }
 
-export async function deleteChat(chatId: string): Promise<void> {
+async function legacyDeleteChat(chatId: string): Promise<void> {
   if (typeof window === "undefined") return;
 
   const db = await openDatabase();
@@ -302,7 +266,7 @@ export async function deleteChat(chatId: string): Promise<void> {
   }
 }
 
-export async function deleteAllChats(): Promise<void> {
+async function legacyDeleteAllChats(): Promise<void> {
   if (typeof window === "undefined") return;
 
   const db = await openDatabase();
@@ -314,4 +278,233 @@ export async function deleteAllChats(): Promise<void> {
   } finally {
     db.close();
   }
+}
+
+function getHeadersCacheKey(headers?: Record<string, string>) {
+  return Object.entries(headers ?? {})
+    .map(([name, value]) => [name.trim().toLowerCase(), value.trim()] as const)
+    .filter(([name, value]) => name && value)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([name, value]) => `${name}: ${value}`)
+    .join("\n");
+}
+
+function getProviderModelsCacheKey(provider: Pick<ProviderConfig, "baseUrl" | "headers" | "customHeaders">) {
+  const baseUrl = provider.baseUrl.trim().replace(/\/+$/, "");
+  const headers = provider.headers ?? parseCustomHeaders(provider.customHeaders);
+
+  return `${MODEL_CACHE_KEY_PREFIX}${baseUrl}|${getHeadersCacheKey(headers)}`;
+}
+
+async function collectLegacyModelCache(providersState: ProvidersState) {
+  const cache: Record<string, string[]> = {};
+
+  for (const provider of providersState.providers) {
+    const key = getProviderModelsCacheKey(provider);
+    if (!key.trim()) continue;
+    const models = await legacyGetSetting<string[]>(key, []);
+    if (Array.isArray(models) && models.length) cache[key] = models;
+  }
+
+  return cache;
+}
+
+async function readIndexedDbSnapshot(): Promise<IndexedDbSnapshot> {
+  const providersState = await legacyLoadProvidersState();
+
+  return {
+    providersState,
+    systemPrompt: await legacyGetSetting(SYSTEM_PROMPT_KEY, DEFAULT_SYSTEM_PROMPT),
+    activeChatId: await legacyGetSetting<string | undefined>(ACTIVE_CHAT_ID_KEY, undefined),
+    providerModelsCache: await collectLegacyModelCache(providersState),
+    chats: await legacyLoadChats(),
+  };
+}
+
+async function ensureJsonStorageReady() {
+  const api = getJsonStorageApi();
+  if (!api) return undefined;
+
+  jsonStorageReadyPromise ??= (async () => {
+    const initialized = await api.isInitialized();
+    if (!initialized) {
+      await api.migrateFromIndexedDb(await readIndexedDbSnapshot());
+    }
+  })();
+
+  await jsonStorageReadyPromise;
+  return api;
+}
+
+export async function loadProvider(): Promise<ProviderConfig> {
+  const providersState = await loadProvidersState();
+  return providersState.providers.find((provider) => provider.id === providersState.activeProviderId) ?? providersState.providers[0];
+}
+
+export async function saveProvider(provider: ProviderConfig): Promise<void> {
+  const current = await loadProvidersState();
+  const normalizedProvider = normalizeProvider(provider);
+  const providers = current.providers.some((item) => item.id === normalizedProvider.id)
+    ? current.providers.map((item) => (item.id === normalizedProvider.id ? normalizedProvider : item))
+    : [...current.providers, normalizedProvider];
+
+  await saveProvidersState({ providers, activeProviderId: normalizedProvider.id });
+}
+
+export async function loadProvidersState(): Promise<ProvidersState> {
+  const api = await ensureJsonStorageReady();
+
+  if (api) {
+    return normalizeProvidersState(await api.loadProvidersState());
+  }
+
+  return legacyLoadProvidersState();
+}
+
+export async function saveProvidersState(value: ProvidersState): Promise<void> {
+  const normalized = normalizeProvidersState(value);
+  const api = await ensureJsonStorageReady();
+
+  if (api) {
+    await api.saveProvidersState(normalized);
+    return;
+  }
+
+  await legacySetSetting(PROVIDERS_STATE_KEY, normalized);
+}
+
+export async function loadSystemPrompt(): Promise<string> {
+  const api = await ensureJsonStorageReady();
+
+  if (api) {
+    return (await api.loadSystemPrompt()) ?? DEFAULT_SYSTEM_PROMPT;
+  }
+
+  return legacyGetSetting(SYSTEM_PROMPT_KEY, DEFAULT_SYSTEM_PROMPT);
+}
+
+export async function saveSystemPrompt(value: string): Promise<void> {
+  const api = await ensureJsonStorageReady();
+
+  if (api) {
+    await api.saveSystemPrompt(value);
+    return;
+  }
+
+  await legacySetSetting(SYSTEM_PROMPT_KEY, value);
+}
+
+export async function loadActiveChatId(): Promise<string | undefined> {
+  const api = await ensureJsonStorageReady();
+
+  if (api) {
+    return api.loadActiveChatId();
+  }
+
+  return legacyGetSetting<string | undefined>(ACTIVE_CHAT_ID_KEY, undefined);
+}
+
+export async function saveActiveChatId(chatId: string): Promise<void> {
+  const api = await ensureJsonStorageReady();
+
+  if (api) {
+    await api.saveActiveChatId(chatId);
+    return;
+  }
+
+  await legacySetSetting(ACTIVE_CHAT_ID_KEY, chatId);
+}
+
+export async function loadCachedProviderModels(
+  provider: Pick<ProviderConfig, "baseUrl" | "headers" | "customHeaders">,
+): Promise<string[]> {
+  if (!provider.baseUrl.trim()) return [];
+
+  const cacheKey = getProviderModelsCacheKey(provider);
+  const api = await ensureJsonStorageReady();
+  const models = api
+    ? await api.loadCachedProviderModels(cacheKey)
+    : await legacyGetSetting<string[]>(cacheKey, []);
+
+  return Array.isArray(models)
+    ? [
+        ...new Set(
+          models
+            .filter((model) => typeof model === "string" && model.trim())
+            .map((model) => model.trim()),
+        ),
+      ]
+    : [];
+}
+
+export async function saveCachedProviderModels(
+  provider: Pick<ProviderConfig, "baseUrl" | "headers" | "customHeaders">,
+  models: string[],
+): Promise<void> {
+  if (!provider.baseUrl.trim()) return;
+
+  const cacheKey = getProviderModelsCacheKey(provider);
+  const normalizedModels = [
+    ...new Set(
+      models
+        .filter((model) => typeof model === "string" && model.trim())
+        .map((model) => model.trim()),
+    ),
+  ].sort((left, right) => left.localeCompare(right));
+
+  const api = await ensureJsonStorageReady();
+
+  if (api) {
+    await api.saveCachedProviderModels(cacheKey, normalizedModels);
+    return;
+  }
+
+  await legacySetSetting(cacheKey, normalizedModels);
+}
+
+export async function loadChats(): Promise<ChatSession[]> {
+  const api = await ensureJsonStorageReady();
+
+  if (api) {
+    const chats = await api.loadChats();
+    return chats.sort(
+      (left, right) =>
+        new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime(),
+    );
+  }
+
+  return legacyLoadChats();
+}
+
+export async function saveChat(chat: ChatSession): Promise<void> {
+  const api = await ensureJsonStorageReady();
+
+  if (api) {
+    await api.saveChat(chat);
+    return;
+  }
+
+  await legacySaveChat(chat);
+}
+
+export async function deleteChat(chatId: string): Promise<void> {
+  const api = await ensureJsonStorageReady();
+
+  if (api) {
+    await api.deleteChat(chatId);
+    return;
+  }
+
+  await legacyDeleteChat(chatId);
+}
+
+export async function deleteAllChats(): Promise<void> {
+  const api = await ensureJsonStorageReady();
+
+  if (api) {
+    await api.deleteAllChats();
+    return;
+  }
+
+  await legacyDeleteAllChats();
 }

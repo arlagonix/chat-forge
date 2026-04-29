@@ -10,8 +10,8 @@ import {
   Copy,
   Eye,
   EyeOff,
-  Moon,
   MessageSquareText,
+  Moon,
   MoreVertical,
   Pencil,
   Plus,
@@ -59,13 +59,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  ContextMenu,
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuSeparator,
-  ContextMenuTrigger,
-} from "@/components/ui/context-menu";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -139,13 +132,19 @@ function providerDisplayName(provider: Pick<ProviderConfig, "name">) {
 }
 
 function normalizeProviderModels(models: string[]) {
-  return [...new Set(models.map((model) => model.trim()).filter(Boolean))].sort((left, right) =>
-    left.localeCompare(right),
+  return [...new Set(models.map((model) => model.trim()).filter(Boolean))].sort(
+    (left, right) => left.localeCompare(right),
   );
 }
 
-function getProviderFallbackModel(provider: Pick<ProviderConfig, "model" | "enabledModelIds">) {
-  return provider.model.trim() || normalizeProviderModels(provider.enabledModelIds ?? [])[0] || "";
+function getProviderFallbackModel(
+  provider: Pick<ProviderConfig, "model" | "enabledModelIds">,
+) {
+  return (
+    provider.model.trim() ||
+    normalizeProviderModels(provider.enabledModelIds ?? [])[0] ||
+    ""
+  );
 }
 
 function providerLabel(provider: ProviderConfig) {
@@ -155,7 +154,9 @@ function providerLabel(provider: ProviderConfig) {
 
 function normalizeProviderForState(provider: ProviderConfig): ProviderConfig {
   const models = normalizeProviderModels(provider.models ?? []);
-  const enabledModelIds = normalizeProviderModels(provider.enabledModelIds ?? []);
+  const enabledModelIds = normalizeProviderModels(
+    provider.enabledModelIds ?? [],
+  );
   const model = provider.model.trim();
 
   return {
@@ -379,6 +380,227 @@ const AssistantMessageContent = memo(function AssistantMessageContent({
 }) {
   return <MarkdownMessage content={content} className={className} />;
 });
+
+function takeSafeVisibleSlice(remaining: string, maxChars: number) {
+  if (remaining.length <= maxChars) return remaining;
+
+  const slice = remaining.slice(0, maxChars);
+  const boundaries = [
+    slice.lastIndexOf("\n"),
+    slice.lastIndexOf(" "),
+    slice.lastIndexOf("."),
+    slice.lastIndexOf(","),
+    slice.lastIndexOf(";"),
+    slice.lastIndexOf(":"),
+    slice.lastIndexOf("!"),
+    slice.lastIndexOf("?"),
+  ];
+  const boundary = Math.max(...boundaries);
+
+  if (boundary >= Math.min(12, Math.max(0, maxChars - 1))) {
+    return remaining.slice(0, boundary + 1);
+  }
+
+  return slice;
+}
+
+function takeVisibleWords(
+  remaining: string,
+  maxWords: number,
+  fallbackChars: number,
+) {
+  let end = 0;
+  let words = 0;
+  const wordPattern = /\s*\S+\s*/g;
+  let wordMatch: RegExpExecArray | null;
+
+  while ((wordMatch = wordPattern.exec(remaining)) && words < maxWords) {
+    end = wordPattern.lastIndex;
+    words += 1;
+  }
+
+  return end > 0
+    ? remaining.slice(0, end)
+    : takeSafeVisibleSlice(remaining, fallbackChars);
+}
+
+function getSmoothRevealSlice(remaining: string, isApiStreaming: boolean) {
+  if (!remaining) return "";
+
+  if (!isApiStreaming) {
+    return takeSafeVisibleSlice(
+      remaining,
+      Math.max(160, Math.ceil(remaining.length / 10)),
+    );
+  }
+
+  if (remaining.length < 80) {
+    return remaining.slice(0, remaining.length < 24 ? 1 : 2);
+  }
+
+  if (remaining.length < 500) {
+    return takeVisibleWords(remaining, 2, 32);
+  }
+
+  if (remaining.length < 1500) {
+    return takeVisibleWords(remaining, 6, 96);
+  }
+
+  return takeSafeVisibleSlice(remaining, 220);
+}
+
+function useSmoothStreamingText({
+  content,
+  isApiStreaming,
+  flushVersion,
+  forceInstant = false,
+  onVisualProgress,
+  onVisualStreamingChange,
+}: {
+  content: string;
+  isApiStreaming: boolean;
+  flushVersion: number;
+  forceInstant?: boolean;
+  onVisualProgress?: () => void;
+  onVisualStreamingChange?: (isVisuallyStreaming: boolean) => void;
+}) {
+  const [visibleContent, setVisibleContent] = useState(content);
+  const visibleContentRef = useRef(content);
+  const visualStreamingRef = useRef(false);
+  const lastFlushVersionRef = useRef(flushVersion);
+
+  const setVisualStreaming = useCallback(
+    (isVisuallyStreaming: boolean) => {
+      if (visualStreamingRef.current === isVisuallyStreaming) return;
+      visualStreamingRef.current = isVisuallyStreaming;
+      onVisualStreamingChange?.(isVisuallyStreaming);
+    },
+    [onVisualStreamingChange],
+  );
+
+  useEffect(() => {
+    if (forceInstant) {
+      lastFlushVersionRef.current = flushVersion;
+      visibleContentRef.current = content;
+      setVisibleContent(content);
+      setVisualStreaming(false);
+      onVisualProgress?.();
+      return;
+    }
+
+    if (flushVersion !== lastFlushVersionRef.current) {
+      lastFlushVersionRef.current = flushVersion;
+      visibleContentRef.current = content;
+      setVisibleContent(content);
+      setVisualStreaming(false);
+      onVisualProgress?.();
+      return;
+    }
+
+    if (!content.startsWith(visibleContentRef.current)) {
+      visibleContentRef.current = content;
+      setVisibleContent(content);
+      setVisualStreaming(false);
+      onVisualProgress?.();
+      return;
+    }
+
+    setVisualStreaming(visibleContentRef.current.length < content.length);
+  }, [
+    content,
+    flushVersion,
+    forceInstant,
+    onVisualProgress,
+    setVisualStreaming,
+  ]);
+
+  useEffect(() => {
+    if (forceInstant) return;
+
+    let timeoutId: number | undefined;
+    let cancelled = false;
+
+    function tick() {
+      if (cancelled) return;
+
+      const current = visibleContentRef.current;
+      if (current.length >= content.length) {
+        setVisualStreaming(false);
+        return;
+      }
+
+      const remaining = content.slice(current.length);
+      const nextSlice = getSmoothRevealSlice(remaining, isApiStreaming);
+      if (!nextSlice) {
+        setVisualStreaming(false);
+        return;
+      }
+
+      const nextVisibleContent = current + nextSlice;
+      visibleContentRef.current = nextVisibleContent;
+      setVisibleContent(nextVisibleContent);
+      setVisualStreaming(nextVisibleContent.length < content.length);
+      onVisualProgress?.();
+
+      if (nextVisibleContent.length < content.length) {
+        timeoutId = window.setTimeout(tick, isApiStreaming ? 22 : 16);
+      }
+    }
+
+    if (visibleContentRef.current.length < content.length) {
+      setVisualStreaming(true);
+      timeoutId = window.setTimeout(tick, isApiStreaming ? 24 : 12);
+    } else {
+      setVisualStreaming(false);
+    }
+
+    return () => {
+      cancelled = true;
+      if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+    };
+  }, [
+    content,
+    forceInstant,
+    isApiStreaming,
+    onVisualProgress,
+    setVisualStreaming,
+  ]);
+
+  return visibleContent;
+}
+
+const SmoothAssistantMessageContent = memo(
+  function SmoothAssistantMessageContent({
+    content,
+    className,
+    isApiStreaming,
+    flushVersion,
+    forceInstant = false,
+    onVisualProgress,
+    onVisualStreamingChange,
+  }: {
+    content: string;
+    className?: string;
+    isApiStreaming: boolean;
+    flushVersion: number;
+    forceInstant?: boolean;
+    onVisualProgress?: () => void;
+    onVisualStreamingChange?: (isVisuallyStreaming: boolean) => void;
+  }) {
+    const visibleContent = useSmoothStreamingText({
+      content,
+      isApiStreaming,
+      flushVersion,
+      forceInstant,
+      onVisualProgress,
+      onVisualStreamingChange,
+    });
+
+    return (
+      <AssistantMessageContent content={visibleContent} className={className} />
+    );
+  },
+);
 
 const UserMessageEditor = memo(function UserMessageEditor({
   initialContent,
@@ -620,6 +842,12 @@ export default function Home() {
   const [streamingAssistantByChatId, setStreamingAssistantByChatId] = useState<
     Record<string, string>
   >({});
+  const [visualStreamingMessageIds, setVisualStreamingMessageIds] = useState<
+    string[]
+  >([]);
+  const [visualFlushRequests, setVisualFlushRequests] = useState<
+    Record<string, number>
+  >({});
   const [isLoadingModels, setIsLoadingModels] = useState(false);
   const [modelLoadStatus, setModelLoadStatus] = useState<
     "idle" | "success" | "empty" | "error"
@@ -639,6 +867,7 @@ export default function Home() {
     Record<string, boolean>
   >({});
   const [isNearChatBottom, setIsNearChatBottom] = useState(true);
+  const [isChatScrollable, setIsChatScrollable] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [systemPromptOpen, setSystemPromptOpen] = useState(false);
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
@@ -660,6 +889,7 @@ export default function Home() {
   const isStreamingRef = useRef(false);
   const shouldStickToBottomRef = useRef(true);
   const lastScrollStateRef = useRef(true);
+  const lastChatScrollTopRef = useRef(0);
   const didHydrateRef = useRef(false);
   const { resolvedTheme, setTheme } = useTheme();
 
@@ -686,7 +916,11 @@ export default function Home() {
     document.addEventListener("keydown", handleDocumentKeyDown);
 
     return () => {
-      document.removeEventListener("pointerdown", handleDocumentPointerDown, true);
+      document.removeEventListener(
+        "pointerdown",
+        handleDocumentPointerDown,
+        true,
+      );
       document.removeEventListener("keydown", handleDocumentKeyDown);
     };
   }, [messageContextMenu]);
@@ -707,9 +941,11 @@ export default function Home() {
     ? providersState.providers
     : [normalizeProviderForState(defaultProvider)];
   const activeProvider =
-    providers.find((provider) => provider.id === providersState.activeProviderId) ??
-    providers[0];
+    providers.find(
+      (provider) => provider.id === providersState.activeProviderId,
+    ) ?? providers[0];
   const messages = activeChat?.messages ?? [];
+  const hasMessages = messages.length > 0;
   const activeChatProvider =
     providers.find((provider) => provider.id === activeChat?.providerId) ??
     activeProvider;
@@ -744,9 +980,13 @@ export default function Home() {
 
     return providers
       .map((provider) => {
-        const models = normalizeProviderModels(provider.enabledModelIds ?? []).filter((model) =>
+        const models = normalizeProviderModels(
+          provider.enabledModelIds ?? [],
+        ).filter((model) =>
           search
-            ? `${providerDisplayName(provider)} ${model}`.toLowerCase().includes(search)
+            ? `${providerDisplayName(provider)} ${model}`
+                .toLowerCase()
+                .includes(search)
             : true,
         );
 
@@ -783,13 +1023,15 @@ export default function Home() {
           ? loadedProvidersState.activeProviderId
           : normalizedProviders[0].id;
         const fallbackProvider =
-          normalizedProviders.find((provider) => provider.id === fallbackProviderId) ??
-          normalizedProviders[0];
+          normalizedProviders.find(
+            (provider) => provider.id === fallbackProviderId,
+          ) ?? normalizedProviders[0];
 
         let nextChats = loadedChats.map((chat) => ({
           ...chat,
           providerId: chat.providerId ?? fallbackProviderId,
-          model: chat.model?.trim() || getProviderFallbackModel(fallbackProvider),
+          model:
+            chat.model?.trim() || getProviderFallbackModel(fallbackProvider),
         }));
         let nextActiveChatId = loadedActiveChatId;
 
@@ -944,7 +1186,32 @@ export default function Home() {
     );
   }
 
-  function isChatNearBottom(threshold = 140) {
+  function canChatScroll() {
+    const scrollElement = chatScrollRef.current;
+    if (!scrollElement) return false;
+
+    return scrollElement.scrollHeight > scrollElement.clientHeight + 1;
+  }
+
+  function syncChatScrollableState() {
+    const nextIsScrollable = canChatScroll();
+    setIsChatScrollable((currentIsScrollable) =>
+      currentIsScrollable === nextIsScrollable
+        ? currentIsScrollable
+        : nextIsScrollable,
+    );
+
+    if (!nextIsScrollable) {
+      shouldStickToBottomRef.current = true;
+      updateNearBottomState(true);
+    }
+
+    return nextIsScrollable;
+  }
+
+  function isChatNearBottom(threshold = 24) {
+    if (!canChatScroll()) return true;
+
     return getChatDistanceFromBottom() <= threshold;
   }
 
@@ -969,21 +1236,40 @@ export default function Home() {
   }
 
   function scrollToBottomNow() {
-    const bottomElement = chatBottomRef.current;
     const scrollElement = chatScrollRef.current;
-    if (!bottomElement || !scrollElement) return;
+    if (!scrollElement) return;
 
     isAutoScrollingRef.current = true;
-    bottomElement.scrollIntoView({ block: "end", behavior: "auto" });
-    scrollElement.scrollTop = Math.max(
+    const nextScrollTop = Math.max(
       0,
       scrollElement.scrollHeight - scrollElement.clientHeight,
     );
+    scrollElement.scrollTop = nextScrollTop;
+    lastChatScrollTopRef.current = nextScrollTop;
     updateNearBottomState(true);
 
     window.requestAnimationFrame(() => {
       isAutoScrollingRef.current = false;
     });
+  }
+
+  function scrollToBottomSmooth() {
+    const scrollElement = chatScrollRef.current;
+    if (!scrollElement) return;
+
+    isAutoScrollingRef.current = true;
+    const nextScrollTop = Math.max(
+      0,
+      scrollElement.scrollHeight - scrollElement.clientHeight,
+    );
+    scrollElement.scrollTo({ top: nextScrollTop, behavior: "smooth" });
+    lastChatScrollTopRef.current = nextScrollTop;
+    updateNearBottomState(true);
+
+    window.setTimeout(() => {
+      isAutoScrollingRef.current = false;
+      if (shouldStickToBottomRef.current) scrollToBottomNow();
+    }, 260);
   }
 
   const scheduleChatScrollToBottom = useCallback(() => {
@@ -1028,6 +1314,40 @@ export default function Home() {
     });
   }, []);
 
+  const handleAssistantVisualProgress = useCallback(
+    (chatId: string) => {
+      if (chatId !== activeChatId) return;
+
+      syncChatScrollableState();
+
+      if (shouldStickToBottomRef.current) {
+        scheduleChatScrollToBottom();
+      }
+    },
+    [activeChatId, scheduleChatScrollToBottom],
+  );
+
+  const handleAssistantVisualStreamingChange = useCallback(
+    (messageId: string, isVisuallyStreaming: boolean) => {
+      setVisualStreamingMessageIds((currentMessageIds) => {
+        const hasMessageId = currentMessageIds.includes(messageId);
+
+        if (isVisuallyStreaming) {
+          return hasMessageId
+            ? currentMessageIds
+            : [...currentMessageIds, messageId];
+        }
+
+        return hasMessageId
+          ? currentMessageIds.filter(
+              (currentMessageId) => currentMessageId !== messageId,
+            )
+          : currentMessageIds;
+      });
+    },
+    [],
+  );
+
   function registerMessageElement(messageId: string) {
     return (element: HTMLDivElement | null) => {
       if (element) {
@@ -1054,7 +1374,38 @@ export default function Home() {
     } else if (shouldStickToBottomRef.current) {
       scheduleChatScrollToBottom();
     }
+
+    window.requestAnimationFrame(() => syncChatScrollableState());
   }, [messages, scheduleChatScrollToBottom, scrollAssistantIntoView]);
+
+  useEffect(() => {
+    const scrollElement = chatScrollRef.current;
+    if (!scrollElement) return;
+
+    let frameId: number | null = null;
+    const scheduleSync = () => {
+      if (frameId !== null) return;
+      frameId = window.requestAnimationFrame(() => {
+        frameId = null;
+        syncChatScrollableState();
+      });
+    };
+
+    scheduleSync();
+    window.addEventListener("resize", scheduleSync);
+
+    const resizeObserver = new ResizeObserver(scheduleSync);
+    resizeObserver.observe(scrollElement);
+
+    return () => {
+      window.removeEventListener("resize", scheduleSync);
+      resizeObserver.disconnect();
+
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId);
+      }
+    };
+  }, [activeChatId, messages.length]);
 
   function showSuccess(message: string, description?: string) {
     toast(message, description ? { description } : undefined);
@@ -1116,7 +1467,7 @@ export default function Home() {
   function scrollChatToBottom() {
     shouldStickToBottomRef.current = true;
     updateNearBottomState(true);
-    scheduleChatScrollToBottom();
+    scrollToBottomSmooth();
   }
 
   function handleChatScroll() {
@@ -1127,6 +1478,19 @@ export default function Home() {
     scrollStateFrameRef.current = window.requestAnimationFrame(() => {
       scrollStateFrameRef.current = null;
 
+      const scrollElement = chatScrollRef.current;
+      if (!scrollElement) return;
+
+      if (!syncChatScrollableState()) {
+        lastChatScrollTopRef.current = scrollElement.scrollTop;
+        return;
+      }
+
+      const previousScrollTop = lastChatScrollTopRef.current;
+      const currentScrollTop = scrollElement.scrollTop;
+      const isScrollingUp = currentScrollTop < previousScrollTop - 1;
+      lastChatScrollTopRef.current = currentScrollTop;
+
       if (isAutoScrollingRef.current) return;
 
       const isNearBottom = isChatNearBottom();
@@ -1134,7 +1498,10 @@ export default function Home() {
 
       if (isNearBottom) {
         shouldStickToBottomRef.current = true;
-      } else if (!isStreamingRef.current || isUserScrollingRef.current) {
+        return;
+      }
+
+      if (isScrollingUp || isUserScrollingRef.current) {
         shouldStickToBottomRef.current = false;
       }
     });
@@ -1144,6 +1511,10 @@ export default function Home() {
     closeMessageContextMenu();
 
     if (isAutoScrollingRef.current) return;
+
+    if (!syncChatScrollableState()) {
+      return;
+    }
 
     markUserScrolling();
 
@@ -1343,7 +1714,9 @@ export default function Home() {
     );
   }
 
-  function updateProvidersState(updater: (state: ProvidersState) => ProvidersState) {
+  function updateProvidersState(
+    updater: (state: ProvidersState) => ProvidersState,
+  ) {
     setProvidersState((currentState) => {
       const nextState = updater(currentState);
       const providers = nextState.providers.length
@@ -1421,12 +1794,17 @@ export default function Home() {
       return;
     }
 
-    const remainingProviders = providers.filter((provider) => provider.id !== providerId);
+    const remainingProviders = providers.filter(
+      (provider) => provider.id !== providerId,
+    );
     const fallbackProvider =
-      remainingProviders.find((provider) => provider.id !== providerId) ?? remainingProviders[0];
+      remainingProviders.find((provider) => provider.id !== providerId) ??
+      remainingProviders[0];
 
     updateProvidersState((currentState) => ({
-      providers: currentState.providers.filter((provider) => provider.id !== providerId),
+      providers: currentState.providers.filter(
+        (provider) => provider.id !== providerId,
+      ),
       activeProviderId:
         currentState.activeProviderId === providerId
           ? fallbackProvider.id
@@ -1464,7 +1842,9 @@ export default function Home() {
       ...currentState,
       activeProviderId: providerId,
       providers: currentState.providers.map((provider) =>
-        provider.id === providerId ? { ...provider, model: normalizedModel } : provider,
+        provider.id === providerId
+          ? { ...provider, model: normalizedModel }
+          : provider,
       ),
     }));
     setIsSidebarModelComboboxOpen(false);
@@ -1481,13 +1861,25 @@ export default function Home() {
         if (provider.id !== currentState.activeProviderId) return provider;
 
         const enabledModelIds = checked
-          ? normalizeProviderModels([...(provider.enabledModelIds ?? []), normalizedModel])
-          : normalizeProviderModels((provider.enabledModelIds ?? []).filter((item) => item !== normalizedModel));
-        const model = enabledModelIds.includes(provider.model) ? provider.model : "";
+          ? normalizeProviderModels([
+              ...(provider.enabledModelIds ?? []),
+              normalizedModel,
+            ])
+          : normalizeProviderModels(
+              (provider.enabledModelIds ?? []).filter(
+                (item) => item !== normalizedModel,
+              ),
+            );
+        const model = enabledModelIds.includes(provider.model)
+          ? provider.model
+          : "";
 
         return normalizeProviderForState({
           ...provider,
-          models: normalizeProviderModels([...(provider.models ?? []), normalizedModel]),
+          models: normalizeProviderModels([
+            ...(provider.models ?? []),
+            normalizedModel,
+          ]),
           enabledModelIds,
           model,
         });
@@ -1567,9 +1959,13 @@ export default function Home() {
           if (provider.id !== providerForLoad.id) return provider;
 
           const enabledModelIds = normalizeProviderModels(
-            (provider.enabledModelIds ?? []).filter((model) => loadedModels.includes(model)),
+            (provider.enabledModelIds ?? []).filter((model) =>
+              loadedModels.includes(model),
+            ),
           );
-          const model = enabledModelIds.includes(provider.model) ? provider.model : "";
+          const model = enabledModelIds.includes(provider.model)
+            ? provider.model
+            : "";
 
           return normalizeProviderForState({
             ...provider,
@@ -1633,7 +2029,22 @@ export default function Home() {
   }
 
   function stopChatGeneration(chatId: string) {
-    generationRefs.current[chatId]?.controller.abort();
+    const generation = generationRefs.current[chatId];
+    if (!generation) return;
+
+    flushBufferedAssistantVariant(
+      getStreamBufferKey(
+        chatId,
+        generation.assistantMessageId,
+        generation.variantId,
+      ),
+    );
+    setVisualFlushRequests((current) => ({
+      ...current,
+      [generation.assistantMessageId]:
+        (current[generation.assistantMessageId] ?? 0) + 1,
+    }));
+    generation.controller.abort();
   }
 
   async function runAssistantVariant({
@@ -1743,6 +2154,12 @@ export default function Home() {
 
       const durationMs = Math.max(1, performance.now() - responseStartedAtMs);
 
+      if (wasAborted) {
+        setVisualFlushRequests((current) => ({
+          ...current,
+          [assistantMessageId]: (current[assistantMessageId] ?? 0) + 1,
+        }));
+      }
       updateAssistantVariant(
         chatId,
         assistantMessageId,
@@ -2360,26 +2777,24 @@ export default function Home() {
                   role="combobox"
                   disabled={!activeChat || isSending}
                   aria-expanded={isSidebarModelComboboxOpen}
-                  className="model-picker-trigger min-w-0 flex-1 justify-between rounded-none px-3 text-left font-normal"
+                  className="model-picker-trigger min-w-0 flex-1 overflow-hidden rounded-none px-3 text-left font-normal"
                   title={
                     isSending
                       ? "Wait until this chat finishes generating"
                       : activeChatModel
-                        ? providerLabel(activeChatProvider)
+                        ? `${providerDisplayName(activeChatProvider)} · ${activeChatModel}`
                         : "Select a model"
                   }
                 >
                   <span
                     className={cn(
-                      "min-w-0 truncate",
+                      "min-w-0 flex-1 truncate",
                       !activeChatModel && "text-muted-foreground",
                     )}
                   >
-                    {activeChatModel
-                      ? `${providerDisplayName(activeChatProvider)} · ${activeChatModel}`
-                      : "Select model"}
+                    {activeChatModel || "Select model"}
                   </span>
-                  <ChevronsUpDown className="size-4 shrink-0 opacity-50" />
+                  <ChevronsUpDown className="ml-2 size-4 shrink-0 opacity-50" />
                 </Button>
               </PopoverTrigger>
               <PopoverContent
@@ -2395,15 +2810,22 @@ export default function Home() {
                   <CommandList>
                     {visibleProviderGroups.length > 0 ? (
                       visibleProviderGroups.map(({ provider, models }) => (
-                        <CommandGroup key={provider.id} heading={providerDisplayName(provider)}>
+                        <CommandGroup
+                          key={provider.id}
+                          heading={providerDisplayName(provider)}
+                        >
                           {models.map((model) => (
                             <CommandItem
                               key={`${provider.id}:${model}`}
                               value={`${providerDisplayName(provider)} ${model}`}
                               onSelect={() =>
-                                selectActiveChatProviderModel(provider.id, model)
+                                selectActiveChatProviderModel(
+                                  provider.id,
+                                  model,
+                                )
                               }
-                              className="cursor-pointer"
+                              className="min-w-0 cursor-pointer"
+                              title={`${providerDisplayName(provider)} · ${model}`}
                             >
                               <span className="min-w-0 flex-1 truncate">
                                 {model}
@@ -2422,27 +2844,15 @@ export default function Home() {
                         </CommandGroup>
                       ))
                     ) : (
-                      <CommandEmpty>No visible models. Enable models in Settings.</CommandEmpty>
+                      <CommandEmpty>
+                        No visible models. Enable models in Settings.
+                      </CommandEmpty>
                     )}
                   </CommandList>
                 </Command>
               </PopoverContent>
             </Popover>
 
-            <Button
-              type="button"
-              variant="secondary"
-              size="icon"
-              onClick={() => loadModelsFromProvider(activeProvider)}
-              disabled={isLoadingModels || !activeProvider.baseUrl.trim()}
-              className="shrink-0 rounded-none"
-              title={getLoadModelsButtonLabel(activeProvider)}
-              aria-label={getLoadModelsButtonLabel(activeProvider)}
-            >
-              <RefreshCcw
-                className={cn("size-4", isLoadingModels && "animate-spin")}
-              />
-            </Button>
           </div>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto p-2 chat-scrollbar">
@@ -2521,18 +2931,26 @@ export default function Home() {
             ref={chatScrollRef}
             data-chat-scroll
             onScroll={handleChatScroll}
-            className="chat-scrollbar h-full w-full overflow-y-auto py-3 [overflow-anchor:none] md:py-6"
+            className={cn(
+              "chat-scrollbar h-full w-full [overflow-anchor:none]",
+              hasMessages ? "overflow-y-auto py-3 md:py-6" : "overflow-hidden",
+            )}
           >
-            <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
-              {messages.length === 0 ? (
-                <div className="flex min-h-[calc(100dvh-12rem)] items-center justify-center">
+            <div
+              className={cn(
+                "mx-auto flex w-full max-w-3xl flex-col",
+                hasMessages ? "gap-4" : "h-full",
+              )}
+            >
+              {!hasMessages ? (
+                <div className="flex h-full items-center justify-center px-3">
                   <div className="max-w-md border bg-card p-6 text-center shadow-xs">
                     <h2 className="text-base font-semibold">
                       Start a conversation
                     </h2>
                     <p className="mt-2 text-sm leading-6 text-muted-foreground">
                       Configure a provider, choose a model, and send your first
-                      message. Chats are stored locally in IndexedDB.
+                      message. Chats are stored locally as JSON files.
                     </p>
                     <div className="mt-4 flex justify-center gap-2">
                       <Button
@@ -2559,6 +2977,13 @@ export default function Home() {
                   const reasoning = activeVariant?.reasoning ?? "";
                   const status = activeVariant?.status;
                   const metrics = activeVariant?.metrics;
+                  const isVisuallyStreaming = visualStreamingMessageIds.some(
+                    (streamingMessageId) =>
+                      streamingMessageId === message.id ||
+                      streamingMessageId.startsWith(`${message.id}:`),
+                  );
+                  const isMessageStreaming =
+                    status === "streaming" || isVisuallyStreaming;
                   const variantCount =
                     message.role === "assistant" ? message.variants.length : 0;
                   const activeVariantNumber =
@@ -2590,7 +3015,7 @@ export default function Home() {
                                 <div className="mb-2 flex items-center justify-between gap-3">
                                   <div className="text-xs font-medium uppercase tracking-wide">
                                     Thinking
-                                    {status === "streaming" ? "..." : ""}
+                                    {isMessageStreaming ? "..." : ""}
                                   </div>
                                   {canToggle && (
                                     <Button
@@ -2624,9 +3049,27 @@ export default function Home() {
                                       : "flex max-h-40 flex-col justify-end overflow-hidden",
                                   )}
                                 >
-                                  <AssistantMessageContent
+                                  <SmoothAssistantMessageContent
                                     content={reasoning}
                                     className="chat-markdown-compact shrink-0"
+                                    isApiStreaming={
+                                      status === "streaming" && !content
+                                    }
+                                    flushVersion={
+                                      visualFlushRequests[message.id] ?? 0
+                                    }
+                                    forceInstant={Boolean(content)}
+                                    onVisualProgress={() =>
+                                      handleAssistantVisualProgress(
+                                        activeChat?.id ?? "",
+                                      )
+                                    }
+                                    onVisualStreamingChange={(isStreaming) =>
+                                      handleAssistantVisualStreamingChange(
+                                        `${message.id}:reasoning`,
+                                        isStreaming,
+                                      )
+                                    }
                                   />
                                 </div>
                               </div>
@@ -2662,16 +3105,33 @@ export default function Home() {
                             >
                               <div
                                 className={cn(
-                                  "min-w-0 overflow-hidden text-sm leading-6 [overflow-wrap:anywhere]",
+                                  "min-w-0 text-sm leading-6 [overflow-wrap:anywhere]",
                                   message.role === "user"
-                                    ? "max-w-[85%] bg-primary px-4 py-3 text-primary-foreground shadow-xs"
-                                    : "w-full max-w-full bg-card px-4 py-3 text-card-foreground shadow-xs",
+                                    ? "max-h-[28rem] max-w-[85%] overflow-y-auto overflow-x-hidden chat-message-scrollbar bg-primary px-4 py-3 text-primary-foreground shadow-xs"
+                                    : "w-full max-w-full overflow-hidden bg-card px-4 py-3 text-card-foreground shadow-xs",
                                   status === "error" && "border-destructive/50",
                                 )}
                               >
                                 {message.role === "assistant" ? (
                                   <>
-                                    <AssistantMessageContent content={content} />
+                                    <SmoothAssistantMessageContent
+                                      content={content}
+                                      isApiStreaming={status === "streaming"}
+                                      flushVersion={
+                                        visualFlushRequests[message.id] ?? 0
+                                      }
+                                      onVisualProgress={() =>
+                                        handleAssistantVisualProgress(
+                                          activeChat?.id ?? "",
+                                        )
+                                      }
+                                      onVisualStreamingChange={(isStreaming) =>
+                                        handleAssistantVisualStreamingChange(
+                                          `${message.id}:content`,
+                                          isStreaming,
+                                        )
+                                      }
+                                    />
                                   </>
                                 ) : (
                                   <div className="whitespace-pre-wrap">
@@ -2689,7 +3149,9 @@ export default function Home() {
                                   left: messageContextMenu.x,
                                   top: messageContextMenu.y,
                                 }}
-                                onContextMenu={(event) => event.preventDefault()}
+                                onContextMenu={(event) =>
+                                  event.preventDefault()
+                                }
                               >
                                 {messageContextMenu.linkHref && (
                                   <>
@@ -2697,7 +3159,9 @@ export default function Home() {
                                       type="button"
                                       className="flex w-full items-center gap-2 px-2 py-1.5 text-left hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
                                       onClick={() => {
-                                        void copyLinkHref(messageContextMenu.linkHref);
+                                        void copyLinkHref(
+                                          messageContextMenu.linkHref,
+                                        );
                                         closeMessageContextMenu();
                                       }}
                                     >
@@ -2717,7 +3181,8 @@ export default function Home() {
                                   onClick={() => {
                                     void copyMessageContent(
                                       message.id,
-                                      messageContextMenu.selectedText || content,
+                                      messageContextMenu.selectedText ||
+                                        content,
                                     );
                                     closeMessageContextMenu();
                                   }}
@@ -2735,7 +3200,9 @@ export default function Home() {
                                     className="flex w-full items-center gap-2 px-2 py-1.5 text-left hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
                                     disabled={isSending}
                                     onClick={() => {
-                                      void regenerateAssistantMessage(message.id);
+                                      void regenerateAssistantMessage(
+                                        message.id,
+                                      );
                                       closeMessageContextMenu();
                                     }}
                                   >
@@ -2829,18 +3296,20 @@ export default function Home() {
                               type="button"
                               className={cn(
                                 "min-h-6 text-left hover:text-foreground disabled:pointer-events-none",
-                                status === "streaming" &&
-                                  metrics?.durationMs === undefined &&
+                                isMessageStreaming &&
                                   "generating-gradient-text font-medium",
                               )}
-                              disabled={metrics?.durationMs === undefined}
+                              disabled={
+                                metrics?.durationMs === undefined ||
+                                isMessageStreaming
+                              }
                               onClick={() => toggleMetrics(message.id)}
                               title="Show generation details"
                             >
-                              {metrics?.durationMs !== undefined
-                                ? formatTokenMetrics(metrics)
-                                : status === "streaming"
-                                  ? "Generating"
+                              {isMessageStreaming
+                                ? "Generating"
+                                : metrics?.durationMs !== undefined
+                                  ? formatTokenMetrics(metrics)
                                   : ""}
                             </button>
 
@@ -2949,7 +3418,7 @@ export default function Home() {
             </div>
           </div>
 
-          {!isNearChatBottom && (
+          {isChatScrollable && !isNearChatBottom && (
             <div className="pointer-events-none absolute inset-x-0 bottom-0 right-[-74px] z-10 px-3 md:px-4">
               <div className="mx-auto flex w-full max-w-3xl justify-end">
                 <Button
@@ -2982,7 +3451,8 @@ export default function Home() {
           <DialogHeader className="h-[96px] shrink-0 overflow-hidden border-b px-5 py-4 pr-12">
             <DialogTitle>Settings</DialogTitle>
             <DialogDescription>
-              Manage providers, choose visible models, and configure generation defaults.
+              Manage providers, choose visible models, and configure generation
+              defaults.
             </DialogDescription>
           </DialogHeader>
 
@@ -3147,8 +3617,12 @@ export default function Home() {
                         variant="ghost"
                         size="icon-sm"
                         className="absolute right-1 top-1/2 h-7 w-7 -translate-y-1/2 rounded-none text-muted-foreground"
-                        onClick={() => setIsApiKeyVisible((current) => !current)}
-                        title={isApiKeyVisible ? "Hide API key" : "Show API key"}
+                        onClick={() =>
+                          setIsApiKeyVisible((current) => !current)
+                        }
+                        title={
+                          isApiKeyVisible ? "Hide API key" : "Show API key"
+                        }
                       >
                         {isApiKeyVisible ? (
                           <EyeOff className="size-4" />
@@ -3158,7 +3632,6 @@ export default function Home() {
                       </Button>
                     </div>
                   </div>
-
                 </div>
 
                 <div className="grid gap-3 border bg-card p-3">
@@ -3166,7 +3639,8 @@ export default function Home() {
                     <div>
                       <Label>Visible models</Label>
                       <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                        Only checked models appear in the sidebar model selector.
+                        Only checked models appear in the sidebar model
+                        selector.
                       </p>
                     </div>
                     <div className="flex flex-wrap gap-2">
@@ -3176,10 +3650,15 @@ export default function Home() {
                         size="sm"
                         className="rounded-none"
                         onClick={() => loadModelsFromProvider(activeProvider)}
-                        disabled={isLoadingModels || !activeProvider.baseUrl.trim()}
+                        disabled={
+                          isLoadingModels || !activeProvider.baseUrl.trim()
+                        }
                       >
                         <RefreshCcw
-                          className={cn("size-4", isLoadingModels && "animate-spin")}
+                          className={cn(
+                            "size-4",
+                            isLoadingModels && "animate-spin",
+                          )}
                         />
                         {getLoadModelsButtonLabel(activeProvider)}
                       </Button>
@@ -3210,7 +3689,9 @@ export default function Home() {
                             model: "",
                           })
                         }
-                        disabled={(activeProvider.enabledModelIds ?? []).length === 0}
+                        disabled={
+                          (activeProvider.enabledModelIds ?? []).length === 0
+                        }
                       >
                         Clear
                       </Button>
@@ -3221,9 +3702,9 @@ export default function Home() {
                     {(activeProvider.models ?? []).length > 0 ? (
                       <div className="grid gap-1">
                         {(activeProvider.models ?? []).map((model) => {
-                          const checked = (activeProvider.enabledModelIds ?? []).includes(
-                            model,
-                          );
+                          const checked = (
+                            activeProvider.enabledModelIds ?? []
+                          ).includes(model);
 
                           return (
                             <label
@@ -3234,11 +3715,16 @@ export default function Home() {
                                 type="checkbox"
                                 checked={checked}
                                 onChange={(event) =>
-                                  toggleVisibleModel(model, event.target.checked)
+                                  toggleVisibleModel(
+                                    model,
+                                    event.target.checked,
+                                  )
                                 }
                                 className="size-4 shrink-0 accent-primary"
                               />
-                              <span className="min-w-0 flex-1 truncate">{model}</span>
+                              <span className="min-w-0 flex-1 truncate">
+                                {model}
+                              </span>
                             </label>
                           );
                         })}
@@ -3258,7 +3744,8 @@ export default function Home() {
                     <div>
                       <Label>Generation settings</Label>
                       <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                        Saved per selected provider and used for that provider's visible models.
+                        Saved per selected provider and used for that provider's
+                        visible models.
                       </p>
                     </div>
                     <Button
@@ -3274,17 +3761,23 @@ export default function Home() {
 
                   <div className="grid gap-4 md:grid-cols-3">
                     <div className="grid gap-2">
-                      <Label htmlFor="generation-temperature">Temperature</Label>
+                      <Label htmlFor="generation-temperature">
+                        Temperature
+                      </Label>
                       <Input
                         id="generation-temperature"
                         type="number"
                         min="0"
                         max="2"
                         step="0.1"
-                        value={formatOptionalNumber(activeModelSettings.temperature)}
+                        value={formatOptionalNumber(
+                          activeModelSettings.temperature,
+                        )}
                         onChange={(event) =>
                           updateActiveModelSettings({
-                            temperature: parseOptionalNumber(event.target.value),
+                            temperature: parseOptionalNumber(
+                              event.target.value,
+                            ),
                           })
                         }
                         placeholder="Provider default"
@@ -3316,7 +3809,9 @@ export default function Home() {
                         type="number"
                         min="1"
                         step="1"
-                        value={formatOptionalNumber(activeModelSettings.maxTokens)}
+                        value={formatOptionalNumber(
+                          activeModelSettings.maxTokens,
+                        )}
                         onChange={(event) =>
                           updateActiveModelSettings({
                             maxTokens: parseOptionalNumber(event.target.value),
@@ -3373,16 +3868,22 @@ export default function Home() {
                     </div>
 
                     <div className="grid gap-2">
-                      <Label htmlFor="generation-timeout">Request timeout, ms</Label>
+                      <Label htmlFor="generation-timeout">
+                        Request timeout, ms
+                      </Label>
                       <Input
                         id="generation-timeout"
                         type="number"
                         min="1000"
                         step="1000"
-                        value={formatOptionalNumber(activeModelSettings.requestTimeoutMs)}
+                        value={formatOptionalNumber(
+                          activeModelSettings.requestTimeoutMs,
+                        )}
                         onChange={(event) =>
                           updateActiveModelSettings({
-                            requestTimeoutMs: parseOptionalNumber(event.target.value),
+                            requestTimeoutMs: parseOptionalNumber(
+                              event.target.value,
+                            ),
                           })
                         }
                         placeholder="30000"
@@ -3426,7 +3927,8 @@ export default function Home() {
           <DialogHeader className="shrink-0 border-b px-5 py-4 pr-12">
             <DialogTitle>System prompt</DialogTitle>
             <DialogDescription>
-              Define the instruction sent before every chat message. Leave it empty to send no system prompt.
+              Define the instruction sent before every chat message. Leave it
+              empty to send no system prompt.
             </DialogDescription>
           </DialogHeader>
 
@@ -3459,7 +3961,10 @@ export default function Home() {
                   setSystemPromptOpen(false);
                 } catch (error) {
                   console.error("Failed to save system prompt:", error);
-                  showError("Failed to save system prompt", labelForError(error));
+                  showError(
+                    "Failed to save system prompt",
+                    labelForError(error),
+                  );
                 }
               }}
             >
