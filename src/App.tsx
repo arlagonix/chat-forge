@@ -22,7 +22,12 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import type { FormEvent, WheelEvent } from "react";
+import type {
+  FormEvent,
+  MouseEvent as ReactMouseEvent,
+  PointerEvent as ReactPointerEvent,
+  WheelEvent,
+} from "react";
 import {
   forwardRef,
   memo,
@@ -53,6 +58,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -526,6 +538,14 @@ type ActiveGeneration = {
   variantId: string;
 };
 
+type MessageContextMenuState = {
+  messageId: string;
+  x: number;
+  y: number;
+  linkHref: string | null;
+  selectedText: string;
+};
+
 export default function Home() {
   const [mounted, setMounted] = useState(false);
   const [provider, setProvider] = useState<ProviderConfig>(defaultProvider);
@@ -546,6 +566,8 @@ export default function Home() {
   const [models, setModels] = useState<string[]>([]);
   const [isModelComboboxOpen, setIsModelComboboxOpen] = useState(false);
   const [modelSearchValue, setModelSearchValue] = useState("");
+  const [messageContextMenu, setMessageContextMenu] =
+    useState<MessageContextMenuState | null>(null);
   const [isSidebarModelComboboxOpen, setIsSidebarModelComboboxOpen] =
     useState(false);
   const [sidebarModelSearchValue, setSidebarModelSearchValue] = useState("");
@@ -579,6 +601,34 @@ export default function Home() {
   const lastScrollStateRef = useRef(true);
   const didHydrateRef = useRef(false);
   const { resolvedTheme, setTheme } = useTheme();
+
+  useEffect(() => {
+    if (!messageContextMenu) return;
+
+    function handleDocumentPointerDown(event: PointerEvent) {
+      const target = event.target instanceof Element ? event.target : null;
+
+      if (target?.closest("[data-message-context-menu]")) {
+        return;
+      }
+
+      closeMessageContextMenu();
+    }
+
+    function handleDocumentKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        closeMessageContextMenu();
+      }
+    }
+
+    document.addEventListener("pointerdown", handleDocumentPointerDown, true);
+    document.addEventListener("keydown", handleDocumentKeyDown);
+
+    return () => {
+      document.removeEventListener("pointerdown", handleDocumentPointerDown, true);
+      document.removeEventListener("keydown", handleDocumentKeyDown);
+    };
+  }, [messageContextMenu]);
 
   function focusDraftTextarea() {
     chatComposerRef.current?.focus();
@@ -1005,6 +1055,8 @@ export default function Home() {
   }
 
   function handleChatScroll() {
+    closeMessageContextMenu();
+
     if (scrollStateFrameRef.current !== null) return;
 
     scrollStateFrameRef.current = window.requestAnimationFrame(() => {
@@ -1024,6 +1076,8 @@ export default function Home() {
   }
 
   function handleChatWheel(event: WheelEvent<HTMLDivElement>) {
+    closeMessageContextMenu();
+
     if (isAutoScrollingRef.current) return;
 
     markUserScrolling();
@@ -1044,7 +1098,13 @@ export default function Home() {
     });
   }
 
-  function handleChatPointerDown() {
+  function handleChatPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
+    const target = event.target instanceof Element ? event.target : null;
+
+    if (!target?.closest("[data-message-context-menu]")) {
+      closeMessageContextMenu();
+    }
+
     if (isAutoScrollingRef.current) return;
     markUserScrolling();
   }
@@ -1737,6 +1797,111 @@ export default function Home() {
     setEditingMessageId(null);
   }
 
+  function getSelectedTextWithin(element: HTMLElement) {
+    const selection = window.getSelection();
+
+    if (!selection || selection.isCollapsed) {
+      return "";
+    }
+
+    const selectedText = selection.toString();
+
+    if (!selectedText.trim()) {
+      return "";
+    }
+
+    for (let index = 0; index < selection.rangeCount; index += 1) {
+      const range = selection.getRangeAt(index);
+
+      try {
+        if (range.intersectsNode(element)) {
+          return selectedText;
+        }
+      } catch {
+        // Ignore detached selection ranges.
+      }
+    }
+
+    return "";
+  }
+
+  function closeMessageContextMenu() {
+    setMessageContextMenu(null);
+  }
+
+  function captureMessageContext(
+    event: ReactMouseEvent<HTMLElement>,
+    messageId: string,
+  ) {
+    event.preventDefault();
+
+    const target = event.target instanceof Element ? event.target : null;
+    const link = target?.closest("a[href]");
+    const menuWidth = 220;
+    const menuHeight = 180;
+    const margin = 8;
+    const x = Math.max(
+      margin,
+      Math.min(event.clientX, window.innerWidth - menuWidth - margin),
+    );
+    const y = Math.max(
+      margin,
+      Math.min(event.clientY, window.innerHeight - menuHeight - margin),
+    );
+
+    setMessageContextMenu({
+      messageId,
+      x,
+      y,
+      linkHref: link instanceof HTMLAnchorElement ? link.href : null,
+      selectedText: getSelectedTextWithin(event.currentTarget),
+    });
+  }
+
+  async function copyLinkHref(href: string | null) {
+    if (!href) return;
+
+    try {
+      await navigator.clipboard.writeText(href);
+      showSuccess("Link copied.");
+    } catch (error) {
+      console.error("Failed to copy link:", error);
+      toast.error("Failed to copy link.");
+    }
+  }
+
+  function deleteMessage(messageId: string) {
+    if (!activeChat) return;
+
+    if (isChatGenerating(activeChat.id)) {
+      showInfo("Wait until generation finishes before deleting messages.");
+      return;
+    }
+
+    updateActiveChatMessages((currentMessages) =>
+      currentMessages.filter((message) => message.id !== messageId),
+    );
+
+    setEditingMessageId((currentMessageId) =>
+      currentMessageId === messageId ? null : currentMessageId,
+    );
+    setCopiedMessageId((currentMessageId) =>
+      currentMessageId === messageId ? null : currentMessageId,
+    );
+    setExpandedReasoningIds((current) => {
+      const next = { ...current };
+      delete next[messageId];
+      return next;
+    });
+    setExpandedMetricsIds((current) => {
+      const next = { ...current };
+      delete next[messageId];
+      return next;
+    });
+    messageElementRefs.current.delete(messageId);
+    showSuccess("Message deleted.");
+  }
+
   async function copyMessageContent(messageId: string, content: string) {
     if (!content.trim()) {
       return;
@@ -2017,7 +2182,7 @@ export default function Home() {
                   role="combobox"
                   disabled={!activeChat || isSending}
                   aria-expanded={isSidebarModelComboboxOpen}
-                  className="min-w-0 flex-1 justify-between rounded-none px-3 text-left font-normal"
+                  className="model-picker-trigger min-w-0 flex-1 justify-between rounded-none px-3 text-left font-normal"
                   title={
                     isSending
                       ? "Wait until this chat finishes generating"
@@ -2317,40 +2482,139 @@ export default function Home() {
                         (content ||
                           message.role !== "assistant" ||
                           status !== "streaming") && (
-                          <article
-                            className={cn(
-                              "flex",
-                              message.role === "user"
-                                ? "justify-end"
-                                : "justify-start",
-                            )}
-                          >
-                            <div
+                          <>
+                            <article
                               className={cn(
-                                "min-w-0 overflow-hidden text-sm leading-6 [overflow-wrap:anywhere]",
+                                "flex",
                                 message.role === "user"
-                                  ? "max-w-[85%] bg-primary px-4 py-3 text-primary-foreground shadow-xs"
-                                  : "w-full max-w-full bg-card px-4 py-3 text-card-foreground shadow-xs",
-                                status === "error" && "border-destructive/50",
+                                  ? "justify-end"
+                                  : "justify-start",
                               )}
+                              onContextMenu={(event) =>
+                                captureMessageContext(event, message.id)
+                              }
                             >
-                              {message.role === "assistant" ? (
-                                <>
-                                  <AssistantMessageContent content={content} />
-                                  {isStreamingMessage && (
-                                    <span
-                                      className="streaming-cursor"
-                                      aria-hidden="true"
-                                    />
-                                  )}
-                                </>
-                              ) : (
-                                <div className="whitespace-pre-wrap">
-                                  {message.content}
-                                </div>
-                              )}
-                            </div>
-                          </article>
+                              <div
+                                className={cn(
+                                  "min-w-0 overflow-hidden text-sm leading-6 [overflow-wrap:anywhere]",
+                                  message.role === "user"
+                                    ? "max-w-[85%] bg-primary px-4 py-3 text-primary-foreground shadow-xs"
+                                    : "w-full max-w-full bg-card px-4 py-3 text-card-foreground shadow-xs",
+                                  status === "error" && "border-destructive/50",
+                                )}
+                              >
+                                {message.role === "assistant" ? (
+                                  <>
+                                    <AssistantMessageContent content={content} />
+                                    {isStreamingMessage && (
+                                      <span
+                                        className="streaming-cursor"
+                                        aria-hidden="true"
+                                      />
+                                    )}
+                                  </>
+                                ) : (
+                                  <div className="whitespace-pre-wrap">
+                                    {message.content}
+                                  </div>
+                                )}
+                              </div>
+                            </article>
+
+                            {messageContextMenu?.messageId === message.id && (
+                              <div
+                                data-message-context-menu
+                                className="fixed z-50 min-w-55 border bg-popover p-1 text-sm text-popover-foreground shadow-md"
+                                style={{
+                                  left: messageContextMenu.x,
+                                  top: messageContextMenu.y,
+                                }}
+                                onContextMenu={(event) => event.preventDefault()}
+                              >
+                                {messageContextMenu.linkHref && (
+                                  <>
+                                    <button
+                                      type="button"
+                                      className="flex w-full items-center gap-2 px-2 py-1.5 text-left hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
+                                      onClick={() => {
+                                        void copyLinkHref(messageContextMenu.linkHref);
+                                        closeMessageContextMenu();
+                                      }}
+                                    >
+                                      <Copy className="size-4" />
+                                      Copy link
+                                    </button>
+                                    <div className="-mx-1 my-1 h-px bg-border" />
+                                  </>
+                                )}
+                                <button
+                                  type="button"
+                                  className="flex w-full items-center gap-2 px-2 py-1.5 text-left hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
+                                  disabled={
+                                    !messageContextMenu.selectedText.trim() &&
+                                    !content.trim()
+                                  }
+                                  onClick={() => {
+                                    void copyMessageContent(
+                                      message.id,
+                                      messageContextMenu.selectedText || content,
+                                    );
+                                    closeMessageContextMenu();
+                                  }}
+                                >
+                                  <Copy className="size-4" />
+                                  {messageContextMenu.selectedText.trim()
+                                    ? "Copy selection"
+                                    : message.role === "assistant"
+                                      ? "Copy answer"
+                                      : "Copy message"}
+                                </button>
+                                {message.role === "assistant" && (
+                                  <button
+                                    type="button"
+                                    className="flex w-full items-center gap-2 px-2 py-1.5 text-left hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
+                                    disabled={isSending}
+                                    onClick={() => {
+                                      void regenerateAssistantMessage(message.id);
+                                      closeMessageContextMenu();
+                                    }}
+                                  >
+                                    <RefreshCcw className="size-4" />
+                                    {status === "error"
+                                      ? "Retry answer"
+                                      : "Regenerate answer"}
+                                  </button>
+                                )}
+                                {message.role === "user" && (
+                                  <button
+                                    type="button"
+                                    className="flex w-full items-center gap-2 px-2 py-1.5 text-left hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
+                                    disabled={isSending}
+                                    onClick={() => {
+                                      startEditingUserMessage(message.id);
+                                      closeMessageContextMenu();
+                                    }}
+                                  >
+                                    <Pencil className="size-4" />
+                                    Edit message
+                                  </button>
+                                )}
+                                <div className="-mx-1 my-1 h-px bg-border" />
+                                <button
+                                  type="button"
+                                  className="flex w-full items-center gap-2 px-2 py-1.5 text-left text-destructive hover:bg-destructive/10 hover:text-destructive disabled:pointer-events-none disabled:opacity-50 dark:hover:bg-destructive/20"
+                                  disabled={isSending}
+                                  onClick={() => {
+                                    deleteMessage(message.id);
+                                    closeMessageContextMenu();
+                                  }}
+                                >
+                                  <Trash2 className="size-4" />
+                                  Delete message
+                                </button>
+                              </div>
+                            )}
+                          </>
                         )
                       )}
 
@@ -2651,7 +2915,7 @@ export default function Home() {
                         variant="outline"
                         role="combobox"
                         aria-expanded={isModelComboboxOpen}
-                        className="min-w-0 flex-1 justify-between rounded-none bg-card px-3 font-normal"
+                        className="model-picker-trigger min-w-0 flex-1 justify-between rounded-none px-3 font-normal"
                       >
                         <span
                           className={cn(
