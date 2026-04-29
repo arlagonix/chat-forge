@@ -336,7 +336,7 @@ export async function loadProviderModels(provider: ProviderConfig): Promise<stri
   const data = await assertElectronBridge().loadModels({
     baseUrl: provider.baseUrl,
     apiKey: provider.apiKey,
-    customHeaders: provider.customHeaders,
+    headers: provider.headers,
   });
 
   return normalizeModelList(data);
@@ -368,7 +368,7 @@ export async function sendProviderChat({
   const data = await assertElectronBridge().sendChat({
     baseUrl: provider.baseUrl,
     apiKey: provider.apiKey,
-    customHeaders: provider.customHeaders,
+    headers: provider.headers,
     payload: buildPayload({ provider, systemPrompt, messages, userMessage, stream: false }),
   });
 
@@ -420,7 +420,7 @@ export async function streamProviderChat({
   const stream = assertElectronBridge().streamChat({
     baseUrl: provider.baseUrl,
     apiKey: provider.apiKey,
-    customHeaders: provider.customHeaders,
+    headers: provider.headers,
     payload: buildPayload({ provider, systemPrompt, messages, userMessage, stream: true }),
   });
 

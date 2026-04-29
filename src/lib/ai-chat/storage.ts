@@ -1,5 +1,5 @@
-import { defaultProvider } from "./provider-presets";
-import type { ChatSession, ProviderConfig } from "./types";
+import { defaultGenerationSettings, defaultProvider } from "./provider-presets";
+import type { ChatSession, ProviderConfig, ProvidersState } from "./types";
 
 const DB_NAME = "chat-forge";
 const DB_VERSION = 1;
@@ -7,6 +7,7 @@ const KV_STORE = "settings";
 const CHATS_STORE = "chats";
 
 const PROVIDER_KEY = "provider";
+const PROVIDERS_STATE_KEY = "providers-state";
 const SYSTEM_PROMPT_KEY = "system-prompt";
 const ACTIVE_CHAT_ID_KEY = "active-chat-id";
 const MODEL_CACHE_KEY_PREFIX = "provider-models:";
@@ -35,6 +36,51 @@ export function createEmptyChat(): ChatSession {
     messages: [],
     createdAt: now,
     updatedAt: now,
+  };
+}
+
+function parseCustomHeaders(customHeaders?: string): Record<string, string> {
+  const headers: Record<string, string> = {};
+
+  for (const rawLine of customHeaders?.split(/\r?\n/) ?? []) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) continue;
+
+    const separatorIndex = line.indexOf(":");
+    if (separatorIndex <= 0) continue;
+
+    const name = line.slice(0, separatorIndex).trim();
+    const value = line.slice(separatorIndex + 1).trim();
+    if (name && value) headers[name] = value;
+  }
+
+  return headers;
+}
+
+export function normalizeProvider(provider: Partial<ProviderConfig>): ProviderConfig {
+  const legacyHeaders = parseCustomHeaders(provider.customHeaders);
+  const headers = provider.headers ?? legacyHeaders;
+  const models = [...new Set((provider.models ?? []).filter(Boolean).map((model) => model.trim()))].sort((a, b) => a.localeCompare(b));
+  const enabledModelIds = [...new Set((provider.enabledModelIds ?? (provider.model ? [provider.model] : [])).filter(Boolean).map((model) => model.trim()))];
+  const model = provider.model?.trim() || enabledModelIds[0] || "";
+
+  return {
+    ...defaultProvider,
+    ...provider,
+    id: provider.id?.trim() || `provider-${createId()}`,
+    name: provider.name ?? "",
+    baseUrl: provider.baseUrl ?? "",
+    apiKey: provider.apiKey ?? "",
+    model,
+    models: [...new Set([...models, ...enabledModelIds, model].filter(Boolean))].sort((a, b) => a.localeCompare(b)),
+    enabledModelIds,
+    headers,
+    customHeaders: undefined,
+    defaultSettings: {
+      ...defaultGenerationSettings,
+      ...(provider.defaultSettings ?? {}),
+    },
+    modelSettings: provider.modelSettings ?? {},
   };
 }
 
@@ -106,11 +152,41 @@ async function setSetting<T>(key: string, value: T): Promise<void> {
 
 export async function loadProvider(): Promise<ProviderConfig> {
   const provider = await getSetting<ProviderConfig | undefined>(PROVIDER_KEY, undefined);
-  return provider ? { ...defaultProvider, ...provider } : defaultProvider;
+  return provider ? normalizeProvider(provider) : normalizeProvider(defaultProvider);
 }
 
 export async function saveProvider(provider: ProviderConfig): Promise<void> {
-  await setSetting(PROVIDER_KEY, provider);
+  await setSetting(PROVIDER_KEY, normalizeProvider(provider));
+}
+
+export async function loadProvidersState(): Promise<ProvidersState> {
+  const providersState = await getSetting<ProvidersState | undefined>(PROVIDERS_STATE_KEY, undefined);
+
+  if (providersState?.providers?.length) {
+    const providers = providersState.providers.map(normalizeProvider);
+    const activeProviderId = providers.some((provider) => provider.id === providersState.activeProviderId)
+      ? providersState.activeProviderId
+      : providers[0].id;
+
+    return { providers, activeProviderId };
+  }
+
+  const provider = await loadProvider();
+  return {
+    providers: [provider],
+    activeProviderId: provider.id,
+  };
+}
+
+export async function saveProvidersState(value: ProvidersState): Promise<void> {
+  const providers = value.providers.length
+    ? value.providers.map(normalizeProvider)
+    : [normalizeProvider(defaultProvider)];
+  const activeProviderId = providers.some((provider) => provider.id === value.activeProviderId)
+    ? value.activeProviderId
+    : providers[0].id;
+
+  await setSetting(PROVIDERS_STATE_KEY, { providers, activeProviderId });
 }
 
 export async function loadSystemPrompt(): Promise<string> {
@@ -129,19 +205,24 @@ export async function saveActiveChatId(chatId: string): Promise<void> {
   await setSetting(ACTIVE_CHAT_ID_KEY, chatId);
 }
 
-function getProviderModelsCacheKey(provider: Pick<ProviderConfig, "baseUrl" | "customHeaders">) {
-  const baseUrl = provider.baseUrl.trim().replace(/\/+$/, "");
-  const customHeaders = (provider.customHeaders ?? "")
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
+function getHeadersCacheKey(headers?: Record<string, string>) {
+  return Object.entries(headers ?? {})
+    .map(([name, value]) => [name.trim().toLowerCase(), value.trim()] as const)
+    .filter(([name, value]) => name && value)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([name, value]) => `${name}: ${value}`)
     .join("\n");
+}
 
-  return `${MODEL_CACHE_KEY_PREFIX}${baseUrl}|${customHeaders}`;
+function getProviderModelsCacheKey(provider: Pick<ProviderConfig, "baseUrl" | "headers" | "customHeaders">) {
+  const baseUrl = provider.baseUrl.trim().replace(/\/+$/, "");
+  const headers = provider.headers ?? parseCustomHeaders(provider.customHeaders);
+
+  return `${MODEL_CACHE_KEY_PREFIX}${baseUrl}|${getHeadersCacheKey(headers)}`;
 }
 
 export async function loadCachedProviderModels(
-  provider: Pick<ProviderConfig, "baseUrl" | "customHeaders">,
+  provider: Pick<ProviderConfig, "baseUrl" | "headers" | "customHeaders">,
 ): Promise<string[]> {
   if (!provider.baseUrl.trim()) return [];
 
@@ -158,7 +239,7 @@ export async function loadCachedProviderModels(
 }
 
 export async function saveCachedProviderModels(
-  provider: Pick<ProviderConfig, "baseUrl" | "customHeaders">,
+  provider: Pick<ProviderConfig, "baseUrl" | "headers" | "customHeaders">,
   models: string[],
 ): Promise<void> {
   if (!provider.baseUrl.trim()) return;

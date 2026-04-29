@@ -153,16 +153,6 @@
     }
   }
 
-  @keyframes streaming-cursor-blink {
-    0%,
-    45% {
-      opacity: 1;
-    }
-    46%,
-    100% {
-      opacity: 0;
-    }
-  }
 
   .generating-gradient-text {
     /* background-image: linear-gradient(90deg, #ffaa40, #9c40ff, #ffaa40); */
@@ -182,7 +172,7 @@
   }
 
   .model-picker-trigger {
-    background-color: var(--background);
+    background-color: var(--muted);
     border-color: var(--border);
     transition:
       background-color 180ms ease,
@@ -191,22 +181,15 @@
       box-shadow 180ms ease;
   }
 
+  .dark .model-picker-trigger {
+    background-color: var(--input);
+  }
+
   .model-picker-trigger:hover:not(:disabled) {
     background-color: var(--accent);
     color: var(--accent-foreground);
   }
 
-  .streaming-cursor,
-  .chat-markdown-streaming > :last-child::after {
-    display: inline-block;
-    width: 0.55ch;
-    height: 1.05em;
-    margin-left: 0.15rem;
-    vertical-align: -0.15em;
-    background: var(--primary);
-    animation: streaming-cursor-blink 1s steps(1, end) infinite;
-    content: "";
-  }
 }
 
 @layer components {

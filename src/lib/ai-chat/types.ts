@@ -13,9 +13,18 @@ export type ProviderConfig = {
   baseUrl: string;
   apiKey: string;
   model: string;
+  models?: string[];
+  enabledModelIds?: string[];
+  headers?: Record<string, string>;
+  /** Deprecated: kept only so old IndexedDB records can be migrated. */
   customHeaders?: string;
   defaultSettings?: ProviderGenerationSettings;
   modelSettings?: Record<string, ProviderGenerationSettings>;
+};
+
+export type ProvidersState = {
+  providers: ProviderConfig[];
+  activeProviderId: string;
 };
 
 export type ChatRole = "system" | "user" | "assistant";
@@ -73,6 +82,7 @@ export type ChatSession = {
   messages: ChatMessage[];
   createdAt: string;
   updatedAt: string;
+  providerId?: string;
   model?: string;
 };
 

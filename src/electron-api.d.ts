@@ -3,6 +3,7 @@ import type { ChatTokenUsage } from "@/lib/ai-chat/types";
 type AiProviderRequest = {
   baseUrl: string;
   apiKey?: string;
+  headers?: Record<string, string>;
   customHeaders?: string;
   payload?: unknown;
 };

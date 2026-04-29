@@ -11,7 +11,6 @@ import { cn } from "@/lib/utils";
 type MarkdownMessageProps = {
   content: string;
   className?: string;
-  isStreaming?: boolean;
 };
 
 function normalizeMarkdownContent(content: string) {
@@ -76,18 +75,10 @@ function CodeCopyButton({ code }: { code: string }) {
   );
 }
 
-export function MarkdownMessage({
-  content,
-  className,
-  isStreaming = false,
-}: MarkdownMessageProps) {
+export function MarkdownMessage({ content, className }: MarkdownMessageProps) {
   return (
     <div
-      className={cn(
-        "chat-markdown min-w-0 max-w-full",
-        isStreaming && "chat-markdown-streaming",
-        className,
-      )}
+      className={cn("chat-markdown min-w-0 max-w-full", className)}
     >
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}

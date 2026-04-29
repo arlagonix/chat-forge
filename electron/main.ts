@@ -31,6 +31,7 @@ type AiProviderRequest = {
   baseUrl?: unknown;
   apiKey?: unknown;
   customHeaders?: unknown;
+  headers?: unknown;
   payload?: unknown;
 };
 
@@ -75,6 +76,9 @@ function assertProviderRequest(request: AiProviderRequest) {
     baseUrl: request.baseUrl,
     apiKey: typeof request.apiKey === "string" ? request.apiKey : "",
     customHeaders: typeof request.customHeaders === "string" ? request.customHeaders : "",
+    headers: request.headers && typeof request.headers === "object" && !Array.isArray(request.headers)
+      ? (request.headers as Record<string, unknown>)
+      : {},
     payload: request.payload,
   };
 }
@@ -82,11 +86,13 @@ function assertProviderRequest(request: AiProviderRequest) {
 function buildUpstreamHeaders({
   apiKey,
   customHeaders,
+  headers: providerHeaders,
   accept,
   contentType,
 }: {
   apiKey?: string;
   customHeaders?: string;
+  headers?: Record<string, unknown>;
   accept?: string;
   contentType?: string;
 }) {
@@ -112,6 +118,19 @@ function buildUpstreamHeaders({
       headers.set(name, value);
     } catch {
       // Ignore invalid custom headers.
+    }
+  }
+
+  for (const [name, rawValue] of Object.entries(providerHeaders ?? {})) {
+    const value = typeof rawValue === "string" ? rawValue.trim() : "";
+    const lowerName = name.toLowerCase();
+
+    if (!name || !value || blockedUpstreamHeaders.has(lowerName)) continue;
+
+    try {
+      headers.set(name, value);
+    } catch {
+      // Ignore invalid provider headers.
     }
   }
 
@@ -303,10 +322,10 @@ function createWindow() {
 }
 
 ipcMain.handle("ai:load-models", async (_event, request: AiProviderRequest) => {
-  const { baseUrl, apiKey, customHeaders } = assertProviderRequest(request);
+  const { baseUrl, apiKey, customHeaders, headers } = assertProviderRequest(request);
   const response = await fetch(`${normalizeBaseUrl(baseUrl)}/models`, {
     method: "GET",
-    headers: buildUpstreamHeaders({ apiKey, customHeaders, accept: "application/json" }),
+    headers: buildUpstreamHeaders({ apiKey, customHeaders, headers, accept: "application/json" }),
     cache: "no-store",
   });
 
@@ -314,12 +333,13 @@ ipcMain.handle("ai:load-models", async (_event, request: AiProviderRequest) => {
 });
 
 ipcMain.handle("ai:send-chat", async (_event, request: AiProviderRequest) => {
-  const { baseUrl, apiKey, customHeaders, payload } = assertProviderRequest(request);
+  const { baseUrl, apiKey, customHeaders, headers, payload } = assertProviderRequest(request);
   const response = await fetch(`${normalizeBaseUrl(baseUrl)}/chat/completions`, {
     method: "POST",
     headers: buildUpstreamHeaders({
       apiKey,
       customHeaders,
+      headers,
       contentType: "application/json",
       accept: "application/json",
     }),
@@ -336,7 +356,7 @@ ipcMain.handle("ai:cancel-stream", (_event, streamId: string) => {
 });
 
 ipcMain.handle("ai:stream-chat", async (event, streamId: string, request: AiProviderRequest): Promise<StreamResult> => {
-  const { baseUrl, apiKey, customHeaders, payload } = assertProviderRequest(request);
+  const { baseUrl, apiKey, customHeaders, headers, payload } = assertProviderRequest(request);
   const controller = new AbortController();
   activeStreamControllers.set(streamId, controller);
 
@@ -349,6 +369,7 @@ ipcMain.handle("ai:stream-chat", async (event, streamId: string, request: AiProv
       headers: buildUpstreamHeaders({
         apiKey,
         customHeaders,
+        headers,
         contentType: "application/json",
         accept: "text/event-stream",
       }),
