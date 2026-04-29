@@ -196,7 +196,8 @@
     color: var(--accent-foreground);
   }
 
-  .streaming-cursor {
+  .streaming-cursor,
+  .chat-markdown-streaming > :last-child::after {
     display: inline-block;
     width: 0.55ch;
     height: 1.05em;
@@ -204,6 +205,7 @@
     vertical-align: -0.15em;
     background: var(--primary);
     animation: streaming-cursor-blink 1s steps(1, end) infinite;
+    content: "";
   }
 }
 

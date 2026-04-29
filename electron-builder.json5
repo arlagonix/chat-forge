@@ -12,10 +12,12 @@
     main: "dist-electron/main.js",
   },
   mac: {
+    icon: "public/icon.png",
     target: ["dmg"],
     artifactName: "${productName}-Mac-${version}-Installer.${ext}",
   },
   win: {
+    icon: "public/icon.ico",
     target: [
       {
         target: "nsis",
@@ -41,6 +43,7 @@
     artifactName: "${productName} Portable ${version}.${ext}",
   },
   linux: {
+    icon: "public/icon.png",
     target: ["AppImage"],
     artifactName: "${productName}-Linux-${version}.${ext}",
   },
