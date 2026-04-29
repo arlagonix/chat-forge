@@ -147,11 +147,11 @@
 
 @layer components {
   .chat-markdown {
-    @apply min-w-0 max-w-full leading-7 [overflow-wrap:anywhere];
+    @apply min-w-0 max-w-full [overflow-wrap:anywhere];
   }
 
   .chat-markdown-compact {
-    @apply text-xs leading-5;
+    @apply text-xs;
   }
 
   .chat-markdown > *:first-child {
@@ -163,21 +163,24 @@
   }
 
   .chat-markdown p {
-    @apply my-4;
+    @apply my-2;
   }
 
   .chat-markdown-compact p {
     @apply my-2;
   }
 
-  .chat-markdown ul,
+  .chat-markdown ul {
+    @apply my-0 pl-5;
+  }
+
   .chat-markdown ol {
-    @apply my-4 pl-6;
+    @apply my-0 pl-7;
   }
 
   .chat-markdown-compact ul,
   .chat-markdown-compact ol {
-    @apply my-2 pl-5;
+    @apply my-1 pl-6;
   }
 
   .chat-markdown ul {
@@ -189,15 +192,15 @@
   }
 
   .chat-markdown li {
-    @apply my-1;
+    @apply my-0;
   }
 
   .chat-markdown li > p {
-    @apply my-1;
+    @apply my-0;
   }
 
   .chat-markdown blockquote {
-    @apply my-4 border-l-2 border-border pl-4 text-muted-foreground;
+    @apply my-1 border-l-2 border-border pl-4 text-muted-foreground;
   }
 
   .chat-markdown-compact blockquote {
@@ -249,11 +252,11 @@
   }
 
   .chat-markdown .chat-code-block {
-    @apply relative my-4 max-w-full overflow-hidden border bg-muted text-sm leading-6;
+    @apply relative my-4 max-w-full overflow-hidden border bg-muted text-sm;
   }
 
   .chat-markdown .chat-code-block pre {
-    @apply m-0 max-w-full overflow-x-hidden whitespace-pre-wrap break-words bg-transparent p-3 pr-12 text-sm leading-6;
+    @apply m-0 max-w-full overflow-x-hidden whitespace-pre-wrap break-words bg-transparent p-3 pr-12 text-sm;
   }
 
   .chat-markdown .chat-code-block code {
@@ -272,8 +275,4 @@
   .chat-markdown i {
     font-style: oblique 8deg;
   }
-}
-
-body {
-  letter-spacing: -0.05em;
 }
