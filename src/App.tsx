@@ -1800,8 +1800,8 @@ export default function Home() {
                             className={cn(
                               "min-w-0 overflow-hidden text-sm leading-6 [overflow-wrap:anywhere]",
                               message.role === "user"
-                                ? "max-w-[85%] border bg-primary px-4 py-3 text-primary-foreground shadow-xs"
-                                : "w-full max-w-full border bg-card px-4 py-3 text-card-foreground shadow-xs",
+                                ? "max-w-[85%] bg-primary px-4 py-3 text-primary-foreground shadow-xs"
+                                : "w-full max-w-full bg-card px-4 py-3 text-card-foreground shadow-xs",
                               status === "error" && "border-destructive/50",
                             )}
                           >
@@ -1967,7 +1967,7 @@ export default function Home() {
                   event.preventDefault();
                   event.currentTarget.form?.requestSubmit();
                 }}
-                placeholder="Type your message... Enter to send, Shift+Enter for newline"
+                placeholder="Type a message..."
                 className="min-h-[5.5rem] resize-none border-0 !bg-transparent px-1 shadow-none leading-6 focus-visible:ring-0"
               />
               <div className="flex justify-end">
