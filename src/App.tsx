@@ -353,9 +353,8 @@ function isEditableShortcutTarget(target: EventTarget | null) {
   );
 }
 
-function getLastChatActivityDate(chat: ChatSession) {
-  const lastMessage = chat.messages.at(-1);
-  return lastMessage?.createdAt ?? chat.updatedAt;
+function getChatActivityDate(chat: ChatSession) {
+  return chat.updatedAt;
 }
 
 function formatChatActivityDate(value: string) {
@@ -369,6 +368,69 @@ function formatChatActivityDate(value: string) {
   const minutes = String(date.getMinutes()).padStart(2, "0");
 
   return `${day}.${month}.${year} ${hours}:${minutes}`;
+}
+
+const CHAT_GROUP_MONTH_NAMES = [
+  "JANUARY",
+  "FEBRUARY",
+  "MARCH",
+  "APRIL",
+  "MAY",
+  "JUNE",
+  "JULY",
+  "AUGUST",
+  "SEPTEMBER",
+  "OCTOBER",
+  "NOVEMBER",
+  "DECEMBER",
+];
+
+function isSameLocalDay(left: Date, right: Date) {
+  return (
+    left.getFullYear() === right.getFullYear() &&
+    left.getMonth() === right.getMonth() &&
+    left.getDate() === right.getDate()
+  );
+}
+
+function getStartOfLocalDay(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function formatChatGroupLabel(value: string, now = new Date()) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "UNKNOWN DATE";
+
+  if (isSameLocalDay(date, now)) return "TODAY";
+
+  const yesterday = getStartOfLocalDay(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+  if (isSameLocalDay(date, yesterday)) return "YESTERDAY";
+
+  return `${date.getDate()} ${CHAT_GROUP_MONTH_NAMES[date.getMonth()]} ${date.getFullYear()}`;
+}
+
+type ChatGroup = {
+  label: string;
+  chats: ChatSession[];
+};
+
+function groupChatsByActivityDate(chats: ChatSession[]) {
+  const now = new Date();
+  const groups: ChatGroup[] = [];
+
+  for (const chat of chats) {
+    const label = formatChatGroupLabel(getChatActivityDate(chat), now);
+    const lastGroup = groups.at(-1);
+
+    if (lastGroup?.label === label) {
+      lastGroup.chats.push(chat);
+    } else {
+      groups.push({ label, chats: [chat] });
+    }
+  }
+
+  return groups;
 }
 
 const AssistantMessageContent = memo(function AssistantMessageContent({
@@ -874,20 +936,19 @@ export default function Home() {
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
   const chatBottomRef = useRef<HTMLDivElement | null>(null);
   const messageElementRefs = useRef(new Map<string, HTMLDivElement>());
-  const pendingAssistantScrollRef = useRef<string | null>(null);
   const chatComposerRef = useRef<ChatComposerHandle | null>(null);
   const generationRefs = useRef<Record<string, ActiveGeneration>>({});
   const modelLoadStatusTimerRef = useRef<number | null>(null);
   const scrollFrameRef = useRef<number | null>(null);
   const scrollStateFrameRef = useRef<number | null>(null);
   const scrollSettleTimeoutRef = useRef<number | null>(null);
-  const resizeRestoreFrameRef = useRef<number | null>(null);
   const resizeSettleTimeoutRef = useRef<number | null>(null);
   const userScrollTimeoutRef = useRef<number | null>(null);
   const streamBuffersRef = useRef<Record<string, StreamBuffer>>({});
   const streamFlushTimeoutRefs = useRef<Record<string, number>>({});
   const isAutoScrollingRef = useRef(false);
   const isResizingChatRef = useRef(false);
+  const isChatScrollableRef = useRef(false);
   const isUserScrollingRef = useRef(false);
   const isStreamingRef = useRef(false);
   const shouldStickToBottomRef = useRef(true);
@@ -933,6 +994,10 @@ export default function Home() {
   }
 
   const sortedChats = useMemo(() => sortChatsByUpdatedAt(chats), [chats]);
+  const groupedChats = useMemo(
+    () => groupChatsByActivityDate(sortedChats),
+    [sortedChats],
+  );
 
   const activeChat = useMemo(() => {
     return (
@@ -1108,9 +1173,6 @@ export default function Home() {
       if (scrollSettleTimeoutRef.current !== null) {
         window.clearTimeout(scrollSettleTimeoutRef.current);
       }
-      if (resizeRestoreFrameRef.current !== null) {
-        window.cancelAnimationFrame(resizeRestoreFrameRef.current);
-      }
       if (resizeSettleTimeoutRef.current !== null) {
         window.clearTimeout(resizeSettleTimeoutRef.current);
       }
@@ -1204,6 +1266,7 @@ export default function Home() {
 
   function syncChatScrollableState() {
     const nextIsScrollable = canChatScroll();
+    isChatScrollableRef.current = nextIsScrollable;
     setIsChatScrollable((currentIsScrollable) =>
       currentIsScrollable === nextIsScrollable
         ? currentIsScrollable
@@ -1218,51 +1281,8 @@ export default function Home() {
     return nextIsScrollable;
   }
 
-  function restoreChatScrollAfterResize(
-    wasStickingToBottom: boolean,
-    previousDistanceFromBottom: number,
-  ) {
-    const scrollElement = chatScrollRef.current;
-    if (!scrollElement) return;
-
-    const nextIsScrollable = canChatScroll();
-    setIsChatScrollable((currentIsScrollable) =>
-      currentIsScrollable === nextIsScrollable
-        ? currentIsScrollable
-        : nextIsScrollable,
-    );
-
-    if (!nextIsScrollable) {
-      shouldStickToBottomRef.current = true;
-      updateNearBottomState(true);
-      lastChatScrollTopRef.current = scrollElement.scrollTop;
-      return;
-    }
-
-    if (wasStickingToBottom) {
-      shouldStickToBottomRef.current = true;
-      scrollToBottomNow();
-      return;
-    }
-
-    const nextScrollTop = Math.max(
-      0,
-      scrollElement.scrollHeight -
-        scrollElement.clientHeight -
-        previousDistanceFromBottom,
-    );
-
-    scrollElement.scrollTop = nextScrollTop;
-    lastChatScrollTopRef.current = nextScrollTop;
-
-    const isNearBottom = isChatNearBottom();
-    shouldStickToBottomRef.current = isNearBottom;
-    updateNearBottomState(isNearBottom);
-  }
-
   function isChatNearBottom(threshold = 24) {
     if (!canChatScroll()) return true;
-
     return getChatDistanceFromBottom() <= threshold;
   }
 
@@ -1290,6 +1310,8 @@ export default function Home() {
     const scrollElement = chatScrollRef.current;
     if (!scrollElement) return;
 
+    syncChatScrollableState();
+
     isAutoScrollingRef.current = true;
     const nextScrollTop = Math.max(
       0,
@@ -1307,6 +1329,8 @@ export default function Home() {
   function scrollToBottomSmooth() {
     const scrollElement = chatScrollRef.current;
     if (!scrollElement) return;
+
+    syncChatScrollableState();
 
     isAutoScrollingRef.current = true;
     const nextScrollTop = Math.max(
@@ -1350,21 +1374,6 @@ export default function Home() {
     });
   }, []);
 
-  const scrollAssistantIntoView = useCallback((messageId: string) => {
-    const messageElement = messageElementRefs.current.get(messageId);
-    if (!messageElement) {
-      pendingAssistantScrollRef.current = messageId;
-      return;
-    }
-
-    isAutoScrollingRef.current = true;
-    messageElement.scrollIntoView({ block: "start", behavior: "auto" });
-
-    window.requestAnimationFrame(() => {
-      isAutoScrollingRef.current = false;
-    });
-  }, []);
-
   const handleAssistantVisualProgress = useCallback(
     (chatId: string) => {
       if (chatId !== activeChatId) return;
@@ -1403,13 +1412,6 @@ export default function Home() {
     return (element: HTMLDivElement | null) => {
       if (element) {
         messageElementRefs.current.set(messageId, element);
-
-        if (pendingAssistantScrollRef.current === messageId) {
-          pendingAssistantScrollRef.current = null;
-          window.requestAnimationFrame(() =>
-            scrollAssistantIntoView(messageId),
-          );
-        }
       } else {
         messageElementRefs.current.delete(messageId);
       }
@@ -1417,39 +1419,75 @@ export default function Home() {
   }
 
   useLayoutEffect(() => {
-    const pendingAssistantMessageId = pendingAssistantScrollRef.current;
+    syncChatScrollableState();
 
-    if (pendingAssistantMessageId) {
-      pendingAssistantScrollRef.current = null;
-      scrollAssistantIntoView(pendingAssistantMessageId);
-    } else if (shouldStickToBottomRef.current) {
+    if (shouldStickToBottomRef.current) {
       scheduleChatScrollToBottom();
     }
+  }, [messages, scheduleChatScrollToBottom]);
 
-    window.requestAnimationFrame(() => syncChatScrollableState());
-  }, [messages, scheduleChatScrollToBottom, scrollAssistantIntoView]);
-
-  useEffect(() => {
+  useLayoutEffect(() => {
     const scrollElement = chatScrollRef.current;
     if (!scrollElement) return;
 
-    const scheduleResizeRestore = () => {
+    let frameId: number | null = null;
+    let previousWidth = scrollElement.clientWidth;
+    let previousHeight = scrollElement.clientHeight;
+
+    function handleResize() {
+      const currentScrollElement = chatScrollRef.current;
+      if (!currentScrollElement) return;
+
+      const nextWidth = currentScrollElement.clientWidth;
+      const nextHeight = currentScrollElement.clientHeight;
+
+      if (nextWidth === previousWidth && nextHeight === previousHeight) {
+        syncChatScrollableState();
+        return;
+      }
+
+      previousWidth = nextWidth;
+      previousHeight = nextHeight;
+
       const wasStickingToBottom = shouldStickToBottomRef.current;
       const previousDistanceFromBottom = getChatDistanceFromBottom();
 
       isResizingChatRef.current = true;
 
-      if (resizeRestoreFrameRef.current !== null) {
-        window.cancelAnimationFrame(resizeRestoreFrameRef.current);
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId);
       }
 
-      resizeRestoreFrameRef.current = window.requestAnimationFrame(() => {
-        resizeRestoreFrameRef.current = window.requestAnimationFrame(() => {
-          resizeRestoreFrameRef.current = null;
-          restoreChatScrollAfterResize(
-            wasStickingToBottom,
-            previousDistanceFromBottom,
-          );
+      frameId = window.requestAnimationFrame(() => {
+        frameId = window.requestAnimationFrame(() => {
+          frameId = null;
+
+          const resizedScrollElement = chatScrollRef.current;
+          if (!resizedScrollElement) return;
+
+          const isScrollable = syncChatScrollableState();
+
+          if (!isScrollable) {
+            shouldStickToBottomRef.current = true;
+            lastChatScrollTopRef.current = resizedScrollElement.scrollTop;
+            isResizingChatRef.current = false;
+            return;
+          }
+
+          if (wasStickingToBottom) {
+            shouldStickToBottomRef.current = true;
+            scrollToBottomNow();
+          } else {
+            const restoredScrollTop = Math.max(
+              0,
+              resizedScrollElement.scrollHeight -
+                resizedScrollElement.clientHeight -
+                previousDistanceFromBottom,
+            );
+            resizedScrollElement.scrollTop = restoredScrollTop;
+            lastChatScrollTopRef.current = restoredScrollTop;
+            updateNearBottomState(isChatNearBottom());
+          }
 
           if (resizeSettleTimeoutRef.current !== null) {
             window.clearTimeout(resizeSettleTimeoutRef.current);
@@ -1457,39 +1495,24 @@ export default function Home() {
 
           resizeSettleTimeoutRef.current = window.setTimeout(() => {
             resizeSettleTimeoutRef.current = null;
-            restoreChatScrollAfterResize(
-              wasStickingToBottom,
-              previousDistanceFromBottom,
-            );
             isResizingChatRef.current = false;
+            syncChatScrollableState();
+            if (shouldStickToBottomRef.current) scrollToBottomNow();
           }, 80);
         });
       });
-    };
+    }
 
-    scheduleResizeRestore();
-    window.addEventListener("resize", scheduleResizeRestore);
-
-    const resizeObserver = new ResizeObserver(scheduleResizeRestore);
+    const resizeObserver = new ResizeObserver(handleResize);
     resizeObserver.observe(scrollElement);
 
+    syncChatScrollableState();
+
     return () => {
-      window.removeEventListener("resize", scheduleResizeRestore);
       resizeObserver.disconnect();
-
-      if (resizeRestoreFrameRef.current !== null) {
-        window.cancelAnimationFrame(resizeRestoreFrameRef.current);
-        resizeRestoreFrameRef.current = null;
-      }
-
-      if (resizeSettleTimeoutRef.current !== null) {
-        window.clearTimeout(resizeSettleTimeoutRef.current);
-        resizeSettleTimeoutRef.current = null;
-      }
-
-      isResizingChatRef.current = false;
+      if (frameId !== null) window.cancelAnimationFrame(frameId);
     };
-  }, [activeChatId, messages.length]);
+  }, [activeChatId]);
 
   function showSuccess(message: string, description?: string) {
     toast(message, description ? { description } : undefined);
@@ -1565,11 +1588,6 @@ export default function Home() {
       const scrollElement = chatScrollRef.current;
       if (!scrollElement) return;
 
-      if (isResizingChatRef.current) {
-        lastChatScrollTopRef.current = scrollElement.scrollTop;
-        return;
-      }
-
       if (!syncChatScrollableState()) {
         lastChatScrollTopRef.current = scrollElement.scrollTop;
         return;
@@ -1580,7 +1598,7 @@ export default function Home() {
       const isScrollingUp = currentScrollTop < previousScrollTop - 1;
       lastChatScrollTopRef.current = currentScrollTop;
 
-      if (isAutoScrollingRef.current) return;
+      if (isAutoScrollingRef.current || isResizingChatRef.current) return;
 
       const isNearBottom = isChatNearBottom();
       updateNearBottomState(isNearBottom);
@@ -1602,6 +1620,8 @@ export default function Home() {
     if (isAutoScrollingRef.current || isResizingChatRef.current) return;
 
     if (!syncChatScrollableState()) {
+      shouldStickToBottomRef.current = true;
+      updateNearBottomState(true);
       return;
     }
 
@@ -2167,7 +2187,6 @@ export default function Home() {
 
     if (chatId === activeChatId) {
       shouldStickToBottomRef.current = true;
-      pendingAssistantScrollRef.current = assistantMessageId;
       lastScrollStateRef.current = true;
       setIsNearChatBottom(true);
       scheduleChatScrollToBottom();
@@ -2349,7 +2368,6 @@ export default function Home() {
     ];
 
     shouldStickToBottomRef.current = true;
-    pendingAssistantScrollRef.current = assistantMessageId;
     lastScrollStateRef.current = true;
     setIsNearChatBottom(true);
     updateChat(activeChat.id, (chat) => ({
@@ -2442,7 +2460,6 @@ export default function Home() {
     );
 
     shouldStickToBottomRef.current = true;
-    pendingAssistantScrollRef.current = assistantMessageId;
     lastScrollStateRef.current = true;
     setIsNearChatBottom(true);
 
@@ -2654,7 +2671,6 @@ export default function Home() {
     ];
 
     shouldStickToBottomRef.current = true;
-    pendingAssistantScrollRef.current = assistantMessageId;
     lastScrollStateRef.current = true;
     setIsNearChatBottom(true);
     setExpandedReasoningIds({});
@@ -2871,7 +2887,7 @@ export default function Home() {
                     isSending
                       ? "Wait until this chat finishes generating"
                       : activeChatModel
-                        ? `${providerDisplayName(activeChatProvider)} · ${activeChatModel}`
+                        ? providerLabel(activeChatProvider)
                         : "Select a model"
                   }
                 >
@@ -2945,53 +2961,61 @@ export default function Home() {
           </div>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto p-2 chat-scrollbar">
-          <div className="mb-2 px-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            Chats
-          </div>
-          <div className="grid gap-1.5">
-            {sortedChats.map((chat) => (
-              <div
-                key={chat.id}
-                role="button"
-                tabIndex={0}
-                className={cn(
-                  "group flex min-w-0 cursor-pointer items-center gap-1 border px-2 py-2 outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                  chat.id === activeChat?.id
-                    ? "border-primary/30 bg-accent text-accent-foreground"
-                    : "border-transparent hover:border-border hover:bg-muted/60",
-                )}
-                onClick={() => switchChat(chat.id)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") {
-                    event.preventDefault();
-                    switchChat(chat.id);
-                  }
-                }}
-                title={chat.title}
-              >
-                <div className="min-w-0 flex-1 text-left">
-                  <div className="truncate text-sm leading-5">{chat.title}</div>
-                  <div className="truncate text-[11px] leading-4 text-muted-foreground">
-                    {chat.messages.length} message
-                    {chat.messages.length === 1 ? "" : "s"}
-                    {" · "}
-                    {formatChatActivityDate(getLastChatActivityDate(chat))}
-                  </div>
+          <div className="grid gap-3">
+            {groupedChats.map((group) => (
+              <section key={group.label} className="grid gap-1.5">
+                <div className="px-2 pt-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  {group.label}
                 </div>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  className="h-7 w-7 shrink-0 rounded-none opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    removeChat(chat.id);
-                  }}
-                  title="Delete chat"
-                >
-                  <Trash2 className="size-3.5" />
-                </Button>
-              </div>
+                <div className="grid gap-1.5">
+                  {group.chats.map((chat) => (
+                    <div
+                      key={chat.id}
+                      role="button"
+                      tabIndex={0}
+                      className={cn(
+                        "group flex min-w-0 cursor-pointer items-center gap-1 border px-2 py-2 outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                        chat.id === activeChat?.id
+                          ? "border-primary/30 bg-accent text-accent-foreground"
+                          : "border-transparent hover:border-border hover:bg-muted/60",
+                      )}
+                      onClick={() => switchChat(chat.id)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          switchChat(chat.id);
+                        }
+                      }}
+                      title={chat.title}
+                    >
+                      <div className="min-w-0 flex-1 text-left">
+                        <div className="truncate text-sm leading-5">
+                          {chat.title}
+                        </div>
+                        <div className="truncate text-[11px] leading-4 text-muted-foreground">
+                          {chat.messages.length} message
+                          {chat.messages.length === 1 ? "" : "s"}
+                          {" · "}
+                          {formatChatActivityDate(getChatActivityDate(chat))}
+                        </div>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        className="h-7 w-7 shrink-0 rounded-none opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          removeChat(chat.id);
+                        }}
+                        title="Delete chat"
+                      >
+                        <Trash2 className="size-3.5" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              </section>
             ))}
           </div>
         </div>
@@ -3507,7 +3531,7 @@ export default function Home() {
             </div>
           </div>
 
-          {isChatScrollable && !isNearChatBottom && (
+          {hasMessages && isChatScrollable && !isNearChatBottom && (
             <div className="pointer-events-none absolute inset-x-0 bottom-0 right-[-74px] z-10 px-3 md:px-4">
               <div className="mx-auto flex w-full max-w-3xl justify-end">
                 <Button
