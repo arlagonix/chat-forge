@@ -73,6 +73,7 @@ export type ChatSession = {
   messages: ChatMessage[];
   createdAt: string;
   updatedAt: string;
+  model?: string;
 };
 
 export type ApiChatMessage = {

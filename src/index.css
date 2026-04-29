@@ -143,6 +143,53 @@
   .chat-scrollbar::-webkit-scrollbar {
     display: none;
   }
+
+  @keyframes generating-gradient-slide {
+    from {
+      background-position: 0% center;
+    }
+    to {
+      background-position: 200% center;
+    }
+  }
+
+  @keyframes streaming-cursor-blink {
+    0%,
+    45% {
+      opacity: 1;
+    }
+    46%,
+    100% {
+      opacity: 0;
+    }
+  }
+
+  .generating-gradient-text {
+    background-image: linear-gradient(
+      90deg,
+      var(--muted-foreground),
+      var(--primary),
+      var(--foreground),
+      var(--primary),
+      var(--muted-foreground)
+    );
+    background-size: 200% auto;
+    color: transparent;
+    background-clip: text;
+    -webkit-background-clip: text;
+    animation: generating-gradient-slide 2s linear infinite;
+  }
+
+  .streaming-cursor {
+    display: inline-block;
+    width: 0.55ch;
+    height: 1.05em;
+    margin-left: 0.15rem;
+    vertical-align: -0.15em;
+    background: var(--primary);
+    animation: streaming-cursor-blink 1s steps(1, end) infinite;
+  }
+
 }
 
 @layer components {
@@ -167,7 +214,7 @@
   }
 
   .chat-markdown-compact p {
-    @apply my-2;
+    @apply my-1;
   }
 
   .chat-markdown ul {
@@ -180,7 +227,7 @@
 
   .chat-markdown-compact ul,
   .chat-markdown-compact ol {
-    @apply my-1 pl-6;
+    @apply my-0 pl-6;
   }
 
   .chat-markdown ul {
@@ -204,7 +251,7 @@
   }
 
   .chat-markdown-compact blockquote {
-    @apply my-2 pl-3;
+    @apply my-0 pl-3;
   }
 
   .chat-markdown h1 {

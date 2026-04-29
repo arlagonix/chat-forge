@@ -11,6 +11,7 @@ import {
   EyeOff,
   Moon,
   MoreVertical,
+  Pencil,
   Plus,
   RefreshCcw,
   Send,
@@ -18,11 +19,15 @@ import {
   Square,
   Sun,
   Trash2,
+  X,
 } from "lucide-react";
 import type { FormEvent, WheelEvent } from "react";
 import {
+  forwardRef,
+  memo,
   useCallback,
   useEffect,
+  useImperativeHandle,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -294,6 +299,232 @@ function formatChatActivityDate(value: string) {
   return `${day}.${month}.${year} ${hours}:${minutes}`;
 }
 
+const AssistantMessageContent = memo(function AssistantMessageContent({
+  content,
+  className,
+}: {
+  content: string;
+  className?: string;
+}) {
+  return <MarkdownMessage content={content} className={className} />;
+});
+
+const UserMessageEditor = memo(function UserMessageEditor({
+  initialContent,
+  disabled,
+  onCancel,
+  onSave,
+}: {
+  initialContent: string;
+  disabled: boolean;
+  onCancel: () => void;
+  onSave: (content: string) => void | Promise<void>;
+}) {
+  const [content, setContent] = useState(initialContent);
+  const trimmedContent = content.trim();
+
+  useEffect(() => {
+    setContent(initialContent);
+  }, [initialContent]);
+
+  function handleSave() {
+    if (disabled || !trimmedContent) return;
+
+    void onSave(content);
+  }
+
+  return (
+    <div className="grid gap-2">
+      <article className="flex justify-end">
+        <div className="min-w-0 w-full max-w-[85%] overflow-hidden bg-primary px-4 py-3 text-sm leading-6 text-primary-foreground shadow-xs [overflow-wrap:anywhere]">
+          <Textarea
+            value={content}
+            onChange={(event) => setContent(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                event.preventDefault();
+                onCancel();
+              }
+
+              if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+                event.preventDefault();
+                handleSave();
+              }
+            }}
+            autoFocus
+            disabled={disabled}
+            className="min-h-32 w-full resize-y rounded-none border-0 bg-transparent p-0 text-primary-foreground shadow-none outline-none placeholder:text-primary-foreground/60 focus-visible:ring-0 focus-visible:ring-offset-0 disabled:cursor-not-allowed disabled:opacity-80"
+          />
+        </div>
+      </article>
+
+      <div className="flex justify-end gap-1.5 text-[11px] leading-4 text-muted-foreground">
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-6 rounded-none px-2 text-xs text-muted-foreground"
+          onClick={handleSave}
+          disabled={disabled || !trimmedContent}
+          title="Save edit and regenerate"
+        >
+          <Check className="size-3" />
+          Save
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-6 rounded-none px-2 text-xs text-muted-foreground"
+          onClick={onCancel}
+          disabled={disabled}
+          title="Cancel edit"
+        >
+          <X className="size-3" />
+          Cancel
+        </Button>
+      </div>
+    </div>
+  );
+});
+
+type ChatComposerHandle = {
+  clear: () => void;
+  focus: () => void;
+};
+
+const ChatComposer = memo(
+  forwardRef<
+    ChatComposerHandle,
+    {
+      disabled: boolean;
+      isSending: boolean;
+      onSend: (content: string) => Promise<boolean> | boolean;
+      onStop: () => void;
+    }
+  >(function ChatComposer({ disabled, isSending, onSend, onStop }, ref) {
+    const [draft, setDraft] = useState("");
+    const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+    const trimmedDraft = draft.trim();
+    const canSend = !disabled && !isSending && trimmedDraft.length > 0;
+
+    const focusTextarea = useCallback(() => {
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => {
+          const textarea = textareaRef.current;
+          if (!textarea) return;
+
+          textarea.focus({ preventScroll: true });
+
+          const cursorPosition = textarea.value.length;
+          textarea.setSelectionRange(cursorPosition, cursorPosition);
+        });
+      });
+    }, []);
+
+    useImperativeHandle(
+      ref,
+      () => ({
+        clear: () => setDraft(""),
+        focus: focusTextarea,
+      }),
+      [focusTextarea],
+    );
+
+    useEffect(() => {
+      const textarea = textareaRef.current;
+      if (!textarea) return;
+
+      textarea.style.height = "auto";
+
+      const computedStyle = window.getComputedStyle(textarea);
+      const lineHeight = Number.parseFloat(computedStyle.lineHeight) || 24;
+      const paddingTop = Number.parseFloat(computedStyle.paddingTop) || 0;
+      const paddingBottom = Number.parseFloat(computedStyle.paddingBottom) || 0;
+      const maxHeight = lineHeight * 11 + paddingTop + paddingBottom;
+
+      textarea.style.height = `${Math.min(textarea.scrollHeight, maxHeight)}px`;
+      textarea.style.overflowY =
+        textarea.scrollHeight > maxHeight ? "auto" : "hidden";
+    }, [draft]);
+
+    async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+      event.preventDefault();
+      if (!canSend) return;
+
+      const wasSent = await onSend(draft);
+      if (wasSent) setDraft("");
+    }
+
+    return (
+      <form
+        onSubmit={handleSubmit}
+        className="bg-background px-3 py-3 md:px-4 md:py-4"
+        data-draft-input
+      >
+        <div className="mx-auto w-full max-w-3xl border bg-card p-3 pt-0 shadow-sm">
+          <div className="mx-auto grid w-full max-w-3xl gap-2">
+            <Textarea
+              ref={textareaRef}
+              value={draft}
+              rows={3}
+              onChange={(event) => setDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key !== "Enter") return;
+
+                if (event.shiftKey) return;
+
+                event.preventDefault();
+                event.currentTarget.form?.requestSubmit();
+              }}
+              placeholder="Type a message..."
+              className="min-h-[5.5rem] resize-none border-0 !bg-transparent px-1 leading-6 shadow-none focus-visible:ring-0"
+            />
+            <div className="flex justify-end">
+              {isSending ? (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={onStop}
+                  className="shrink-0 rounded-none"
+                  title="Stop generation"
+                >
+                  <Square className="size-4" />
+                  Stop
+                </Button>
+              ) : (
+                <Button
+                  type="submit"
+                  disabled={!canSend}
+                  className="shrink-0 rounded-none"
+                  title="Send message"
+                >
+                  <Send className="size-4" />
+                  Send
+                </Button>
+              )}
+            </div>
+          </div>
+        </div>
+      </form>
+    );
+  }),
+);
+
+type StreamBuffer = {
+  chatId: string;
+  assistantMessageId: string;
+  variantId: string;
+  content: string;
+  reasoning: string;
+};
+
+type ActiveGeneration = {
+  controller: AbortController;
+  assistantMessageId: string;
+  variantId: string;
+};
+
 export default function Home() {
   const [mounted, setMounted] = useState(false);
   const [provider, setProvider] = useState<ProviderConfig>(defaultProvider);
@@ -302,8 +533,11 @@ export default function Home() {
   );
   const [chats, setChats] = useState<ChatSession[]>([]);
   const [activeChatId, setActiveChatId] = useState<string | undefined>();
-  const [draft, setDraft] = useState("");
-  const [isSending, setIsSending] = useState(false);
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [generatingChatIds, setGeneratingChatIds] = useState<string[]>([]);
+  const [streamingAssistantByChatId, setStreamingAssistantByChatId] = useState<
+    Record<string, string>
+  >({});
   const [isLoadingModels, setIsLoadingModels] = useState(false);
   const [modelLoadStatus, setModelLoadStatus] = useState<
     "idle" | "success" | "empty" | "error"
@@ -311,6 +545,9 @@ export default function Home() {
   const [models, setModels] = useState<string[]>([]);
   const [isModelComboboxOpen, setIsModelComboboxOpen] = useState(false);
   const [modelSearchValue, setModelSearchValue] = useState("");
+  const [isSidebarModelComboboxOpen, setIsSidebarModelComboboxOpen] =
+    useState(false);
+  const [sidebarModelSearchValue, setSidebarModelSearchValue] = useState("");
   const [isApiKeyVisible, setIsApiKeyVisible] = useState(false);
   const [expandedReasoningIds, setExpandedReasoningIds] = useState<
     Record<string, boolean>
@@ -324,21 +561,15 @@ export default function Home() {
   const chatBottomRef = useRef<HTMLDivElement | null>(null);
   const messageElementRefs = useRef(new Map<string, HTMLDivElement>());
   const pendingAssistantScrollRef = useRef<string | null>(null);
-  const draftTextareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const abortControllerRef = useRef<AbortController | null>(null);
+  const chatComposerRef = useRef<ChatComposerHandle | null>(null);
+  const generationRefs = useRef<Record<string, ActiveGeneration>>({});
   const modelLoadStatusTimerRef = useRef<number | null>(null);
   const scrollFrameRef = useRef<number | null>(null);
   const scrollStateFrameRef = useRef<number | null>(null);
   const scrollSettleTimeoutRef = useRef<number | null>(null);
   const userScrollTimeoutRef = useRef<number | null>(null);
-  const streamFlushFrameRef = useRef<number | null>(null);
-  const streamBufferRef = useRef<{
-    chatId: string;
-    assistantMessageId: string;
-    variantId: string;
-    content: string;
-    reasoning: string;
-  } | null>(null);
+  const streamBuffersRef = useRef<Record<string, StreamBuffer>>({});
+  const streamFlushTimeoutRefs = useRef<Record<string, number>>({});
   const isAutoScrollingRef = useRef(false);
   const isUserScrollingRef = useRef(false);
   const isStreamingRef = useRef(false);
@@ -348,17 +579,7 @@ export default function Home() {
   const { resolvedTheme, setTheme } = useTheme();
 
   function focusDraftTextarea() {
-    window.requestAnimationFrame(() => {
-      window.requestAnimationFrame(() => {
-        const textarea = draftTextareaRef.current;
-        if (!textarea) return;
-
-        textarea.focus({ preventScroll: true });
-
-        const cursorPosition = textarea.value.length;
-        textarea.setSelectionRange(cursorPosition, cursorPosition);
-      });
-    });
+    chatComposerRef.current?.focus();
   }
 
   const sortedChats = useMemo(() => sortChatsByUpdatedAt(chats), [chats]);
@@ -370,19 +591,25 @@ export default function Home() {
   }, [activeChatId, sortedChats]);
 
   const messages = activeChat?.messages ?? [];
-  const activeModelSettings = getSettingsForProvider(provider);
-  const canSend = Boolean(activeChat) && !isSending && draft.trim().length > 0;
+  const activeChatModel = activeChat?.model?.trim() || provider.model.trim();
+  const isSending = activeChat
+    ? generatingChatIds.includes(activeChat.id)
+    : false;
+  const activeModelSettings = getSettingsForProvider({
+    ...provider,
+    model: activeChatModel || provider.model,
+  });
   const modelSuggestions = useMemo(() => {
     const normalizedModels = [
       ...new Set(
-        [...models, provider.model]
+        [...models, provider.model, activeChatModel]
           .map((model) => model.trim())
           .filter(Boolean),
       ),
     ];
 
     return normalizedModels.sort((left, right) => left.localeCompare(right));
-  }, [models, provider.model]);
+  }, [models, provider.model, activeChatModel]);
 
   const filteredModelSuggestions = useMemo(() => {
     const search = modelSearchValue.trim().toLowerCase();
@@ -398,6 +625,23 @@ export default function Home() {
     trimmedModelSearchValue.length > 0 &&
     !modelSuggestions.some(
       (model) => model.toLowerCase() === trimmedModelSearchValue.toLowerCase(),
+    );
+
+  const filteredSidebarModelSuggestions = useMemo(() => {
+    const search = sidebarModelSearchValue.trim().toLowerCase();
+    if (!search) return modelSuggestions;
+
+    return modelSuggestions.filter((model) =>
+      model.toLowerCase().includes(search),
+    );
+  }, [sidebarModelSearchValue, modelSuggestions]);
+
+  const trimmedSidebarModelSearchValue = sidebarModelSearchValue.trim();
+  const canUseCustomSidebarModel =
+    trimmedSidebarModelSearchValue.length > 0 &&
+    !modelSuggestions.some(
+      (model) =>
+        model.toLowerCase() === trimmedSidebarModelSearchValue.toLowerCase(),
     );
 
   useEffect(() => {
@@ -423,7 +667,10 @@ export default function Home() {
         let nextActiveChatId = loadedActiveChatId;
 
         if (nextChats.length === 0) {
-          const chat = createEmptyChat();
+          const chat = {
+            ...createEmptyChat(),
+            model: loadedProvider.model.trim(),
+          };
           nextChats = [chat];
           nextActiveChatId = chat.id;
           await saveChat(chat);
@@ -450,7 +697,10 @@ export default function Home() {
         setMounted(true);
       } catch (error) {
         console.error("Failed to load app data from IndexedDB:", error);
-        const fallbackChat = createEmptyChat();
+        const fallbackChat = {
+          ...createEmptyChat(),
+          model: defaultProvider.model.trim(),
+        };
         setChats([fallbackChat]);
         setActiveChatId(fallbackChat.id);
         didHydrateRef.current = true;
@@ -483,9 +733,12 @@ export default function Home() {
       if (userScrollTimeoutRef.current !== null) {
         window.clearTimeout(userScrollTimeoutRef.current);
       }
-      if (streamFlushFrameRef.current !== null) {
-        window.clearTimeout(streamFlushFrameRef.current);
-      }
+      Object.values(streamFlushTimeoutRefs.current).forEach((timeoutId) =>
+        window.clearTimeout(timeoutId),
+      );
+      Object.values(generationRefs.current).forEach((generation) =>
+        generation.controller.abort(),
+      );
     };
   }, []);
 
@@ -561,23 +814,6 @@ export default function Home() {
 
     return () => window.clearTimeout(timeoutId);
   }, [chats]);
-
-  useEffect(() => {
-    const textarea = draftTextareaRef.current;
-    if (!textarea) return;
-
-    textarea.style.height = "auto";
-
-    const computedStyle = window.getComputedStyle(textarea);
-    const lineHeight = Number.parseFloat(computedStyle.lineHeight) || 24;
-    const paddingTop = Number.parseFloat(computedStyle.paddingTop) || 0;
-    const paddingBottom = Number.parseFloat(computedStyle.paddingBottom) || 0;
-    const maxHeight = lineHeight * 11 + paddingTop + paddingBottom;
-
-    textarea.style.height = `${Math.min(textarea.scrollHeight, maxHeight)}px`;
-    textarea.style.overflowY =
-      textarea.scrollHeight > maxHeight ? "auto" : "hidden";
-  }, [draft]);
 
   function getChatDistanceFromBottom() {
     const scrollElement = chatScrollRef.current;
@@ -727,19 +963,23 @@ export default function Home() {
   function updateChatMessages(
     chatId: string,
     updater: (messages: ChatMessage[]) => ChatMessage[],
+    options: { touch?: boolean } = {},
   ) {
+    const shouldTouch = options.touch ?? true;
+
     updateChat(chatId, (chat) => ({
       ...chat,
       messages: updater(chat.messages),
-      updatedAt: new Date().toISOString(),
+      ...(shouldTouch ? { updatedAt: new Date().toISOString() } : {}),
     }));
   }
 
   function updateActiveChatMessages(
     updater: (messages: ChatMessage[]) => ChatMessage[],
+    options: { touch?: boolean } = {},
   ) {
     if (!activeChatId) return;
-    updateChatMessages(activeChatId, updater);
+    updateChatMessages(activeChatId, updater, options);
   }
 
   function toggleReasoning(messageId: string) {
@@ -813,37 +1053,48 @@ export default function Home() {
     variantId: string,
     patch: Partial<Pick<ChatAssistantVariant, "content" | "reasoning">>,
   ) {
-    updateChatMessages(chatId, (currentMessages) =>
-      currentMessages.map((message) => {
-        if (message.id !== assistantMessageId || message.role !== "assistant") {
-          return message;
-        }
+    updateChatMessages(
+      chatId,
+      (currentMessages) =>
+        currentMessages.map((message) => {
+          if (message.id !== assistantMessageId || message.role !== "assistant") {
+            return message;
+          }
 
-        return {
-          ...message,
-          variants: message.variants.map((variant) => {
-            if (variant.id !== variantId) return variant;
+          return {
+            ...message,
+            variants: message.variants.map((variant) => {
+              if (variant.id !== variantId) return variant;
 
-            return {
-              ...variant,
-              content: patch.content
-                ? variant.content + patch.content
-                : variant.content,
-              reasoning: patch.reasoning
-                ? `${variant.reasoning ?? ""}${patch.reasoning}`
-                : variant.reasoning,
-            };
-          }),
-        };
-      }),
+              return {
+                ...variant,
+                content: patch.content
+                  ? variant.content + patch.content
+                  : variant.content,
+                reasoning: patch.reasoning
+                  ? `${variant.reasoning ?? ""}${patch.reasoning}`
+                  : variant.reasoning,
+              };
+            }),
+          };
+        }),
+      { touch: false },
     );
   }
 
-  function flushBufferedAssistantVariant() {
-    const buffered = streamBufferRef.current;
+  function getStreamBufferKey(
+    chatId: string,
+    assistantMessageId: string,
+    variantId: string,
+  ) {
+    return `${chatId}:${assistantMessageId}:${variantId}`;
+  }
+
+  function flushBufferedAssistantVariant(bufferKey: string) {
+    const buffered = streamBuffersRef.current[bufferKey];
     if (!buffered || (!buffered.content && !buffered.reasoning)) return;
 
-    streamBufferRef.current = {
+    streamBuffersRef.current[bufferKey] = {
       ...buffered,
       content: "",
       reasoning: "",
@@ -859,18 +1110,24 @@ export default function Home() {
       },
     );
 
-    if (shouldStickToBottomRef.current) {
+    if (buffered.chatId === activeChatId && shouldStickToBottomRef.current) {
       scheduleChatScrollToBottom();
     }
   }
 
-  function scheduleBufferedAssistantFlush() {
-    if (streamFlushFrameRef.current !== null) return;
+  function flushAllBufferedAssistantVariants() {
+    Object.keys(streamBuffersRef.current).forEach((bufferKey) => {
+      flushBufferedAssistantVariant(bufferKey);
+    });
+  }
 
-    streamFlushFrameRef.current = window.setTimeout(
+  function scheduleBufferedAssistantFlush(bufferKey: string) {
+    if (streamFlushTimeoutRefs.current[bufferKey] !== undefined) return;
+
+    streamFlushTimeoutRefs.current[bufferKey] = window.setTimeout(
       () => {
-        streamFlushFrameRef.current = null;
-        flushBufferedAssistantVariant();
+        delete streamFlushTimeoutRefs.current[bufferKey];
+        flushBufferedAssistantVariant(bufferKey);
       },
       isUserScrollingRef.current
         ? 160
@@ -886,17 +1143,8 @@ export default function Home() {
     variantId: string,
     patch: Partial<Pick<ChatAssistantVariant, "content" | "reasoning">>,
   ) {
-    const currentBuffer = streamBufferRef.current;
-    if (
-      currentBuffer &&
-      (currentBuffer.chatId !== chatId ||
-        currentBuffer.assistantMessageId !== assistantMessageId ||
-        currentBuffer.variantId !== variantId)
-    ) {
-      flushBufferedAssistantVariant();
-    }
-
-    const buffered = streamBufferRef.current ?? {
+    const bufferKey = getStreamBufferKey(chatId, assistantMessageId, variantId);
+    const buffered = streamBuffersRef.current[bufferKey] ?? {
       chatId,
       assistantMessageId,
       variantId,
@@ -904,11 +1152,8 @@ export default function Home() {
       reasoning: "",
     };
 
-    streamBufferRef.current = {
+    streamBuffersRef.current[bufferKey] = {
       ...buffered,
-      chatId,
-      assistantMessageId,
-      variantId,
       content: patch.content
         ? buffered.content + patch.content
         : buffered.content,
@@ -917,27 +1162,31 @@ export default function Home() {
         : buffered.reasoning,
     };
 
-    scheduleBufferedAssistantFlush();
+    scheduleBufferedAssistantFlush(bufferKey);
   }
   function updateAssistantVariant(
     chatId: string,
     assistantMessageId: string,
     variantId: string,
     updater: (variant: ChatAssistantVariant) => ChatAssistantVariant,
+    options: { touch?: boolean } = {},
   ) {
-    updateChatMessages(chatId, (currentMessages) =>
-      currentMessages.map((message) => {
-        if (message.id !== assistantMessageId || message.role !== "assistant") {
-          return message;
-        }
+    updateChatMessages(
+      chatId,
+      (currentMessages) =>
+        currentMessages.map((message) => {
+          if (message.id !== assistantMessageId || message.role !== "assistant") {
+            return message;
+          }
 
-        return {
-          ...message,
-          variants: message.variants.map((variant) =>
-            variant.id === variantId ? updater(variant) : variant,
-          ),
-        };
-      }),
+          return {
+            ...message,
+            variants: message.variants.map((variant) =>
+              variant.id === variantId ? updater(variant) : variant,
+            ),
+          };
+        }),
+      options,
     );
   }
 
@@ -985,9 +1234,28 @@ export default function Home() {
     }));
   }
 
+  function selectActiveChatModel(model: string) {
+    const normalizedModel = model.trim();
+    if (!normalizedModel) return;
+
+    updateProviderSetting({ model: normalizedModel });
+
+    if (activeChat) {
+      updateChat(activeChat.id, (chat) => ({
+        ...chat,
+        model: normalizedModel,
+        updatedAt: new Date().toISOString(),
+      }));
+    }
+
+    setIsSidebarModelComboboxOpen(false);
+    setSidebarModelSearchValue("");
+  }
+
   function updateActiveModelSettings(patch: ProviderGenerationSettings) {
     setProvider((currentProvider) => {
-      const modelKey = currentProvider.model.trim() || "__default__";
+      const modelKey =
+        activeChatModel || currentProvider.model.trim() || "__default__";
       const currentModelSettings =
         currentProvider.modelSettings?.[modelKey] ?? {};
 
@@ -1011,7 +1279,8 @@ export default function Home() {
 
   function resetActiveModelSettings() {
     setProvider((currentProvider) => {
-      const modelKey = currentProvider.model.trim() || "__default__";
+      const modelKey =
+        activeChatModel || currentProvider.model.trim() || "__default__";
       const nextModelSettings = { ...(currentProvider.modelSettings ?? {}) };
       delete nextModelSettings[modelKey];
 
@@ -1091,23 +1360,44 @@ export default function Home() {
     }
   }
 
-  function validateProviderForGeneration() {
+  function validateProviderForGeneration(model = activeChatModel) {
     if (!provider.baseUrl.trim()) {
       showError("Provider base URL is required.");
       setSettingsOpen(true);
       return false;
     }
 
-    if (!provider.model.trim()) {
+    if (!model.trim()) {
       showError(
         "Model name is required",
         "Load models or enter the model name manually.",
       );
-      setSettingsOpen(true);
       return false;
     }
 
     return true;
+  }
+
+  function setChatGenerating(chatId: string, isGenerating: boolean) {
+    setGeneratingChatIds((currentChatIds) => {
+      const nextChatIds = isGenerating
+        ? [...new Set([...currentChatIds, chatId])]
+        : currentChatIds.filter((currentChatId) => currentChatId !== chatId);
+
+      isStreamingRef.current = nextChatIds.length > 0;
+      return nextChatIds;
+    });
+  }
+
+  function isChatGenerating(chatId: string) {
+    return (
+      Boolean(generationRefs.current[chatId]) ||
+      generatingChatIds.includes(chatId)
+    );
+  }
+
+  function stopChatGeneration(chatId: string) {
+    generationRefs.current[chatId]?.controller.abort();
   }
 
   async function runAssistantVariant({
@@ -1117,6 +1407,7 @@ export default function Home() {
     assistantMessageId,
     variantId,
     responseStartedAtMs,
+    providerForRun,
   }: {
     chatId: string;
     contextMessages: ChatMessage[];
@@ -1124,21 +1415,33 @@ export default function Home() {
     assistantMessageId: string;
     variantId: string;
     responseStartedAtMs: number;
+    providerForRun: ProviderConfig;
   }) {
     const controller = new AbortController();
-    abortControllerRef.current = controller;
-    isStreamingRef.current = true;
-    shouldStickToBottomRef.current = true;
-    pendingAssistantScrollRef.current = assistantMessageId;
-    lastScrollStateRef.current = true;
-    setIsNearChatBottom(true);
-    setIsSending(true);
-    scheduleChatScrollToBottom();
+    generationRefs.current[chatId] = {
+      controller,
+      assistantMessageId,
+      variantId,
+    };
+    setChatGenerating(chatId, true);
+    setStreamingAssistantByChatId((current) => ({
+      ...current,
+      [chatId]: assistantMessageId,
+    }));
+
+    if (chatId === activeChatId) {
+      shouldStickToBottomRef.current = true;
+      pendingAssistantScrollRef.current = assistantMessageId;
+      lastScrollStateRef.current = true;
+      setIsNearChatBottom(true);
+      scheduleChatScrollToBottom();
+    }
+
     toast.dismiss();
 
     try {
       const streamResult = await streamProviderChat({
-        provider,
+        provider: providerForRun,
         systemPrompt,
         messages: contextMessages,
         userMessage,
@@ -1165,7 +1468,9 @@ export default function Home() {
         },
       });
 
-      flushBufferedAssistantVariant();
+      flushBufferedAssistantVariant(
+        getStreamBufferKey(chatId, assistantMessageId, variantId),
+      );
 
       const durationMs = Math.max(1, performance.now() - responseStartedAtMs);
 
@@ -1186,7 +1491,7 @@ export default function Home() {
               content: variant.content,
               durationMs,
               usage: streamResult.usage,
-              provider,
+              provider: providerForRun,
               finishReason: streamResult.finishReason,
             }),
           },
@@ -1196,7 +1501,9 @@ export default function Home() {
       const wasAborted =
         error instanceof DOMException && error.name === "AbortError";
 
-      flushBufferedAssistantVariant();
+      flushBufferedAssistantVariant(
+        getStreamBufferKey(chatId, assistantMessageId, variantId),
+      );
 
       const durationMs = Math.max(1, performance.now() - responseStartedAtMs);
 
@@ -1225,36 +1532,42 @@ export default function Home() {
               ...buildTokenMetrics({
                 content,
                 durationMs,
-                provider,
+                provider: providerForRun,
               }),
             },
           };
         },
       );
     } finally {
-      if (abortControllerRef.current === controller) {
-        abortControllerRef.current = null;
+      const currentGeneration = generationRefs.current[chatId];
+      if (currentGeneration?.controller === controller) {
+        delete generationRefs.current[chatId];
+        setChatGenerating(chatId, false);
+        setStreamingAssistantByChatId((current) => {
+          const { [chatId]: _removed, ...remaining } = current;
+          return remaining;
+        });
       }
-      isStreamingRef.current = false;
-      setIsSending(false);
-      if (shouldStickToBottomRef.current) {
+
+      if (chatId === activeChatId && shouldStickToBottomRef.current) {
         scheduleChatScrollToBottom();
       }
     }
   }
 
-  async function sendMessage(event: FormEvent) {
-    event.preventDefault();
+  async function sendMessage(content: string) {
+    const userMessage = content.trim();
 
-    const userMessage = draft.trim();
+    if (!activeChat) return false;
+    if (isChatGenerating(activeChat.id)) return false;
 
-    if (isSending) return;
-    if (!activeChat) return;
-    if (!validateProviderForGeneration()) return;
+    const chatModel = activeChat.model?.trim() || provider.model.trim();
+    if (!validateProviderForGeneration(chatModel)) return false;
+    const providerForRun = { ...provider, model: chatModel };
 
     if (!userMessage) {
       showError("Message is required.");
-      return;
+      return false;
     }
 
     const userChatMessage: ChatMessage = {
@@ -1305,24 +1618,30 @@ export default function Home() {
           ? titleFromMessage(userMessage)
           : chat.title,
       messages: nextMessages,
+      model: chatModel,
       updatedAt: responseStartedAt,
     }));
-    setDraft("");
 
-    await runAssistantVariant({
+    void runAssistantVariant({
       chatId: activeChat.id,
       contextMessages,
       userMessage,
       assistantMessageId,
       variantId,
       responseStartedAtMs,
+      providerForRun,
     });
+
+    return true;
   }
 
   async function regenerateAssistantMessage(assistantMessageId: string) {
-    if (isSending) return;
     if (!activeChat) return;
-    if (!validateProviderForGeneration()) return;
+    if (isChatGenerating(activeChat.id)) return;
+
+    const chatModel = activeChat.model?.trim() || provider.model.trim();
+    if (!validateProviderForGeneration(chatModel)) return;
+    const providerForRun = { ...provider, model: chatModel };
 
     const assistantIndex = activeChat.messages.findIndex(
       (message) =>
@@ -1350,30 +1669,32 @@ export default function Home() {
     const responseStartedAtMs = performance.now();
     const responseStartedAt = new Date().toISOString();
 
-    updateActiveChatMessages((currentMessages) =>
-      currentMessages.map((message) => {
-        if (message.id !== assistantMessageId || message.role !== "assistant") {
-          return message;
-        }
+    updateActiveChatMessages(
+      (currentMessages) =>
+        currentMessages.map((message) => {
+          if (message.id !== assistantMessageId || message.role !== "assistant") {
+            return message;
+          }
 
-        return {
-          ...message,
-          variants: [
-            ...message.variants,
-            {
-              id: variantId,
-              content: "",
-              reasoning: "",
-              status: "streaming",
-              createdAt: responseStartedAt,
-              metrics: {
-                startedAt: responseStartedAt,
+          return {
+            ...message,
+            variants: [
+              ...message.variants,
+              {
+                id: variantId,
+                content: "",
+                reasoning: "",
+                status: "streaming",
+                createdAt: responseStartedAt,
+                metrics: {
+                  startedAt: responseStartedAt,
+                },
               },
-            },
-          ],
-          activeVariantIndex: message.variants.length,
-        };
-      }),
+            ],
+            activeVariantIndex: message.variants.length,
+          };
+        }),
+      { touch: false },
     );
 
     shouldStickToBottomRef.current = true;
@@ -1388,79 +1709,121 @@ export default function Home() {
       assistantMessageId,
       variantId,
       responseStartedAtMs,
+      providerForRun,
     });
   }
 
-  async function continueAssistantMessage(assistantMessageId: string) {
-    if (isSending) return;
+  function startEditingUserMessage(messageId: string) {
+    if (isSending) {
+      showInfo("Wait until generation finishes before editing messages.");
+      return;
+    }
+
+    setEditingMessageId(messageId);
+  }
+
+  function cancelEditingUserMessage() {
+    setEditingMessageId(null);
+  }
+
+  async function saveEditedUserMessage(
+    messageId: string,
+    editedContent: string,
+  ) {
     if (!activeChat) return;
-    if (!validateProviderForGeneration()) return;
+    if (isChatGenerating(activeChat.id)) return;
 
-    const assistantIndex = activeChat.messages.findIndex(
-      (message) =>
-        message.id === assistantMessageId && message.role === "assistant",
+    const chatModel = activeChat.model?.trim() || provider.model.trim();
+    if (!validateProviderForGeneration(chatModel)) return;
+    const providerForRun = { ...provider, model: chatModel };
+
+    const userMessage = editedContent.trim();
+    if (!userMessage) {
+      showError("Message is required.");
+      return;
+    }
+
+    const userIndex = activeChat.messages.findIndex(
+      (message) => message.id === messageId && message.role === "user",
     );
-    const assistantMessage = activeChat.messages[assistantIndex];
+    const currentMessage = activeChat.messages[userIndex];
 
-    if (
-      assistantIndex < 0 ||
-      !assistantMessage ||
-      assistantMessage.role !== "assistant"
-    ) {
+    if (userIndex < 0 || !currentMessage || currentMessage.role !== "user") {
+      showError("Could not find the message to edit.");
       return;
     }
 
-    const activeVariant = getActiveVariant(assistantMessage);
-    if (!activeVariant?.content.trim()) {
-      showError("There is no answer to continue.");
-      return;
-    }
-
+    const assistantMessageId = createId();
+    const variantId = createId();
     const responseStartedAtMs = performance.now();
     const responseStartedAt = new Date().toISOString();
-    const contextMessages = activeChat.messages.slice(0, assistantIndex + 1);
-    const continuePrompt =
-      "Continue from exactly where your previous answer stopped. Do not repeat the previous text.";
-
-    updateAssistantVariant(
-      activeChat.id,
-      assistantMessageId,
-      activeVariant.id,
-      (variant) => ({
-        ...variant,
-        status: "streaming",
-        metrics: {
-          ...variant.metrics,
-          startedAt: responseStartedAt,
-          completedAt: undefined,
+    const editedUserMessage: ChatMessage = {
+      ...currentMessage,
+      content: userMessage,
+    };
+    const assistantMessage: ChatMessage = {
+      id: assistantMessageId,
+      role: "assistant",
+      variants: [
+        {
+          id: variantId,
+          content: "",
+          reasoning: "",
+          status: "streaming",
+          createdAt: responseStartedAt,
+          metrics: {
+            startedAt: responseStartedAt,
+          },
         },
-      }),
-    );
+      ],
+      activeVariantIndex: 0,
+      createdAt: responseStartedAt,
+    };
+    const contextMessages = activeChat.messages.slice(0, userIndex);
+    const nextMessages = [
+      ...contextMessages,
+      editedUserMessage,
+      assistantMessage,
+    ];
 
     shouldStickToBottomRef.current = true;
     pendingAssistantScrollRef.current = assistantMessageId;
     lastScrollStateRef.current = true;
     setIsNearChatBottom(true);
+    setExpandedReasoningIds({});
+    setExpandedMetricsIds({});
+    setEditingMessageId(null);
+
+    updateChat(activeChat.id, (chat) => ({
+      ...chat,
+      title: userIndex === 0 ? titleFromMessage(userMessage) : chat.title,
+      messages: nextMessages,
+      model: chatModel,
+      updatedAt: responseStartedAt,
+    }));
 
     await runAssistantVariant({
       chatId: activeChat.id,
       contextMessages,
-      userMessage: continuePrompt,
+      userMessage,
       assistantMessageId,
-      variantId: activeVariant.id,
+      variantId,
       responseStartedAtMs,
+      providerForRun,
     });
   }
 
   function stopGeneration() {
-    abortControllerRef.current?.abort();
+    if (!activeChat) return;
+    stopChatGeneration(activeChat.id);
   }
 
   async function createNewChat() {
-    const chat = createEmptyChat();
+    const chat = { ...createEmptyChat(), model: provider.model.trim() };
     setChats((currentChats) => [chat, ...currentChats]);
     setActiveChatId(chat.id);
-    setDraft("");
+    chatComposerRef.current?.clear();
+    setEditingMessageId(null);
     setExpandedReasoningIds({});
     setExpandedMetricsIds({});
     shouldStickToBottomRef.current = true;
@@ -1478,7 +1841,8 @@ export default function Home() {
 
   async function switchChat(chatId: string) {
     setActiveChatId(chatId);
-    setDraft("");
+    chatComposerRef.current?.clear();
+    setEditingMessageId(null);
     setExpandedReasoningIds({});
     setExpandedMetricsIds({});
     shouldStickToBottomRef.current = true;
@@ -1489,7 +1853,7 @@ export default function Home() {
   async function clearCurrentChat() {
     if (!activeChat) return;
 
-    if (isSending) stopGeneration();
+    if (isChatGenerating(activeChat.id)) stopChatGeneration(activeChat.id);
 
     const now = new Date().toISOString();
     updateChat(activeChat.id, (chat) => ({
@@ -1504,13 +1868,15 @@ export default function Home() {
   }
 
   async function removeChat(chatId: string) {
-    if (isSending) stopGeneration();
+    if (isChatGenerating(chatId)) stopChatGeneration(chatId);
 
     const remainingChats = sortChatsByUpdatedAt(
       chats.filter((chat) => chat.id !== chatId),
     );
     const nextChats =
-      remainingChats.length > 0 ? remainingChats : [createEmptyChat()];
+      remainingChats.length > 0
+        ? remainingChats
+        : [{ ...createEmptyChat(), model: provider.model.trim() }];
     const nextActiveId =
       activeChatId === chatId
         ? nextChats[0].id
@@ -1552,9 +1918,9 @@ export default function Home() {
               <h1 className="truncate text-sm font-semibold leading-5">
                 Chat Forge
               </h1>
-              <p className="truncate text-xs text-muted-foreground">
-                {provider.model.trim() || "No model selected"}
-              </p>
+              {/* <p className="truncate text-xs text-muted-foreground">
+                {activeChatModel || "No model selected"}
+              </p> */}
             </div>
 
             <DropdownMenu>
@@ -1593,6 +1959,114 @@ export default function Home() {
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
+          </div>
+        </div>
+
+        <div className="grid gap-2 border-b p-3">
+          {/* <Label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            Model
+          </Label> */}
+          <div className="flex gap-2">
+            <Popover
+              open={isSidebarModelComboboxOpen}
+              onOpenChange={setIsSidebarModelComboboxOpen}
+            >
+              <PopoverTrigger asChild>
+                <Button
+                  type="button"
+                  variant="outline"
+                  role="combobox"
+                  disabled={!activeChat || isSending}
+                  aria-expanded={isSidebarModelComboboxOpen}
+                  className="min-w-0 flex-1 justify-between rounded-none px-3 text-left font-normal"
+                  title={
+                    isSending
+                      ? "Wait until this chat finishes generating"
+                      : activeChatModel || "Select or enter a model"
+                  }
+                >
+                  <span
+                    className={cn(
+                      "min-w-0 truncate",
+                      !activeChatModel && "text-muted-foreground",
+                    )}
+                  >
+                    {activeChatModel || "Select model"}
+                  </span>
+                  <ChevronsUpDown className="size-4 shrink-0 opacity-50" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent
+                align="start"
+                className="w-[var(--radix-popover-trigger-width)] rounded-none p-0"
+              >
+                <Command shouldFilter={false}>
+                  <CommandInput
+                    value={sidebarModelSearchValue}
+                    onValueChange={setSidebarModelSearchValue}
+                    placeholder="Search or type model..."
+                  />
+                  <CommandList>
+                    {canUseCustomSidebarModel && (
+                      <CommandGroup heading="Custom">
+                        <CommandItem
+                          value={trimmedSidebarModelSearchValue}
+                          onSelect={() =>
+                            selectActiveChatModel(
+                              trimmedSidebarModelSearchValue,
+                            )
+                          }
+                          className="cursor-pointer"
+                        >
+                          Use “{trimmedSidebarModelSearchValue}”
+                        </CommandItem>
+                      </CommandGroup>
+                    )}
+                    {filteredSidebarModelSuggestions.length > 0 ? (
+                      <CommandGroup heading="Models">
+                        {filteredSidebarModelSuggestions.map((model) => (
+                          <CommandItem
+                            key={model}
+                            value={model}
+                            onSelect={() => selectActiveChatModel(model)}
+                            className="cursor-pointer"
+                          >
+                            <span className="min-w-0 flex-1 truncate">
+                              {model}
+                            </span>
+                            <Check
+                              className={cn(
+                                "size-4",
+                                activeChatModel === model
+                                  ? "opacity-100"
+                                  : "opacity-0",
+                              )}
+                            />
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    ) : (
+                      <CommandEmpty>No models found.</CommandEmpty>
+                    )}
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
+
+            <Button
+              type="button"
+              variant="secondary"
+              size="icon"
+              onClick={loadModelsFromProvider}
+              disabled={isLoadingModels || !provider.baseUrl.trim()}
+              className="shrink-0 rounded-none"
+              title={getLoadModelsButtonLabel()}
+              aria-label={getLoadModelsButtonLabel()}
+            >
+              <RefreshCcw
+                className={cn("size-4", isLoadingModels && "animate-spin")}
+              />
+            </Button>
           </div>
         </div>
 
@@ -1672,9 +2146,9 @@ export default function Home() {
             ref={chatScrollRef}
             data-chat-scroll
             onScroll={handleChatScroll}
-            className="chat-scrollbar mx-auto h-full w-full max-w-3xl overflow-y-auto py-3 [overflow-anchor:none] md:py-6"
+            className="chat-scrollbar h-full w-full overflow-y-auto py-3 [overflow-anchor:none] md:py-6"
           >
-            <div className="flex flex-col gap-4">
+            <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
               {messages.length === 0 ? (
                 <div className="flex min-h-[calc(100dvh-12rem)] items-center justify-center">
                   <div className="max-w-md border bg-card p-6 text-center shadow-xs">
@@ -1716,6 +2190,11 @@ export default function Home() {
                     message.role === "assistant"
                       ? message.activeVariantIndex + 1
                       : 0;
+                  const isStreamingMessage =
+                    activeChat !== undefined &&
+                    message.role === "assistant" &&
+                    streamingAssistantByChatId[activeChat.id] === message.id &&
+                    status === "streaming";
 
                   return (
                     <div
@@ -1775,7 +2254,7 @@ export default function Home() {
                                       : "flex max-h-40 flex-col justify-end overflow-hidden",
                                   )}
                                 >
-                                  <MarkdownMessage
+                                  <AssistantMessageContent
                                     content={reasoning}
                                     className="chat-markdown-compact shrink-0"
                                   />
@@ -1785,43 +2264,88 @@ export default function Home() {
                           );
                         })()}
 
-                      {(content ||
-                        message.role !== "assistant" ||
-                        status !== "streaming") && (
-                        <article
-                          className={cn(
-                            "flex",
-                            message.role === "user"
-                              ? "justify-end"
-                              : "justify-start",
-                          )}
-                        >
-                          <div
+                      {message.role === "user" &&
+                      editingMessageId === message.id ? (
+                        <UserMessageEditor
+                          initialContent={message.content}
+                          disabled={isSending}
+                          onCancel={cancelEditingUserMessage}
+                          onSave={(nextContent) =>
+                            saveEditedUserMessage(message.id, nextContent)
+                          }
+                        />
+                      ) : (
+                        (content ||
+                          message.role !== "assistant" ||
+                          status !== "streaming") && (
+                          <article
                             className={cn(
-                              "min-w-0 overflow-hidden text-sm leading-6 [overflow-wrap:anywhere]",
+                              "flex",
                               message.role === "user"
-                                ? "max-w-[85%] bg-primary px-4 py-3 text-primary-foreground shadow-xs"
-                                : "w-full max-w-full bg-card px-4 py-3 text-card-foreground shadow-xs",
-                              status === "error" && "border-destructive/50",
+                                ? "justify-end"
+                                : "justify-start",
                             )}
                           >
-                            {message.role === "assistant" ? (
-                              <MarkdownMessage content={content} />
-                            ) : (
-                              <div className="whitespace-pre-wrap">
-                                {message.content}
-                              </div>
-                            )}
-                          </div>
-                        </article>
+                            <div
+                              className={cn(
+                                "min-w-0 overflow-hidden text-sm leading-6 [overflow-wrap:anywhere]",
+                                message.role === "user"
+                                  ? "max-w-[85%] bg-primary px-4 py-3 text-primary-foreground shadow-xs"
+                                  : "w-full max-w-full bg-card px-4 py-3 text-card-foreground shadow-xs",
+                                status === "error" && "border-destructive/50",
+                              )}
+                            >
+                              {message.role === "assistant" ? (
+                                <>
+                                  <AssistantMessageContent content={content} />
+                                  {isStreamingMessage && (
+                                    <span
+                                      className="streaming-cursor"
+                                      aria-hidden="true"
+                                    />
+                                  )}
+                                </>
+                              ) : (
+                                <div className="whitespace-pre-wrap">
+                                  {message.content}
+                                </div>
+                              )}
+                            </div>
+                          </article>
+                        )
                       )}
+
+                      {message.role === "user" &&
+                        editingMessageId !== message.id && (
+                          <div className="flex justify-end gap-1.5 text-[11px] leading-4 text-muted-foreground">
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 rounded-none px-2 text-xs text-muted-foreground"
+                              onClick={() =>
+                                startEditingUserMessage(message.id)
+                              }
+                              disabled={isSending}
+                              title="Edit message"
+                            >
+                              <Pencil className="size-3" />
+                              Edit
+                            </Button>
+                          </div>
+                        )}
 
                       {message.role === "assistant" && (
                         <div className="grid gap-2 text-[11px] leading-4 text-muted-foreground">
                           <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
                             <button
                               type="button"
-                              className="min-h-6 text-left hover:text-foreground disabled:pointer-events-none"
+                              className={cn(
+                                "min-h-6 text-left hover:text-foreground disabled:pointer-events-none",
+                                status === "streaming" &&
+                                  metrics?.durationMs === undefined &&
+                                  "generating-gradient-text font-medium",
+                              )}
                               disabled={metrics?.durationMs === undefined}
                               onClick={() => toggleMetrics(message.id)}
                               title="Show generation details"
@@ -1829,7 +2353,7 @@ export default function Home() {
                               {metrics?.durationMs !== undefined
                                 ? formatTokenMetrics(metrics)
                                 : status === "streaming"
-                                  ? "Generating..."
+                                  ? "Generating"
                                   : ""}
                             </button>
 
@@ -1898,20 +2422,6 @@ export default function Home() {
                                 <RefreshCcw className="size-3" />
                                 {status === "error" ? "Retry" : "Regenerate"}
                               </Button>
-
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                className="h-6 rounded-none px-2 text-xs text-muted-foreground"
-                                onClick={() =>
-                                  continueAssistantMessage(message.id)
-                                }
-                                disabled={isSending || !content.trim()}
-                                title="Continue answer"
-                              >
-                                Continue
-                              </Button>
                             </div>
                           </div>
                         </div>
@@ -1947,56 +2457,13 @@ export default function Home() {
           )}
         </div>
 
-        <form
-          onSubmit={sendMessage}
-          className="bg-background px-3 py-3 md:px-4 md:py-4"
-          data-draft-input
-        >
-          <div className="mx-auto w-full max-w-3xl border bg-card p-3 pt-0 shadow-sm">
-            <div className="mx-auto grid w-full max-w-3xl gap-2">
-              <Textarea
-                ref={draftTextareaRef}
-                value={draft}
-                rows={3}
-                onChange={(event) => setDraft(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key !== "Enter") return;
-
-                  if (event.shiftKey) return;
-
-                  event.preventDefault();
-                  event.currentTarget.form?.requestSubmit();
-                }}
-                placeholder="Type a message..."
-                className="min-h-[5.5rem] resize-none border-0 !bg-transparent px-1 shadow-none leading-6 focus-visible:ring-0"
-              />
-              <div className="flex justify-end">
-                {isSending ? (
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    onClick={stopGeneration}
-                    className="shrink-0 rounded-none"
-                    title="Stop generation"
-                  >
-                    <Square className="size-4" />
-                    Stop
-                  </Button>
-                ) : (
-                  <Button
-                    type="submit"
-                    disabled={!canSend}
-                    className="shrink-0 rounded-none"
-                    title="Send message"
-                  >
-                    <Send className="size-4" />
-                    Send
-                  </Button>
-                )}
-              </div>
-            </div>
-          </div>
-        </form>
+        <ChatComposer
+          ref={chatComposerRef}
+          disabled={!activeChat}
+          isSending={isSending}
+          onSend={sendMessage}
+          onStop={stopGeneration}
+        />
       </section>
 
       <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
