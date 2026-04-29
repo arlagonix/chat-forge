@@ -165,6 +165,7 @@
   }
 
   .generating-gradient-text {
+    /* background-image: linear-gradient(90deg, #ffaa40, #9c40ff, #ffaa40); */
     background-image: linear-gradient(
       90deg,
       var(--muted-foreground),
@@ -189,7 +190,6 @@
     background: var(--primary);
     animation: streaming-cursor-blink 1s steps(1, end) infinite;
   }
-
 }
 
 @layer components {
@@ -255,19 +255,19 @@
   }
 
   .chat-markdown h1 {
-    @apply mt-5 mb-3 text-2xl font-semibold leading-8;
+    @apply mt-8 mb-3 text-2xl font-semibold leading-8;
   }
 
   .chat-markdown h2 {
-    @apply mt-5 mb-3 text-xl font-semibold leading-7;
+    @apply mt-8 mb-3 text-xl font-semibold leading-7;
   }
 
   .chat-markdown h3 {
-    @apply mt-4 mb-2 text-lg font-semibold leading-7;
+    @apply mt-7 mb-2 text-lg font-semibold leading-7;
   }
 
   .chat-markdown h4 {
-    @apply mt-4 mb-2 text-base font-semibold;
+    @apply mt-5 mb-2 text-base font-semibold;
   }
 
   .chat-markdown-compact h1,

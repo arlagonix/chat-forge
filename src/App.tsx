@@ -7,6 +7,7 @@ import {
   ChevronRight,
   ChevronUp,
   ChevronsUpDown,
+  Copy,
   Eye,
   EyeOff,
   Moon,
@@ -557,6 +558,7 @@ export default function Home() {
   >({});
   const [isNearChatBottom, setIsNearChatBottom] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
   const chatBottomRef = useRef<HTMLDivElement | null>(null);
   const messageElementRefs = useRef(new Map<string, HTMLDivElement>());
@@ -1057,7 +1059,10 @@ export default function Home() {
       chatId,
       (currentMessages) =>
         currentMessages.map((message) => {
-          if (message.id !== assistantMessageId || message.role !== "assistant") {
+          if (
+            message.id !== assistantMessageId ||
+            message.role !== "assistant"
+          ) {
             return message;
           }
 
@@ -1175,7 +1180,10 @@ export default function Home() {
       chatId,
       (currentMessages) =>
         currentMessages.map((message) => {
-          if (message.id !== assistantMessageId || message.role !== "assistant") {
+          if (
+            message.id !== assistantMessageId ||
+            message.role !== "assistant"
+          ) {
             return message;
           }
 
@@ -1672,7 +1680,10 @@ export default function Home() {
     updateActiveChatMessages(
       (currentMessages) =>
         currentMessages.map((message) => {
-          if (message.id !== assistantMessageId || message.role !== "assistant") {
+          if (
+            message.id !== assistantMessageId ||
+            message.role !== "assistant"
+          ) {
             return message;
           }
 
@@ -1724,6 +1735,25 @@ export default function Home() {
 
   function cancelEditingUserMessage() {
     setEditingMessageId(null);
+  }
+
+  async function copyMessageContent(messageId: string, content: string) {
+    if (!content.trim()) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(content);
+      setCopiedMessageId(messageId);
+      window.setTimeout(() => {
+        setCopiedMessageId((currentMessageId) =>
+          currentMessageId === messageId ? null : currentMessageId,
+        );
+      }, 1200);
+    } catch (error) {
+      console.error("Failed to copy message:", error);
+      toast.error("Failed to copy message.");
+    }
   }
 
   async function saveEditedUserMessage(
@@ -1910,7 +1940,7 @@ export default function Home() {
     <main className="flex h-dvh min-h-0 overflow-hidden bg-background text-foreground">
       <aside
         data-sidebar
-        className="flex w-96 shrink-0 flex-col border-r bg-card/80"
+        className="flex w-80 shrink-0 flex-col border-r bg-card/80"
       >
         <div className="border-b py-3 pl-3 pr-2">
           <div className="flex items-center justify-between gap-3">
@@ -1935,7 +1965,16 @@ export default function Home() {
                   <MoreVertical className="size-4" />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="rounded-none">
+              <DropdownMenuContent
+                align="end"
+                className="rounded-none"
+                onCloseAutoFocus={(event) => {
+                  event.preventDefault();
+                  window.requestAnimationFrame(() => {
+                    (document.activeElement as HTMLElement | null)?.blur();
+                  });
+                }}
+              >
                 <DropdownMenuItem onClick={() => setSettingsOpen(true)}>
                   <Settings className="size-4" />
                   Settings
@@ -2324,6 +2363,30 @@ export default function Home() {
                               size="sm"
                               className="h-6 rounded-none px-2 text-xs text-muted-foreground"
                               onClick={() =>
+                                copyMessageContent(message.id, message.content)
+                              }
+                              disabled={!message.content.trim()}
+                              title="Copy message"
+                            >
+                              {copiedMessageId === message.id ? (
+                                <>
+                                  <Check className="size-3" />
+                                  Copied
+                                </>
+                              ) : (
+                                <>
+                                  <Copy className="size-3" />
+                                  Copy
+                                </>
+                              )}
+                            </Button>
+
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 rounded-none px-2 text-xs text-muted-foreground"
+                              onClick={() =>
                                 startEditingUserMessage(message.id)
                               }
                               disabled={isSending}
@@ -2403,6 +2466,30 @@ export default function Home() {
                                   </Button>
                                 </div>
                               )}
+
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="h-6 rounded-none px-2 text-xs text-muted-foreground"
+                                onClick={() =>
+                                  copyMessageContent(message.id, content)
+                                }
+                                disabled={!content.trim()}
+                                title="Copy answer"
+                              >
+                                {copiedMessageId === message.id ? (
+                                  <>
+                                    <Check className="size-3" />
+                                    Copied
+                                  </>
+                                ) : (
+                                  <>
+                                    <Copy className="size-3" />
+                                    Copy
+                                  </>
+                                )}
+                              </Button>
 
                               <Button
                                 type="button"
