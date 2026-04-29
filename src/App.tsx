@@ -11,6 +11,7 @@ import {
   Eye,
   EyeOff,
   Moon,
+  MessageSquareText,
   MoreVertical,
   Pencil,
   Plus,
@@ -102,14 +103,13 @@ import {
   createEmptyChat,
   deleteChat,
   loadActiveChatId,
-  loadCachedProviderModels,
   loadChats,
-  loadProvider,
+  loadProvidersState,
   loadSystemPrompt,
   saveActiveChatId,
   saveCachedProviderModels,
   saveChat,
-  saveProvider,
+  saveProvidersState,
   saveSystemPrompt,
 } from "@/lib/ai-chat/storage";
 import type {
@@ -120,6 +120,7 @@ import type {
   ChatTokenUsage,
   ProviderConfig,
   ProviderGenerationSettings,
+  ProvidersState,
 } from "@/lib/ai-chat/types";
 import { useTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
@@ -133,9 +134,66 @@ function labelForError(error: unknown) {
   return error instanceof Error ? error.message : "Unknown error.";
 }
 
+function providerDisplayName(provider: Pick<ProviderConfig, "name">) {
+  return provider.name.trim() || "New provider";
+}
+
+function normalizeProviderModels(models: string[]) {
+  return [...new Set(models.map((model) => model.trim()).filter(Boolean))].sort((left, right) =>
+    left.localeCompare(right),
+  );
+}
+
+function getProviderFallbackModel(provider: Pick<ProviderConfig, "model" | "enabledModelIds">) {
+  return provider.model.trim() || normalizeProviderModels(provider.enabledModelIds ?? [])[0] || "";
+}
+
 function providerLabel(provider: ProviderConfig) {
-  const model = provider.model.trim() || "No model selected";
-  return `${provider.name || "Custom provider"} · ${model}`;
+  const model = getProviderFallbackModel(provider) || "No model selected";
+  return `${providerDisplayName(provider)} · ${model}`;
+}
+
+function normalizeProviderForState(provider: ProviderConfig): ProviderConfig {
+  const models = normalizeProviderModels(provider.models ?? []);
+  const enabledModelIds = normalizeProviderModels(provider.enabledModelIds ?? []);
+  const model = provider.model.trim();
+
+  return {
+    ...provider,
+    name: provider.name ?? "",
+    baseUrl: provider.baseUrl ?? "",
+    apiKey: provider.apiKey ?? "",
+    model,
+    models: normalizeProviderModels([...models, ...enabledModelIds, model]),
+    enabledModelIds,
+    headers: provider.headers ?? {},
+    customHeaders: undefined,
+    defaultSettings: {
+      ...defaultGenerationSettings,
+      ...(provider.defaultSettings ?? {}),
+    },
+    modelSettings: provider.modelSettings ?? {},
+  };
+}
+
+function createProviderId() {
+  return `provider-${createId()}`;
+}
+
+function createNewProvider(): ProviderConfig {
+  return normalizeProviderForState({
+    ...defaultProvider,
+    id: createProviderId(),
+    name: "New provider",
+    baseUrl: "",
+    apiKey: "",
+    model: "",
+    models: [],
+    enabledModelIds: [],
+    headers: {},
+    defaultSettings: defaultGenerationSettings,
+    modelSettings: {},
+  });
 }
 
 function estimateTokens(text: string) {
@@ -175,7 +233,7 @@ function buildTokenMetrics({
     outputTokens,
     tokensPerSecond,
     isApproximate: exactOutputTokens === undefined,
-    providerName: provider.name,
+    providerName: providerDisplayName(provider),
     model: provider.model,
     finishReason,
   };
@@ -315,19 +373,11 @@ function formatChatActivityDate(value: string) {
 const AssistantMessageContent = memo(function AssistantMessageContent({
   content,
   className,
-  isStreaming = false,
 }: {
   content: string;
   className?: string;
-  isStreaming?: boolean;
 }) {
-  return (
-    <MarkdownMessage
-      content={content}
-      className={className}
-      isStreaming={isStreaming}
-    />
-  );
+  return <MarkdownMessage content={content} className={className} />;
 });
 
 const UserMessageEditor = memo(function UserMessageEditor({
@@ -556,7 +606,10 @@ type MessageContextMenuState = {
 
 export default function Home() {
   const [mounted, setMounted] = useState(false);
-  const [provider, setProvider] = useState<ProviderConfig>(defaultProvider);
+  const [providersState, setProvidersState] = useState<ProvidersState>(() => ({
+    providers: [normalizeProviderForState(defaultProvider)],
+    activeProviderId: defaultProvider.id,
+  }));
   const [systemPrompt, setSystemPrompt] = useState(
     "You are a helpful assistant.",
   );
@@ -571,7 +624,6 @@ export default function Home() {
   const [modelLoadStatus, setModelLoadStatus] = useState<
     "idle" | "success" | "empty" | "error"
   >("idle");
-  const [models, setModels] = useState<string[]>([]);
   const [isModelComboboxOpen, setIsModelComboboxOpen] = useState(false);
   const [modelSearchValue, setModelSearchValue] = useState("");
   const [messageContextMenu, setMessageContextMenu] =
@@ -588,6 +640,7 @@ export default function Home() {
   >({});
   const [isNearChatBottom, setIsNearChatBottom] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [systemPromptOpen, setSystemPromptOpen] = useState(false);
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
   const chatBottomRef = useRef<HTMLDivElement | null>(null);
@@ -650,26 +703,32 @@ export default function Home() {
     );
   }, [activeChatId, sortedChats]);
 
+  const providers = providersState.providers.length
+    ? providersState.providers
+    : [normalizeProviderForState(defaultProvider)];
+  const activeProvider =
+    providers.find((provider) => provider.id === providersState.activeProviderId) ??
+    providers[0];
   const messages = activeChat?.messages ?? [];
-  const activeChatModel = activeChat?.model?.trim() || provider.model.trim();
+  const activeChatProvider =
+    providers.find((provider) => provider.id === activeChat?.providerId) ??
+    activeProvider;
+  const activeChatModel =
+    activeChat?.model?.trim() || getProviderFallbackModel(activeChatProvider);
   const isSending = activeChat
     ? generatingChatIds.includes(activeChat.id)
     : false;
   const activeModelSettings = getSettingsForProvider({
-    ...provider,
-    model: activeChatModel || provider.model,
+    ...activeProvider,
+    model: "",
   });
   const modelSuggestions = useMemo(() => {
-    const normalizedModels = [
-      ...new Set(
-        [...models, provider.model, activeChatModel]
-          .map((model) => model.trim())
-          .filter(Boolean),
-      ),
-    ];
-
-    return normalizedModels.sort((left, right) => left.localeCompare(right));
-  }, [models, provider.model, activeChatModel]);
+    return normalizeProviderModels([
+      ...(activeProvider.models ?? []),
+      ...(activeProvider.enabledModelIds ?? []),
+      activeProvider.model,
+    ]);
+  }, [activeProvider]);
 
   const filteredModelSuggestions = useMemo(() => {
     const search = modelSearchValue.trim().toLowerCase();
@@ -680,29 +739,21 @@ export default function Home() {
     );
   }, [modelSearchValue, modelSuggestions]);
 
-  const trimmedModelSearchValue = modelSearchValue.trim();
-  const canUseCustomModel =
-    trimmedModelSearchValue.length > 0 &&
-    !modelSuggestions.some(
-      (model) => model.toLowerCase() === trimmedModelSearchValue.toLowerCase(),
-    );
-
-  const filteredSidebarModelSuggestions = useMemo(() => {
+  const visibleProviderGroups = useMemo(() => {
     const search = sidebarModelSearchValue.trim().toLowerCase();
-    if (!search) return modelSuggestions;
 
-    return modelSuggestions.filter((model) =>
-      model.toLowerCase().includes(search),
-    );
-  }, [sidebarModelSearchValue, modelSuggestions]);
+    return providers
+      .map((provider) => {
+        const models = normalizeProviderModels(provider.enabledModelIds ?? []).filter((model) =>
+          search
+            ? `${providerDisplayName(provider)} ${model}`.toLowerCase().includes(search)
+            : true,
+        );
 
-  const trimmedSidebarModelSearchValue = sidebarModelSearchValue.trim();
-  const canUseCustomSidebarModel =
-    trimmedSidebarModelSearchValue.length > 0 &&
-    !modelSuggestions.some(
-      (model) =>
-        model.toLowerCase() === trimmedSidebarModelSearchValue.toLowerCase(),
-    );
+        return { provider, models };
+      })
+      .filter((group) => group.models.length > 0);
+  }, [providers, sidebarModelSearchValue]);
 
   useEffect(() => {
     let cancelled = false;
@@ -710,12 +761,12 @@ export default function Home() {
     async function hydrate() {
       try {
         const [
-          loadedProvider,
+          loadedProvidersState,
           loadedSystemPrompt,
           loadedChats,
           loadedActiveChatId,
         ] = await Promise.all([
-          loadProvider(),
+          loadProvidersState(),
           loadSystemPrompt(),
           loadChats(),
           loadActiveChatId(),
@@ -723,13 +774,30 @@ export default function Home() {
 
         if (cancelled) return;
 
-        let nextChats = loadedChats;
+        const normalizedProviders = loadedProvidersState.providers.length
+          ? loadedProvidersState.providers.map(normalizeProviderForState)
+          : [normalizeProviderForState(defaultProvider)];
+        const fallbackProviderId = normalizedProviders.some(
+          (provider) => provider.id === loadedProvidersState.activeProviderId,
+        )
+          ? loadedProvidersState.activeProviderId
+          : normalizedProviders[0].id;
+        const fallbackProvider =
+          normalizedProviders.find((provider) => provider.id === fallbackProviderId) ??
+          normalizedProviders[0];
+
+        let nextChats = loadedChats.map((chat) => ({
+          ...chat,
+          providerId: chat.providerId ?? fallbackProviderId,
+          model: chat.model?.trim() || getProviderFallbackModel(fallbackProvider),
+        }));
         let nextActiveChatId = loadedActiveChatId;
 
         if (nextChats.length === 0) {
           const chat = {
             ...createEmptyChat(),
-            model: loadedProvider.model.trim(),
+            providerId: fallbackProviderId,
+            model: getProviderFallbackModel(fallbackProvider),
           };
           nextChats = [chat];
           nextActiveChatId = chat.id;
@@ -745,11 +813,10 @@ export default function Home() {
 
         if (cancelled) return;
 
-        const loadedModels = await loadCachedProviderModels(loadedProvider);
-        if (cancelled) return;
-
-        setProvider(loadedProvider);
-        setModels(loadedModels);
+        setProvidersState({
+          providers: normalizedProviders,
+          activeProviderId: fallbackProviderId,
+        });
         setSystemPrompt(loadedSystemPrompt);
         setChats(nextChats);
         setActiveChatId(nextActiveChatId);
@@ -757,10 +824,16 @@ export default function Home() {
         setMounted(true);
       } catch (error) {
         console.error("Failed to load app data from IndexedDB:", error);
+        const fallbackProvider = normalizeProviderForState(defaultProvider);
         const fallbackChat = {
           ...createEmptyChat(),
-          model: defaultProvider.model.trim(),
+          providerId: fallbackProvider.id,
+          model: getProviderFallbackModel(fallbackProvider),
         };
+        setProvidersState({
+          providers: [fallbackProvider],
+          activeProviderId: fallbackProvider.id,
+        });
         setChats([fallbackChat]);
         setActiveChatId(fallbackChat.id);
         didHydrateRef.current = true;
@@ -828,26 +901,10 @@ export default function Home() {
 
   useEffect(() => {
     if (!didHydrateRef.current) return;
-
-    let cancelled = false;
-
-    loadCachedProviderModels(provider)
-      .then((cachedModels) => {
-        if (!cancelled) setModels(cachedModels);
-      })
-      .catch((error) => console.error("Failed to load cached models:", error));
-
-    return () => {
-      cancelled = true;
-    };
-  }, [provider.baseUrl, provider.customHeaders]);
-
-  useEffect(() => {
-    if (!didHydrateRef.current) return;
-    saveProvider(provider).catch((error) =>
-      console.error("Failed to save provider:", error),
+    saveProvidersState(providersState).catch((error) =>
+      console.error("Failed to save providers:", error),
     );
-  }, [provider]);
+  }, [providersState]);
 
   useEffect(() => {
     if (!didHydrateRef.current) return;
@@ -1286,86 +1343,170 @@ export default function Home() {
     );
   }
 
+  function updateProvidersState(updater: (state: ProvidersState) => ProvidersState) {
+    setProvidersState((currentState) => {
+      const nextState = updater(currentState);
+      const providers = nextState.providers.length
+        ? nextState.providers.map(normalizeProviderForState)
+        : [normalizeProviderForState(defaultProvider)];
+      const activeProviderId = providers.some(
+        (provider) => provider.id === nextState.activeProviderId,
+      )
+        ? nextState.activeProviderId
+        : providers[0].id;
+
+      return { providers, activeProviderId };
+    });
+  }
+
+  function updateProviderSetting(patch: Partial<ProviderConfig>) {
+    setProvidersState((currentState) => ({
+      ...currentState,
+      providers: currentState.providers.map((provider) =>
+        provider.id === currentState.activeProviderId
+          ? {
+              ...provider,
+              ...patch,
+              id: provider.id,
+            }
+          : provider,
+      ),
+    }));
+  }
+
   function applyPreset(id: string) {
     const preset = providerPresets.find((item) => item.id === id);
     if (!preset) return;
 
-    setProvider({
+    updateProviderSetting({
       ...preset,
+      id: activeProvider.id,
       defaultSettings: {
         ...defaultGenerationSettings,
         ...(preset.defaultSettings ?? {}),
       },
       modelSettings: preset.modelSettings ?? {},
     });
-    setModels([]);
+    setModelLoadStatus("idle");
     showSuccess("Provider preset loaded", preset.name);
   }
 
-  function updateProviderSetting(patch: Partial<ProviderConfig>) {
-    setProvider((currentProvider) => ({
-      ...currentProvider,
-      ...patch,
-      id: patch.id ?? "custom",
+  function addProvider() {
+    const provider = createNewProvider();
+    updateProvidersState((currentState) => ({
+      providers: [...currentState.providers, provider],
+      activeProviderId: provider.id,
     }));
   }
 
-  function selectActiveChatModel(model: string) {
+  function duplicateProvider(providerId: string) {
+    const source = providers.find((provider) => provider.id === providerId);
+    if (!source) return;
+
+    const provider = normalizeProviderForState({
+      ...source,
+      id: createProviderId(),
+      name: `${source.name} copy`,
+    });
+
+    updateProvidersState((currentState) => ({
+      providers: [...currentState.providers, provider],
+      activeProviderId: provider.id,
+    }));
+  }
+
+  function deleteProvider(providerId: string) {
+    if (providers.length <= 1) {
+      showInfo("At least one provider is required.");
+      return;
+    }
+
+    const remainingProviders = providers.filter((provider) => provider.id !== providerId);
+    const fallbackProvider =
+      remainingProviders.find((provider) => provider.id !== providerId) ?? remainingProviders[0];
+
+    updateProvidersState((currentState) => ({
+      providers: currentState.providers.filter((provider) => provider.id !== providerId),
+      activeProviderId:
+        currentState.activeProviderId === providerId
+          ? fallbackProvider.id
+          : currentState.activeProviderId,
+    }));
+
+    setChats((currentChats) =>
+      currentChats.map((chat) =>
+        chat.providerId === providerId
+          ? {
+              ...chat,
+              providerId: fallbackProvider.id,
+              model: getProviderFallbackModel(fallbackProvider),
+              updatedAt: new Date().toISOString(),
+            }
+          : chat,
+      ),
+    );
+  }
+
+  function selectActiveChatProviderModel(providerId: string, model: string) {
     const normalizedModel = model.trim();
     if (!normalizedModel) return;
-
-    updateProviderSetting({ model: normalizedModel });
 
     if (activeChat) {
       updateChat(activeChat.id, (chat) => ({
         ...chat,
+        providerId,
         model: normalizedModel,
         updatedAt: new Date().toISOString(),
       }));
     }
 
+    setProvidersState((currentState) => ({
+      ...currentState,
+      activeProviderId: providerId,
+      providers: currentState.providers.map((provider) =>
+        provider.id === providerId ? { ...provider, model: normalizedModel } : provider,
+      ),
+    }));
     setIsSidebarModelComboboxOpen(false);
     setSidebarModelSearchValue("");
   }
 
-  function updateActiveModelSettings(patch: ProviderGenerationSettings) {
-    setProvider((currentProvider) => {
-      const modelKey =
-        activeChatModel || currentProvider.model.trim() || "__default__";
-      const currentModelSettings =
-        currentProvider.modelSettings?.[modelKey] ?? {};
+  function toggleVisibleModel(model: string, checked: boolean) {
+    const normalizedModel = model.trim();
+    if (!normalizedModel) return;
 
-      return {
-        ...currentProvider,
-        id: "custom",
-        defaultSettings: {
-          ...defaultGenerationSettings,
-          ...(currentProvider.defaultSettings ?? {}),
-        },
-        modelSettings: {
-          ...(currentProvider.modelSettings ?? {}),
-          [modelKey]: sanitizeGenerationSettings({
-            ...currentModelSettings,
-            ...patch,
-          }),
-        },
-      };
+    updateProvidersState((currentState) => ({
+      ...currentState,
+      providers: currentState.providers.map((provider) => {
+        if (provider.id !== currentState.activeProviderId) return provider;
+
+        const enabledModelIds = checked
+          ? normalizeProviderModels([...(provider.enabledModelIds ?? []), normalizedModel])
+          : normalizeProviderModels((provider.enabledModelIds ?? []).filter((item) => item !== normalizedModel));
+        const model = enabledModelIds.includes(provider.model) ? provider.model : "";
+
+        return normalizeProviderForState({
+          ...provider,
+          models: normalizeProviderModels([...(provider.models ?? []), normalizedModel]),
+          enabledModelIds,
+          model,
+        });
+      }),
+    }));
+  }
+
+  function updateActiveModelSettings(patch: ProviderGenerationSettings) {
+    updateProviderSetting({
+      defaultSettings: sanitizeGenerationSettings({
+        ...defaultGenerationSettings,
+        ...(activeProvider.defaultSettings ?? {}),
+        ...patch,
+      }),
     });
   }
 
   function resetActiveModelSettings() {
-    setProvider((currentProvider) => {
-      const modelKey =
-        activeChatModel || currentProvider.model.trim() || "__default__";
-      const nextModelSettings = { ...(currentProvider.modelSettings ?? {}) };
-      delete nextModelSettings[modelKey];
-
-      return {
-        ...currentProvider,
-        id: "custom",
-        modelSettings: nextModelSettings,
-      };
-    });
+    updateProviderSetting({ defaultSettings: defaultGenerationSettings });
   }
 
   function setTemporaryModelLoadStatus(status: "success" | "empty" | "error") {
@@ -1384,21 +1525,22 @@ export default function Home() {
   async function saveSettingsChanges() {
     try {
       await Promise.all([
-        saveProvider(provider),
+        saveProvidersState(providersState),
         saveSystemPrompt(systemPrompt),
       ]);
-      setSettingsOpen(false);
       showSuccess("Settings saved.");
+      setSettingsOpen(false);
     } catch (error) {
       console.error("Failed to save settings:", error);
       showError("Failed to save settings", labelForError(error));
     }
   }
 
-  function getLoadModelsButtonLabel() {
+  function getLoadModelsButtonLabel(provider = activeProvider) {
     if (isLoadingModels) return "Loading models...";
     if (modelLoadStatus === "success") {
-      return `Loaded ${models.length} model${models.length === 1 ? "" : "s"}`;
+      const count = provider.models?.length ?? 0;
+      return `Loaded ${count} model${count === 1 ? "" : "s"}`;
     }
     if (modelLoadStatus === "empty") return "No models returned";
     if (modelLoadStatus === "error") return "Model lookup failed";
@@ -1406,7 +1548,7 @@ export default function Home() {
     return "Load models";
   }
 
-  async function loadModelsFromProvider() {
+  async function loadModelsFromProvider(providerForLoad = activeProvider) {
     setIsLoadingModels(true);
     setModelLoadStatus("idle");
 
@@ -1416,16 +1558,27 @@ export default function Home() {
     }
 
     try {
-      const loadedModels = await loadProviderModels(provider);
-      setModels(loadedModels);
-      await saveCachedProviderModels(provider, loadedModels);
+      const loadedModels = await loadProviderModels(providerForLoad);
+      await saveCachedProviderModels(providerForLoad, loadedModels);
 
-      if (!provider.model.trim() && loadedModels.length > 0) {
-        setProvider((currentProvider) => ({
-          ...currentProvider,
-          model: loadedModels[0],
-        }));
-      }
+      updateProvidersState((currentState) => ({
+        ...currentState,
+        providers: currentState.providers.map((provider) => {
+          if (provider.id !== providerForLoad.id) return provider;
+
+          const enabledModelIds = normalizeProviderModels(
+            (provider.enabledModelIds ?? []).filter((model) => loadedModels.includes(model)),
+          );
+          const model = enabledModelIds.includes(provider.model) ? provider.model : "";
+
+          return normalizeProviderForState({
+            ...provider,
+            models: loadedModels,
+            enabledModelIds,
+            model,
+          });
+        }),
+      }));
 
       setTemporaryModelLoadStatus(loadedModels.length ? "success" : "empty");
     } catch (error) {
@@ -1436,17 +1589,17 @@ export default function Home() {
     }
   }
 
-  function validateProviderForGeneration(model = activeChatModel) {
-    if (!provider.baseUrl.trim()) {
+  function validateProviderForGeneration(providerForRun: ProviderConfig) {
+    if (!providerForRun.baseUrl.trim()) {
       showError("Provider base URL is required.");
       setSettingsOpen(true);
       return false;
     }
 
-    if (!model.trim()) {
+    if (!providerForRun.model.trim()) {
       showError(
         "Model name is required",
-        "Load models or enter the model name manually.",
+        "Select a visible model in the sidebar model selector.",
       );
       return false;
     }
@@ -1454,6 +1607,13 @@ export default function Home() {
     return true;
   }
 
+  function resolveProviderForChat(chat: ChatSession) {
+    const provider =
+      providers.find((item) => item.id === chat.providerId) ?? activeProvider;
+    const model = chat.model?.trim() || getProviderFallbackModel(provider);
+
+    return normalizeProviderForState({ ...provider, model });
+  }
   function setChatGenerating(chatId: string, isGenerating: boolean) {
     setGeneratingChatIds((currentChatIds) => {
       const nextChatIds = isGenerating
@@ -1637,9 +1797,8 @@ export default function Home() {
     if (!activeChat) return false;
     if (isChatGenerating(activeChat.id)) return false;
 
-    const chatModel = activeChat.model?.trim() || provider.model.trim();
-    if (!validateProviderForGeneration(chatModel)) return false;
-    const providerForRun = { ...provider, model: chatModel };
+    const providerForRun = resolveProviderForChat(activeChat);
+    if (!validateProviderForGeneration(providerForRun)) return false;
 
     if (!userMessage) {
       showError("Message is required.");
@@ -1694,7 +1853,8 @@ export default function Home() {
           ? titleFromMessage(userMessage)
           : chat.title,
       messages: nextMessages,
-      model: chatModel,
+      providerId: providerForRun.id,
+      model: providerForRun.model,
       updatedAt: responseStartedAt,
     }));
 
@@ -1715,9 +1875,8 @@ export default function Home() {
     if (!activeChat) return;
     if (isChatGenerating(activeChat.id)) return;
 
-    const chatModel = activeChat.model?.trim() || provider.model.trim();
-    if (!validateProviderForGeneration(chatModel)) return;
-    const providerForRun = { ...provider, model: chatModel };
+    const providerForRun = resolveProviderForChat(activeChat);
+    if (!validateProviderForGeneration(providerForRun)) return;
 
     const assistantIndex = activeChat.messages.findIndex(
       (message) =>
@@ -1936,9 +2095,8 @@ export default function Home() {
     if (!activeChat) return;
     if (isChatGenerating(activeChat.id)) return;
 
-    const chatModel = activeChat.model?.trim() || provider.model.trim();
-    if (!validateProviderForGeneration(chatModel)) return;
-    const providerForRun = { ...provider, model: chatModel };
+    const providerForRun = resolveProviderForChat(activeChat);
+    if (!validateProviderForGeneration(providerForRun)) return;
 
     const userMessage = editedContent.trim();
     if (!userMessage) {
@@ -2001,7 +2159,8 @@ export default function Home() {
       ...chat,
       title: userIndex === 0 ? titleFromMessage(userMessage) : chat.title,
       messages: nextMessages,
-      model: chatModel,
+      providerId: providerForRun.id,
+      model: providerForRun.model,
       updatedAt: responseStartedAt,
     }));
 
@@ -2022,7 +2181,11 @@ export default function Home() {
   }
 
   async function createNewChat() {
-    const chat = { ...createEmptyChat(), model: provider.model.trim() };
+    const chat = {
+      ...createEmptyChat(),
+      providerId: activeProvider.id,
+      model: getProviderFallbackModel(activeProvider),
+    };
     setChats((currentChats) => [chat, ...currentChats]);
     setActiveChatId(chat.id);
     chatComposerRef.current?.clear();
@@ -2079,7 +2242,13 @@ export default function Home() {
     const nextChats =
       remainingChats.length > 0
         ? remainingChats
-        : [{ ...createEmptyChat(), model: provider.model.trim() }];
+        : [
+            {
+              ...createEmptyChat(),
+              providerId: activeProvider.id,
+              model: getProviderFallbackModel(activeProvider),
+            },
+          ];
     const nextActiveId =
       activeChatId === chatId
         ? nextChats[0].id
@@ -2152,6 +2321,10 @@ export default function Home() {
                   <Settings className="size-4" />
                   Settings
                 </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setSystemPromptOpen(true)}>
+                  <MessageSquareText className="size-4" />
+                  System prompt
+                </DropdownMenuItem>
                 <DropdownMenuItem
                   onClick={() =>
                     setTheme(resolvedTheme === "dark" ? "light" : "dark")
@@ -2175,9 +2348,6 @@ export default function Home() {
         </div>
 
         <div className="grid gap-2 border-b p-3">
-          {/* <Label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            Model
-          </Label> */}
           <div className="flex gap-2">
             <Popover
               open={isSidebarModelComboboxOpen}
@@ -2194,7 +2364,9 @@ export default function Home() {
                   title={
                     isSending
                       ? "Wait until this chat finishes generating"
-                      : activeChatModel || "Select or enter a model"
+                      : activeChatModel
+                        ? providerLabel(activeChatProvider)
+                        : "Select a model"
                   }
                 >
                   <span
@@ -2203,7 +2375,9 @@ export default function Home() {
                       !activeChatModel && "text-muted-foreground",
                     )}
                   >
-                    {activeChatModel || "Select model"}
+                    {activeChatModel
+                      ? `${providerDisplayName(activeChatProvider)} · ${activeChatModel}`
+                      : "Select model"}
                   </span>
                   <ChevronsUpDown className="size-4 shrink-0 opacity-50" />
                 </Button>
@@ -2216,49 +2390,39 @@ export default function Home() {
                   <CommandInput
                     value={sidebarModelSearchValue}
                     onValueChange={setSidebarModelSearchValue}
-                    placeholder="Search or type model..."
+                    placeholder="Search models..."
                   />
                   <CommandList>
-                    {canUseCustomSidebarModel && (
-                      <CommandGroup heading="Custom">
-                        <CommandItem
-                          value={trimmedSidebarModelSearchValue}
-                          onSelect={() =>
-                            selectActiveChatModel(
-                              trimmedSidebarModelSearchValue,
-                            )
-                          }
-                          className="cursor-pointer"
-                        >
-                          Use “{trimmedSidebarModelSearchValue}”
-                        </CommandItem>
-                      </CommandGroup>
-                    )}
-                    {filteredSidebarModelSuggestions.length > 0 ? (
-                      <CommandGroup heading="Models">
-                        {filteredSidebarModelSuggestions.map((model) => (
-                          <CommandItem
-                            key={model}
-                            value={model}
-                            onSelect={() => selectActiveChatModel(model)}
-                            className="cursor-pointer"
-                          >
-                            <span className="min-w-0 flex-1 truncate">
-                              {model}
-                            </span>
-                            <Check
-                              className={cn(
-                                "size-4",
-                                activeChatModel === model
-                                  ? "opacity-100"
-                                  : "opacity-0",
-                              )}
-                            />
-                          </CommandItem>
-                        ))}
-                      </CommandGroup>
+                    {visibleProviderGroups.length > 0 ? (
+                      visibleProviderGroups.map(({ provider, models }) => (
+                        <CommandGroup key={provider.id} heading={providerDisplayName(provider)}>
+                          {models.map((model) => (
+                            <CommandItem
+                              key={`${provider.id}:${model}`}
+                              value={`${providerDisplayName(provider)} ${model}`}
+                              onSelect={() =>
+                                selectActiveChatProviderModel(provider.id, model)
+                              }
+                              className="cursor-pointer"
+                            >
+                              <span className="min-w-0 flex-1 truncate">
+                                {model}
+                              </span>
+                              <Check
+                                className={cn(
+                                  "size-4",
+                                  activeChatProvider.id === provider.id &&
+                                    activeChatModel === model
+                                    ? "opacity-100"
+                                    : "opacity-0",
+                                )}
+                              />
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      ))
                     ) : (
-                      <CommandEmpty>No models found.</CommandEmpty>
+                      <CommandEmpty>No visible models. Enable models in Settings.</CommandEmpty>
                     )}
                   </CommandList>
                 </Command>
@@ -2269,11 +2433,11 @@ export default function Home() {
               type="button"
               variant="secondary"
               size="icon"
-              onClick={loadModelsFromProvider}
-              disabled={isLoadingModels || !provider.baseUrl.trim()}
+              onClick={() => loadModelsFromProvider(activeProvider)}
+              disabled={isLoadingModels || !activeProvider.baseUrl.trim()}
               className="shrink-0 rounded-none"
-              title={getLoadModelsButtonLabel()}
-              aria-label={getLoadModelsButtonLabel()}
+              title={getLoadModelsButtonLabel(activeProvider)}
+              aria-label={getLoadModelsButtonLabel(activeProvider)}
             >
               <RefreshCcw
                 className={cn("size-4", isLoadingModels && "animate-spin")}
@@ -2281,7 +2445,6 @@ export default function Home() {
             </Button>
           </div>
         </div>
-
         <div className="min-h-0 flex-1 overflow-y-auto p-2 chat-scrollbar">
           <div className="mb-2 px-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
             Chats
@@ -2402,11 +2565,6 @@ export default function Home() {
                     message.role === "assistant"
                       ? message.activeVariantIndex + 1
                       : 0;
-                  const isStreamingMessage =
-                    activeChat !== undefined &&
-                    message.role === "assistant" &&
-                    streamingAssistantByChatId[activeChat.id] === message.id &&
-                    status === "streaming";
 
                   return (
                     <div
@@ -2513,10 +2671,7 @@ export default function Home() {
                               >
                                 {message.role === "assistant" ? (
                                   <>
-                                    <AssistantMessageContent
-                                      content={content}
-                                      isStreaming={isStreamingMessage}
-                                    />
+                                    <AssistantMessageContent content={content} />
                                   </>
                                 ) : (
                                   <div className="whitespace-pre-wrap">
@@ -2823,389 +2978,418 @@ export default function Home() {
       </section>
 
       <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
-        <DialogContent className="flex h-[min(760px,calc(100dvh-2rem))] max-h-none flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl">
+        <DialogContent className="flex h-[min(820px,calc(100dvh-2rem))] max-h-none flex-col gap-0 overflow-hidden p-0 sm:max-w-5xl">
           <DialogHeader className="h-[96px] shrink-0 overflow-hidden border-b px-5 py-4 pr-12">
-            <DialogTitle>Provider settings</DialogTitle>
+            <DialogTitle>Settings</DialogTitle>
             <DialogDescription>
-              Configure any OpenAI-compatible endpoint. Requests are sent
-              directly from the browser, so the provider must allow CORS.
+              Manage providers, choose visible models, and configure generation defaults.
             </DialogDescription>
           </DialogHeader>
 
-          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4">
-            <div className="grid gap-5 pb-1">
-              <div className="grid gap-2">
-                <Label>Preset</Label>
-                <Select value={provider.id} onValueChange={applyPreset}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select preset" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {providerPresets.map((preset) => (
-                      <SelectItem key={preset.id} value={preset.id}>
-                        {preset.name}
-                      </SelectItem>
-                    ))}
-                    <SelectItem value="custom">Custom</SelectItem>
-                  </SelectContent>
-                </Select>
+          <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden md:grid-cols-[260px_minmax(0,1fr)]">
+            <aside className="min-h-0 overflow-y-auto border-b bg-card/70 p-3 md:border-b-0 md:border-r">
+              <div className="mb-3 flex items-center justify-between gap-2">
+                <Label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  Providers
+                </Label>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  className="h-7 rounded-none px-2 text-xs"
+                  onClick={addProvider}
+                >
+                  <Plus className="size-3.5" />
+                  Add
+                </Button>
               </div>
 
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="grid gap-2">
-                  <Label htmlFor="provider-url">Base URL</Label>
-                  <Input
-                    id="provider-url"
-                    value={provider.baseUrl}
-                    onChange={(event) =>
-                      setProvider({
-                        ...provider,
-                        id: "custom",
-                        baseUrl: event.target.value,
-                      })
+              <div className="grid gap-1.5">
+                {providers.map((item) => (
+                  <div
+                    key={item.id}
+                    role="button"
+                    tabIndex={0}
+                    className={cn(
+                      "group flex min-w-0 cursor-pointer items-start gap-2 border px-2 py-2 outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                      item.id === activeProvider.id
+                        ? "border-primary/30 bg-accent text-accent-foreground"
+                        : "border-transparent hover:border-border hover:bg-muted/60",
+                    )}
+                    onClick={() =>
+                      setProvidersState((currentState) => ({
+                        ...currentState,
+                        activeProviderId: item.id,
+                      }))
                     }
-                    placeholder="http://localhost:1234/v1"
-                  />
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        setProvidersState((currentState) => ({
+                          ...currentState,
+                          activeProviderId: item.id,
+                        }));
+                      }
+                    }}
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-sm leading-5">
+                        {providerDisplayName(item)}
+                      </div>
+                      <div className="truncate text-[11px] leading-4 text-muted-foreground">
+                        {(item.enabledModelIds ?? []).length} visible ·{" "}
+                        {item.baseUrl || "No base URL"}
+                      </div>
+                    </div>
+
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon-sm"
+                          className="h-7 w-7 shrink-0 rounded-none opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+                          onClick={(event) => event.stopPropagation()}
+                          title="Provider actions"
+                        >
+                          <MoreVertical className="size-3.5" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="rounded-none">
+                        <DropdownMenuItem
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            duplicateProvider(item.id);
+                          }}
+                        >
+                          <Copy className="size-4" />
+                          Duplicate
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          variant="destructive"
+                          disabled={providers.length <= 1}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            deleteProvider(item.id);
+                          }}
+                        >
+                          <Trash2 className="size-4" />
+                          Delete
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
+                ))}
+              </div>
+            </aside>
+
+            <div className="min-h-0 overflow-y-auto overscroll-contain px-5 py-4">
+              <div className="grid gap-5 pb-1">
+                <div className="grid gap-2">
+                  <Label>Preset</Label>
+                  <Select value="" onValueChange={applyPreset}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Load a preset into selected provider" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {providerPresets.map((preset) => (
+                        <SelectItem key={preset.id} value={preset.id}>
+                          {preset.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
 
-                <div className="grid gap-2">
-                  <Label htmlFor="provider-api-key">API key</Label>
-                  <div className="relative">
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="grid gap-2">
+                    <Label htmlFor="provider-name">Provider name</Label>
                     <Input
-                      id="provider-api-key"
-                      value={provider.apiKey}
+                      id="provider-name"
+                      value={activeProvider.name}
                       onChange={(event) =>
-                        setProvider({
-                          ...provider,
-                          id: "custom",
-                          apiKey: event.target.value,
-                        })
+                        updateProviderSetting({ name: event.target.value })
                       }
-                      placeholder="not-needed"
-                      type={isApiKeyVisible ? "text" : "password"}
-                      className="pr-10"
+                      placeholder="LM Studio"
                     />
+                  </div>
+
+                  <div className="grid gap-2">
+                    <Label htmlFor="provider-url">Base URL</Label>
+                    <Input
+                      id="provider-url"
+                      value={activeProvider.baseUrl}
+                      onChange={(event) =>
+                        updateProviderSetting({ baseUrl: event.target.value })
+                      }
+                      placeholder="http://localhost:1234/v1"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid gap-4">
+                  <div className="grid gap-2">
+                    <Label htmlFor="provider-api-key">API key</Label>
+                    <div className="relative">
+                      <Input
+                        id="provider-api-key"
+                        value={activeProvider.apiKey}
+                        onChange={(event) =>
+                          updateProviderSetting({ apiKey: event.target.value })
+                        }
+                        placeholder="not-needed"
+                        type={isApiKeyVisible ? "text" : "password"}
+                        className="pr-10"
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        className="absolute right-1 top-1/2 h-7 w-7 -translate-y-1/2 rounded-none text-muted-foreground"
+                        onClick={() => setIsApiKeyVisible((current) => !current)}
+                        title={isApiKeyVisible ? "Hide API key" : "Show API key"}
+                      >
+                        {isApiKeyVisible ? (
+                          <EyeOff className="size-4" />
+                        ) : (
+                          <Eye className="size-4" />
+                        )}
+                      </Button>
+                    </div>
+                  </div>
+
+                </div>
+
+                <div className="grid gap-3 border bg-card p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <Label>Visible models</Label>
+                      <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                        Only checked models appear in the sidebar model selector.
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        className="rounded-none"
+                        onClick={() => loadModelsFromProvider(activeProvider)}
+                        disabled={isLoadingModels || !activeProvider.baseUrl.trim()}
+                      >
+                        <RefreshCcw
+                          className={cn("size-4", isLoadingModels && "animate-spin")}
+                        />
+                        {getLoadModelsButtonLabel(activeProvider)}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="rounded-none"
+                        onClick={() =>
+                          updateProviderSetting({
+                            enabledModelIds: normalizeProviderModels(
+                              activeProvider.models ?? [],
+                            ),
+                          })
+                        }
+                        disabled={(activeProvider.models ?? []).length === 0}
+                      >
+                        Select all
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="rounded-none"
+                        onClick={() =>
+                          updateProviderSetting({
+                            enabledModelIds: [],
+                            model: "",
+                          })
+                        }
+                        disabled={(activeProvider.enabledModelIds ?? []).length === 0}
+                      >
+                        Clear
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className="max-h-64 overflow-y-auto border bg-background p-2">
+                    {(activeProvider.models ?? []).length > 0 ? (
+                      <div className="grid gap-1">
+                        {(activeProvider.models ?? []).map((model) => {
+                          const checked = (activeProvider.enabledModelIds ?? []).includes(
+                            model,
+                          );
+
+                          return (
+                            <label
+                              key={model}
+                              className="flex min-w-0 cursor-pointer items-center gap-2 px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={(event) =>
+                                  toggleVisibleModel(model, event.target.checked)
+                                }
+                                className="size-4 shrink-0 accent-primary"
+                              />
+                              <span className="min-w-0 flex-1 truncate">{model}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <p className="px-2 py-4 text-sm text-muted-foreground">
+                        Load models to choose which ones should be visible.
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                <Separator />
+
+                <div className="grid gap-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <Label>Generation settings</Label>
+                      <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                        Saved per selected provider and used for that provider's visible models.
+                      </p>
+                    </div>
                     <Button
                       type="button"
                       variant="ghost"
-                      size="icon-sm"
-                      className="absolute right-1 top-1/2 h-7 w-7 -translate-y-1/2 rounded-none text-muted-foreground"
-                      onClick={() => setIsApiKeyVisible((current) => !current)}
-                      title={isApiKeyVisible ? "Hide API key" : "Show API key"}
+                      size="sm"
+                      className="rounded-none"
+                      onClick={resetActiveModelSettings}
                     >
-                      {isApiKeyVisible ? (
-                        <EyeOff className="size-4" />
-                      ) : (
-                        <Eye className="size-4" />
-                      )}
+                      Reset
                     </Button>
                   </div>
-                </div>
-              </div>
 
-              <div className="grid gap-2">
-                <Label>Model</Label>
-                <div className="flex gap-2">
-                  <Popover
-                    open={isModelComboboxOpen}
-                    onOpenChange={(open) => {
-                      setIsModelComboboxOpen(open);
-                      if (open) setModelSearchValue("");
-                    }}
-                  >
-                    <PopoverTrigger asChild>
-                      <Button
-                        id="provider-model"
-                        type="button"
-                        variant="outline"
-                        role="combobox"
-                        aria-expanded={isModelComboboxOpen}
-                        className="model-picker-trigger min-w-0 flex-1 justify-between rounded-none px-3 font-normal"
+                  <div className="grid gap-4 md:grid-cols-3">
+                    <div className="grid gap-2">
+                      <Label htmlFor="generation-temperature">Temperature</Label>
+                      <Input
+                        id="generation-temperature"
+                        type="number"
+                        min="0"
+                        max="2"
+                        step="0.1"
+                        value={formatOptionalNumber(activeModelSettings.temperature)}
+                        onChange={(event) =>
+                          updateActiveModelSettings({
+                            temperature: parseOptionalNumber(event.target.value),
+                          })
+                        }
+                        placeholder="Provider default"
+                      />
+                    </div>
+
+                    <div className="grid gap-2">
+                      <Label htmlFor="generation-top-p">Top P</Label>
+                      <Input
+                        id="generation-top-p"
+                        type="number"
+                        min="0"
+                        max="1"
+                        step="0.05"
+                        value={formatOptionalNumber(activeModelSettings.topP)}
+                        onChange={(event) =>
+                          updateActiveModelSettings({
+                            topP: parseOptionalNumber(event.target.value),
+                          })
+                        }
+                        placeholder="Provider default"
+                      />
+                    </div>
+
+                    <div className="grid gap-2">
+                      <Label htmlFor="generation-max-tokens">Max tokens</Label>
+                      <Input
+                        id="generation-max-tokens"
+                        type="number"
+                        min="1"
+                        step="1"
+                        value={formatOptionalNumber(activeModelSettings.maxTokens)}
+                        onChange={(event) =>
+                          updateActiveModelSettings({
+                            maxTokens: parseOptionalNumber(event.target.value),
+                          })
+                        }
+                        placeholder="Provider default"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid gap-4 md:grid-cols-3">
+                    <div className="grid gap-2">
+                      <Label>Thinking controls</Label>
+                      <Select
+                        value={activeModelSettings.reasoningMode ?? "auto"}
+                        onValueChange={(reasoningMode) =>
+                          updateActiveModelSettings({
+                            reasoningMode:
+                              reasoningMode as ProviderGenerationSettings["reasoningMode"],
+                          })
+                        }
                       >
-                        <span
-                          className={cn(
-                            "truncate text-left",
-                            !provider.model.trim() && "text-muted-foreground",
-                          )}
-                        >
-                          {provider.model.trim() || "Select or enter a model"}
-                        </span>
-                        <ChevronsUpDown className="ml-2 size-4 shrink-0 opacity-50" />
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent
-                      className="w-[var(--radix-popover-trigger-width)] overflow-hidden p-0"
-                      align="start"
-                      onWheel={(event) => event.stopPropagation()}
-                      onTouchMove={(event) => event.stopPropagation()}
-                    >
-                      <Command shouldFilter={false}>
-                        <CommandInput
-                          value={modelSearchValue}
-                          onValueChange={setModelSearchValue}
-                          placeholder="Search or type a custom model..."
-                        />
-                        <CommandList
-                          className="max-h-[min(220px,40dvh)] overflow-y-auto overscroll-contain"
-                          onWheel={(event) => event.stopPropagation()}
-                          onTouchMove={(event) => event.stopPropagation()}
-                        >
-                          {canUseCustomModel && (
-                            <CommandGroup heading="Custom">
-                              <CommandItem
-                                value={`custom:${trimmedModelSearchValue}`}
-                                onSelect={() => {
-                                  updateProviderSetting({
-                                    model: trimmedModelSearchValue,
-                                  });
-                                  setIsModelComboboxOpen(false);
-                                  setModelSearchValue("");
-                                }}
-                                className="cursor-pointer"
-                              >
-                                <span className="min-w-0 flex-1 truncate">
-                                  Use “{trimmedModelSearchValue}”
-                                </span>
-                              </CommandItem>
-                            </CommandGroup>
-                          )}
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="auto">Auto-detect</SelectItem>
+                          <SelectItem value="enabled">Force enabled</SelectItem>
+                          <SelectItem value="off">Off</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
 
-                          {filteredModelSuggestions.length > 0 ? (
-                            <CommandGroup heading="Available models">
-                              {filteredModelSuggestions.map((model) => (
-                                <CommandItem
-                                  key={model}
-                                  value={model}
-                                  keywords={[model]}
-                                  onSelect={() => {
-                                    updateProviderSetting({ model });
-                                    setIsModelComboboxOpen(false);
-                                    setModelSearchValue("");
-                                  }}
-                                  className="cursor-pointer"
-                                >
-                                  <span className="min-w-0 flex-1 truncate">
-                                    {model}
-                                  </span>
-                                  <Check
-                                    className={cn(
-                                      "size-4",
-                                      provider.model.trim() === model
-                                        ? "opacity-100"
-                                        : "opacity-0",
-                                    )}
-                                  />
-                                </CommandItem>
-                              ))}
-                            </CommandGroup>
-                          ) : (
-                            <CommandEmpty>No models found.</CommandEmpty>
-                          )}
-                        </CommandList>
-                      </Command>
-                    </PopoverContent>
-                  </Popover>
+                    <div className="grid gap-2">
+                      <Label>Reasoning effort</Label>
+                      <Select
+                        value={activeModelSettings.reasoningEffort ?? "medium"}
+                        onValueChange={(reasoningEffort) =>
+                          updateActiveModelSettings({
+                            reasoningEffort:
+                              reasoningEffort as ProviderGenerationSettings["reasoningEffort"],
+                          })
+                        }
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="low">Low</SelectItem>
+                          <SelectItem value="medium">Medium</SelectItem>
+                          <SelectItem value="high">High</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
 
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    size="icon"
-                    onClick={loadModelsFromProvider}
-                    disabled={isLoadingModels || !provider.baseUrl.trim()}
-                    className="shrink-0 rounded-none"
-                    title={getLoadModelsButtonLabel()}
-                    aria-label={getLoadModelsButtonLabel()}
-                  >
-                    <RefreshCcw
-                      className={cn(
-                        "size-4",
-                        isLoadingModels && "animate-spin",
-                      )}
-                    />
-                  </Button>
-                </div>
-              </div>
-
-              <div className="grid gap-2">
-                <Label htmlFor="provider-custom-headers">Custom headers</Label>
-                <Textarea
-                  id="provider-custom-headers"
-                  value={provider.customHeaders ?? ""}
-                  onChange={(event) =>
-                    updateProviderSetting({
-                      customHeaders: event.target.value,
-                    })
-                  }
-                  placeholder={"Header-Name: value\nX-Company-Gateway: team-ai"}
-                  className="min-h-24 font-mono text-xs leading-5"
-                />
-                <p className="text-xs leading-5 text-muted-foreground">
-                  One header per line. Authorization is still generated from the
-                  API key field.
-                </p>
-              </div>
-
-              <Separator />
-
-              <div className="grid gap-3">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <Label>Generation settings for current model</Label>
-                    <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                      Saved per model. Leave numeric fields empty to use
-                      provider defaults.
-                    </p>
-                  </div>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="rounded-none"
-                    onClick={resetActiveModelSettings}
-                  >
-                    Reset
-                  </Button>
-                </div>
-
-                <div className="grid gap-4 md:grid-cols-3">
-                  <div className="grid gap-2">
-                    <Label htmlFor="generation-temperature">Temperature</Label>
-                    <Input
-                      id="generation-temperature"
-                      type="number"
-                      min="0"
-                      max="2"
-                      step="0.1"
-                      value={formatOptionalNumber(
-                        activeModelSettings.temperature,
-                      )}
-                      onChange={(event) =>
-                        updateActiveModelSettings({
-                          temperature: parseOptionalNumber(event.target.value),
-                        })
-                      }
-                      placeholder="Provider default"
-                    />
-                  </div>
-
-                  <div className="grid gap-2">
-                    <Label htmlFor="generation-top-p">Top P</Label>
-                    <Input
-                      id="generation-top-p"
-                      type="number"
-                      min="0"
-                      max="1"
-                      step="0.05"
-                      value={formatOptionalNumber(activeModelSettings.topP)}
-                      onChange={(event) =>
-                        updateActiveModelSettings({
-                          topP: parseOptionalNumber(event.target.value),
-                        })
-                      }
-                      placeholder="Provider default"
-                    />
-                  </div>
-
-                  <div className="grid gap-2">
-                    <Label htmlFor="generation-max-tokens">Max tokens</Label>
-                    <Input
-                      id="generation-max-tokens"
-                      type="number"
-                      min="1"
-                      step="1"
-                      value={formatOptionalNumber(
-                        activeModelSettings.maxTokens,
-                      )}
-                      onChange={(event) =>
-                        updateActiveModelSettings({
-                          maxTokens: parseOptionalNumber(event.target.value),
-                        })
-                      }
-                      placeholder="Provider default"
-                    />
+                    <div className="grid gap-2">
+                      <Label htmlFor="generation-timeout">Request timeout, ms</Label>
+                      <Input
+                        id="generation-timeout"
+                        type="number"
+                        min="1000"
+                        step="1000"
+                        value={formatOptionalNumber(activeModelSettings.requestTimeoutMs)}
+                        onChange={(event) =>
+                          updateActiveModelSettings({
+                            requestTimeoutMs: parseOptionalNumber(event.target.value),
+                          })
+                        }
+                        placeholder="30000"
+                      />
+                    </div>
                   </div>
                 </div>
-
-                <div className="grid gap-4 md:grid-cols-3">
-                  <div className="grid gap-2">
-                    <Label>Thinking controls</Label>
-                    <Select
-                      value={activeModelSettings.reasoningMode ?? "auto"}
-                      onValueChange={(reasoningMode) =>
-                        updateActiveModelSettings({
-                          reasoningMode:
-                            reasoningMode as ProviderGenerationSettings["reasoningMode"],
-                        })
-                      }
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="auto">Auto-detect</SelectItem>
-                        <SelectItem value="enabled">Force enabled</SelectItem>
-                        <SelectItem value="off">Off</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="grid gap-2">
-                    <Label>Reasoning effort</Label>
-                    <Select
-                      value={activeModelSettings.reasoningEffort ?? "medium"}
-                      onValueChange={(reasoningEffort) =>
-                        updateActiveModelSettings({
-                          reasoningEffort:
-                            reasoningEffort as ProviderGenerationSettings["reasoningEffort"],
-                        })
-                      }
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="low">Low</SelectItem>
-                        <SelectItem value="medium">Medium</SelectItem>
-                        <SelectItem value="high">High</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="grid gap-2">
-                    <Label htmlFor="generation-timeout">
-                      Request timeout, ms
-                    </Label>
-                    <Input
-                      id="generation-timeout"
-                      type="number"
-                      min="1000"
-                      step="1000"
-                      value={formatOptionalNumber(
-                        activeModelSettings.requestTimeoutMs,
-                      )}
-                      onChange={(event) =>
-                        updateActiveModelSettings({
-                          requestTimeoutMs: parseOptionalNumber(
-                            event.target.value,
-                          ),
-                        })
-                      }
-                      placeholder="30000"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <Separator />
-
-              <div className="grid gap-2">
-                <Label htmlFor="system-prompt">System prompt</Label>
-                <Textarea
-                  id="system-prompt"
-                  value={systemPrompt}
-                  onChange={(event) => setSystemPrompt(event.target.value)}
-                  className="min-h-32 leading-6"
-                />
               </div>
             </div>
           </div>
@@ -3216,19 +3400,68 @@ export default function Home() {
               variant="secondary"
               className="rounded-none"
               onClick={() =>
-                setProvider({
+                updateProviderSetting({
                   ...defaultProvider,
+                  id: activeProvider.id,
                   defaultSettings: defaultGenerationSettings,
                   modelSettings: {},
                 })
               }
             >
-              Reset provider
+              Reset selected provider
             </Button>
             <Button
               type="button"
               className="rounded-none"
               onClick={saveSettingsChanges}
+            >
+              Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={systemPromptOpen} onOpenChange={setSystemPromptOpen}>
+        <DialogContent className="flex max-h-[calc(100dvh-2rem)] flex-col gap-0 overflow-hidden rounded-none p-0 sm:max-w-2xl">
+          <DialogHeader className="shrink-0 border-b px-5 py-4 pr-12">
+            <DialogTitle>System prompt</DialogTitle>
+            <DialogDescription>
+              Define the instruction sent before every chat message. Leave it empty to send no system prompt.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+            <Textarea
+              id="system-prompt"
+              value={systemPrompt}
+              onChange={(event) => setSystemPrompt(event.target.value)}
+              className="min-h-[320px] resize-y leading-6"
+              placeholder="You are a helpful assistant."
+            />
+          </div>
+
+          <DialogFooter className="shrink-0 border-t px-5 py-3">
+            <Button
+              type="button"
+              variant="secondary"
+              className="rounded-none"
+              onClick={() => setSystemPrompt("You are a helpful assistant.")}
+            >
+              Reset
+            </Button>
+            <Button
+              type="button"
+              className="rounded-none"
+              onClick={async () => {
+                try {
+                  await saveSystemPrompt(systemPrompt);
+                  showSuccess("System prompt saved.");
+                  setSystemPromptOpen(false);
+                } catch (error) {
+                  console.error("Failed to save system prompt:", error);
+                  showError("Failed to save system prompt", labelForError(error));
+                }
+              }}
             >
               Save
             </Button>
