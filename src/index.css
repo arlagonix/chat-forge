@@ -181,6 +181,21 @@
     animation: generating-gradient-slide 2s linear infinite;
   }
 
+  .model-picker-trigger {
+    background-color: var(--background);
+    border-color: var(--border);
+    transition:
+      background-color 180ms ease,
+      border-color 180ms ease,
+      color 180ms ease,
+      box-shadow 180ms ease;
+  }
+
+  .model-picker-trigger:hover:not(:disabled) {
+    background-color: var(--accent);
+    color: var(--accent-foreground);
+  }
+
   .streaming-cursor {
     display: inline-block;
     width: 0.55ch;

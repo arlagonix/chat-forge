@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain } from "electron";
+import { app, BrowserWindow, ipcMain, shell } from "electron";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -214,6 +214,34 @@ function readFinishReason(data: unknown): string | undefined {
   return typeof finishReason === "string" ? finishReason : undefined;
 }
 
+
+function isSafeExternalUrl(url: string) {
+  try {
+    const parsedUrl = new URL(url);
+    return ["http:", "https:", "mailto:"].includes(parsedUrl.protocol);
+  } catch {
+    return false;
+  }
+}
+
+function isAppUrl(url: string) {
+  if (!VITE_DEV_SERVER_URL) return false;
+
+  try {
+    const targetUrl = new URL(url);
+    const appUrl = new URL(VITE_DEV_SERVER_URL);
+    return targetUrl.origin === appUrl.origin;
+  } catch {
+    return false;
+  }
+}
+
+function openExternalUrl(url: string) {
+  if (isSafeExternalUrl(url) && !isAppUrl(url)) {
+    void shell.openExternal(url);
+  }
+}
+
 function resolvePreloadPath() {
   const candidates = [
     path.join(__dirname, "preload.cjs"),
@@ -244,6 +272,19 @@ function createWindow() {
       nodeIntegration: false,
       sandbox: false,
     },
+  });
+
+
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    openExternalUrl(url);
+    return { action: "deny" };
+  });
+
+  win.webContents.on("will-navigate", (event, url) => {
+    if (isSafeExternalUrl(url) && !isAppUrl(url)) {
+      event.preventDefault();
+      openExternalUrl(url);
+    }
   });
 
   win.webContents.on("did-fail-load", (_event, errorCode, errorDescription, validatedURL) => {
