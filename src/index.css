@@ -166,7 +166,6 @@
     }
   }
 
-
   .generating-gradient-text {
     /* background-image: linear-gradient(90deg, #ffaa40, #9c40ff, #ffaa40); */
     background-image: linear-gradient(
@@ -202,7 +201,6 @@
     background-color: var(--accent);
     color: var(--accent-foreground);
   }
-
 }
 
 @layer components {
@@ -312,17 +310,83 @@
   }
 
   .chat-markdown .chat-code-block {
-    @apply relative my-4 max-w-full overflow-hidden border bg-muted text-sm;
+    @apply relative my-4 w-full min-w-0 max-w-full border bg-muted text-sm;
   }
 
-  .chat-markdown .chat-code-block pre {
-    @apply m-0 max-w-full overflow-x-hidden whitespace-pre-wrap break-words bg-transparent p-3 pr-12 text-sm;
+  .chat-markdown .chat-code-toolbar {
+    @apply absolute right-6 top-2 z-20 flex justify-end;
+    pointer-events: none;
+  }
+
+  .chat-markdown .chat-code-toolbar-actions {
+    @apply flex w-max items-center gap-1;
+    pointer-events: auto;
+  }
+
+  .chat-markdown .chat-code-action {
+    @apply h-7 w-7 rounded-none border bg-background/95 text-muted-foreground shadow-xs hover:text-foreground;
+  }
+
+  .chat-markdown .chat-code-action-active {
+    @apply text-foreground;
+  }
+
+  .chat-markdown .chat-code-scroll {
+    @apply block w-full min-w-0 max-w-full;
+    max-height: min(520px, 60vh);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .chat-markdown .chat-code-scroll-wrap {
+    overflow-x: hidden;
+  }
+
+  .chat-markdown .chat-code-scroll-nowrap {
+    overflow-x: auto;
+  }
+
+  .chat-markdown .chat-code-pre {
+    @apply m-0 block bg-transparent p-3 pr-28 text-sm;
+    min-width: 100%;
+  }
+
+  .chat-markdown .chat-code-pre-wrap {
+    width: 100%;
+    max-width: 100%;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  .chat-markdown .chat-code-pre-nowrap {
+    display: block;
+    width: max-content;
+    min-width: 100%;
+    max-width: none;
+    white-space: pre;
+    overflow-wrap: normal;
+    word-break: normal;
   }
 
   .chat-markdown .chat-code-block code {
-    @apply whitespace-pre-wrap break-words bg-transparent p-0 text-sm;
+    @apply bg-transparent p-0 text-sm;
   }
 
+  .chat-markdown .chat-code-pre-wrap code,
+  .chat-markdown .chat-code-pre-wrap code * {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  .chat-markdown .chat-code-pre-nowrap code,
+  .chat-markdown .chat-code-pre-nowrap code * {
+    display: inline;
+    white-space: pre !important;
+    overflow-wrap: normal !important;
+    word-break: normal !important;
+  }
   .chat-markdown a {
     @apply font-medium break-words;
   }

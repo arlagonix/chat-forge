@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Clipboard } from "lucide-react";
+import { Check, Clipboard, Download, WrapText } from "lucide-react";
 import { Children, isValidElement, ReactNode, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -11,6 +11,45 @@ import { cn } from "@/lib/utils";
 type MarkdownMessageProps = {
   content: string;
   className?: string;
+};
+
+const LANGUAGE_EXTENSIONS: Record<string, string> = {
+  bash: "sh",
+  c: "c",
+  cpp: "cpp",
+  csharp: "cs",
+  css: "css",
+  csv: "csv",
+  dart: "dart",
+  dockerfile: "Dockerfile",
+  go: "go",
+  html: "html",
+  java: "java",
+  javascript: "js",
+  js: "js",
+  json: "json",
+  jsx: "jsx",
+  kotlin: "kt",
+  kt: "kt",
+  markdown: "md",
+  md: "md",
+  php: "php",
+  powershell: "ps1",
+  python: "py",
+  py: "py",
+  ruby: "rb",
+  rust: "rs",
+  scala: "scala",
+  sh: "sh",
+  sql: "sql",
+  swift: "swift",
+  ts: "ts",
+  tsx: "tsx",
+  typescript: "ts",
+  xml: "xml",
+  yaml: "yaml",
+  yml: "yml",
+  zsh: "sh",
 };
 
 function normalizeMarkdownContent(content: string) {
@@ -45,14 +84,61 @@ function textFromNode(node: ReactNode): string {
   return "";
 }
 
-function CodeCopyButton({ code }: { code: string }) {
+function codePayload(code: string) {
+  return code.replace(/\n$/, "");
+}
+
+function filenameForLanguage(language?: string) {
+  if (!language) return "file.txt";
+
+  const normalized = language.toLowerCase();
+  const extension = LANGUAGE_EXTENSIONS[normalized];
+
+  if (!extension) return "file.txt";
+  if (extension === "Dockerfile") return "Dockerfile";
+
+  return `file.${extension}`;
+}
+
+function languageFromNode(node: ReactNode): string | undefined {
+  if (Array.isArray(node)) {
+    for (const child of node) {
+      const language = languageFromNode(child);
+      if (language) return language;
+    }
+  }
+
+  if (!isValidElement(node)) return undefined;
+
+  const props = node.props as { className?: string; children?: ReactNode };
+  const languageClass = props.className
+    ?.split(/\s+/)
+    .find((value) => value.startsWith("language-"));
+
+  if (languageClass) return languageClass.replace("language-", "");
+
+  return languageFromNode(props.children);
+}
+
+function CodeBlock({
+  children,
+  className,
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
   const [copied, setCopied] = useState(false);
+  const [wrapped, setWrapped] = useState(true);
+  const code = Children.toArray(children).map(textFromNode).join("");
+  const language = languageFromNode(children);
+  const payload = codePayload(code);
+  const suggestedFilename = filenameForLanguage(language);
 
   async function copyCode() {
-    if (!code) return;
+    if (!payload) return;
 
     try {
-      await navigator.clipboard.writeText(code.replace(/\n$/, ""));
+      await navigator.clipboard.writeText(payload);
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1200);
     } catch {
@@ -60,18 +146,70 @@ function CodeCopyButton({ code }: { code: string }) {
     }
   }
 
+  function downloadCode() {
+    if (!payload) return;
+
+    const blob = new Blob([payload], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+
+    link.href = url;
+    link.download = suggestedFilename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  }
+
   return (
-    <Button
-      type="button"
-      variant="secondary"
-      size="icon-sm"
-      className="absolute right-2 top-2 z-10 h-7 w-7 rounded-none border bg-background/90 text-muted-foreground shadow-xs hover:text-foreground"
-      onClick={copyCode}
-      title={copied ? "Copied" : "Copy code"}
-      aria-label={copied ? "Copied" : "Copy code"}
-    >
-      {copied ? <Check className="size-3.5" /> : <Clipboard className="size-3.5" />}
-    </Button>
+    <div className={cn("chat-code-block", className)}>
+      <div className="chat-code-toolbar" aria-label="Code block actions">
+        <div className="chat-code-toolbar-actions">
+          <Button
+            type="button"
+            variant="secondary"
+            size="icon-sm"
+            className={cn(
+              "chat-code-action",
+              wrapped && "chat-code-action-active",
+            )}
+            onClick={() => setWrapped((value) => !value)}
+            title={wrapped ? "Disable line wrap" : "Enable line wrap"}
+            aria-label={wrapped ? "Disable line wrap" : "Enable line wrap"}
+            aria-pressed={wrapped}
+          >
+            <WrapText className="size-3.5" />
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            size="icon-sm"
+            className="chat-code-action"
+            onClick={copyCode}
+            title={copied ? "Copied" : "Copy code"}
+            aria-label={copied ? "Copied" : "Copy code"}
+          >
+            {copied ? <Check className="size-3.5" /> : <Clipboard className="size-3.5" />}
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            size="icon-sm"
+            className="chat-code-action"
+            onClick={downloadCode}
+            title={`Download ${suggestedFilename}`}
+            aria-label={`Download ${suggestedFilename}`}
+          >
+            <Download className="size-3.5" />
+          </Button>
+        </div>
+      </div>
+      <div className={cn("chat-code-scroll", wrapped ? "chat-code-scroll-wrap" : "chat-code-scroll-nowrap")}>
+        <pre className={cn("chat-code-pre", wrapped ? "chat-code-pre-wrap" : "chat-code-pre-nowrap")}>
+          {children}
+        </pre>
+      </div>
+    </div>
   );
 }
 
@@ -96,18 +234,9 @@ export function MarkdownMessage({ content, className }: MarkdownMessageProps) {
               {children}
             </code>
           ),
-          pre: ({ className, children }) => {
-            const code = Children.toArray(children).map(textFromNode).join("");
-
-            return (
-              <div className={cn("chat-code-block", className)}>
-                <CodeCopyButton code={code} />
-                <pre>
-                  {children}
-                </pre>
-              </div>
-            );
-          },
+          pre: ({ className, children }) => (
+            <CodeBlock className={className}>{children}</CodeBlock>
+          ),
         }}
       >
         {normalizeMarkdownContent(content)}

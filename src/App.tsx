@@ -2957,7 +2957,6 @@ export default function Home() {
                 </Command>
               </PopoverContent>
             </Popover>
-
           </div>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto p-2 chat-scrollbar">
@@ -2989,7 +2988,7 @@ export default function Home() {
                       title={chat.title}
                     >
                       <div className="min-w-0 flex-1 text-left">
-                        <div className="truncate text-sm leading-5">
+                        <div className="truncate text-sm leading-5 font-bold">
                           {chat.title}
                         </div>
                         <div className="truncate text-[11px] leading-4 text-muted-foreground">
@@ -3221,7 +3220,7 @@ export default function Home() {
                                   "min-w-0 text-sm leading-6 [overflow-wrap:anywhere]",
                                   message.role === "user"
                                     ? "max-h-[28rem] max-w-[85%] overflow-y-auto overflow-x-hidden chat-message-scrollbar bg-primary px-4 py-3 text-primary-foreground shadow-xs"
-                                    : "w-full max-w-full overflow-hidden bg-card px-4 py-3 text-card-foreground shadow-xs",
+                                    : "w-full max-w-full overflow-visible bg-card px-4 py-3 text-card-foreground shadow-xs",
                                   status === "error" && "border-destructive/50",
                                 )}
                               >
