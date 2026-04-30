@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Clipboard, Download, WrapText } from "lucide-react";
+import { Check, Clipboard, Download } from "lucide-react";
 import { Children, isValidElement, ReactNode, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -59,7 +59,9 @@ function normalizeMarkdownContent(content: string) {
 
   if (nonEmptyLines.length === 0) return normalized;
 
-  const indents = nonEmptyLines.map((line) => line.match(/^ */)?.[0].length ?? 0);
+  const indents = nonEmptyLines.map(
+    (line) => line.match(/^ */)?.[0].length ?? 0,
+  );
   const smallestIndent = Math.min(...indents);
 
   if (smallestIndent < 4) return normalized;
@@ -165,7 +167,7 @@ function CodeBlock({
     <div className={cn("chat-code-block", className)}>
       <div className="chat-code-toolbar" aria-label="Code block actions">
         <div className="chat-code-toolbar-actions">
-          <Button
+          {/* <Button
             type="button"
             variant="secondary"
             size="icon-sm"
@@ -179,7 +181,7 @@ function CodeBlock({
             aria-pressed={wrapped}
           >
             <WrapText className="size-3.5" />
-          </Button>
+          </Button> */}
           <Button
             type="button"
             variant="secondary"
@@ -189,7 +191,11 @@ function CodeBlock({
             title={copied ? "Copied" : "Copy code"}
             aria-label={copied ? "Copied" : "Copy code"}
           >
-            {copied ? <Check className="size-3.5" /> : <Clipboard className="size-3.5" />}
+            {copied ? (
+              <Check className="size-3.5" />
+            ) : (
+              <Clipboard className="size-3.5" />
+            )}
           </Button>
           <Button
             type="button"
@@ -204,8 +210,18 @@ function CodeBlock({
           </Button>
         </div>
       </div>
-      <div className={cn("chat-code-scroll", wrapped ? "chat-code-scroll-wrap" : "chat-code-scroll-nowrap")}>
-        <pre className={cn("chat-code-pre", wrapped ? "chat-code-pre-wrap" : "chat-code-pre-nowrap")}>
+      <div
+        className={cn(
+          "chat-code-scroll",
+          wrapped ? "chat-code-scroll-wrap" : "chat-code-scroll-nowrap",
+        )}
+      >
+        <pre
+          className={cn(
+            "chat-code-pre",
+            wrapped ? "chat-code-pre-wrap" : "chat-code-pre-nowrap",
+          )}
+        >
           {children}
         </pre>
       </div>
@@ -215,9 +231,7 @@ function CodeBlock({
 
 export function MarkdownMessage({ content, className }: MarkdownMessageProps) {
   return (
-    <div
-      className={cn("chat-markdown min-w-0 max-w-full", className)}
-    >
+    <div className={cn("chat-markdown min-w-0 max-w-full", className)}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
