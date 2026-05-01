@@ -44,6 +44,16 @@
   --sidebar-accent-foreground: oklch(0.28 0.01 95);
   --sidebar-border: oklch(0.88 0.004 95);
   --sidebar-ring: oklch(0.62 0.02 95);
+
+  --code-bg: oklch(0.93 0.004 95);
+  --code-fg: oklch(0.24 0.01 95);
+  --code-comment: oklch(0.5 0.01 95);
+  --code-keyword: oklch(0.45 0.09 270);
+  --code-string: oklch(0.43 0.1 145);
+  --code-number: oklch(0.48 0.12 50);
+  --code-title: oklch(0.38 0.09 245);
+  --code-attr: oklch(0.46 0.1 35);
+  --code-built-in: oklch(0.43 0.11 300);
 }
 
 .dark {
@@ -71,6 +81,16 @@
   --border: #454545;
   --input: #3c3c3c;
   --ring: #637f95;
+
+  --code-bg: #1e1e1e;
+  --code-fg: #d4d4d4;
+  --code-comment: #6a9955;
+  --code-keyword: #c586c0;
+  --code-string: #ce9178;
+  --code-number: #b5cea8;
+  --code-title: #dcdcaa;
+  --code-attr: #9cdcfe;
+  --code-built-in: #4ec9b0;
 }
 
 @theme inline {
@@ -310,7 +330,9 @@
   }
 
   .chat-markdown .chat-code-block {
-    @apply relative my-4 w-full min-w-0 max-w-full overflow-hidden border bg-muted text-sm;
+    @apply relative my-4 w-full min-w-0 max-w-full overflow-hidden border text-sm;
+    background: var(--code-bg);
+    color: var(--code-fg);
   }
 
   .chat-markdown .chat-code-toolbar {
@@ -368,6 +390,70 @@
 
   .chat-markdown .chat-code-block code {
     @apply bg-transparent p-0 text-sm;
+  }
+
+  .chat-markdown .hljs {
+    color: var(--code-fg);
+    background: transparent;
+  }
+
+  .chat-markdown .hljs-comment,
+  .chat-markdown .hljs-quote {
+    color: var(--code-comment);
+    font-style: italic;
+  }
+
+  .chat-markdown .hljs-keyword,
+  .chat-markdown .hljs-selector-tag,
+  .chat-markdown .hljs-subst {
+    color: var(--code-keyword);
+  }
+
+  .chat-markdown .hljs-string,
+  .chat-markdown .hljs-doctag,
+  .chat-markdown .hljs-regexp {
+    color: var(--code-string);
+  }
+
+  .chat-markdown .hljs-number,
+  .chat-markdown .hljs-literal,
+  .chat-markdown .hljs-symbol,
+  .chat-markdown .hljs-bullet {
+    color: var(--code-number);
+  }
+
+  .chat-markdown .hljs-title,
+  .chat-markdown .hljs-section,
+  .chat-markdown .hljs-name {
+    color: var(--code-title);
+  }
+
+  .chat-markdown .hljs-attribute,
+  .chat-markdown .hljs-attr,
+  .chat-markdown .hljs-variable,
+  .chat-markdown .hljs-template-variable,
+  .chat-markdown .hljs-selector-class,
+  .chat-markdown .hljs-selector-id {
+    color: var(--code-attr);
+  }
+
+  .chat-markdown .hljs-built_in,
+  .chat-markdown .hljs-type,
+  .chat-markdown .hljs-class .hljs-title {
+    color: var(--code-built-in);
+  }
+
+  .chat-markdown .hljs-meta,
+  .chat-markdown .hljs-tag {
+    color: var(--code-attr);
+  }
+
+  .chat-markdown .hljs-emphasis {
+    font-style: italic;
+  }
+
+  .chat-markdown .hljs-strong {
+    font-weight: 600;
   }
 
   .chat-markdown .chat-code-pre-wrap code,
