@@ -2988,7 +2988,7 @@ export default function Home() {
                       title={chat.title}
                     >
                       <div className="min-w-0 flex-1 text-left">
-                        <div className="truncate text-sm leading-5 font-bold">
+                        <div className="truncate text-sm leading-5 ">
                           {chat.title}
                         </div>
                         <div className="truncate text-[11px] leading-4 text-muted-foreground">

@@ -3,6 +3,7 @@
 import { Check, Clipboard, Download, WrapText } from "lucide-react";
 import React, { isValidElement, ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
+import rehypeHighlight from "rehype-highlight";
 import remarkGfm from "remark-gfm";
 
 import { Button } from "@/components/ui/button";
@@ -237,6 +238,7 @@ export function MarkdownMessage({ content, className }: MarkdownMessageProps) {
     <div className={cn("chat-markdown min-w-0 max-w-full", className)}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
+        rehypePlugins={[[rehypeHighlight, { detect: false, ignoreMissing: true }]]}
         components={{
           a: ({ className, ...props }) => (
             <a
