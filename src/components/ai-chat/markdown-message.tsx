@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Clipboard, Download } from "lucide-react";
+import { Check, Clipboard, Download, WrapText } from "lucide-react";
 import { Children, isValidElement, ReactNode, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -167,7 +167,7 @@ function CodeBlock({
     <div className={cn("chat-code-block", className)}>
       <div className="chat-code-toolbar" aria-label="Code block actions">
         <div className="chat-code-toolbar-actions">
-          {/* <Button
+          <Button
             type="button"
             variant="secondary"
             size="icon-sm"
@@ -181,7 +181,7 @@ function CodeBlock({
             aria-pressed={wrapped}
           >
             <WrapText className="size-3.5" />
-          </Button> */}
+          </Button>
           <Button
             type="button"
             variant="secondary"

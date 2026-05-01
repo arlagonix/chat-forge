@@ -310,7 +310,7 @@
   }
 
   .chat-markdown .chat-code-block {
-    @apply relative my-4 w-full min-w-0 max-w-full border bg-muted text-sm;
+    @apply relative my-4 w-full min-w-0 max-w-full overflow-hidden border bg-muted text-sm;
   }
 
   .chat-markdown .chat-code-toolbar {
@@ -336,6 +336,7 @@
     max-height: min(520px, 60vh);
     overflow-y: auto;
     overscroll-behavior: contain;
+    scrollbar-gutter: stable;
   }
 
   .chat-markdown .chat-code-scroll-wrap {

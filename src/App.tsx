@@ -689,7 +689,7 @@ const UserMessageEditor = memo(function UserMessageEditor({
   }
 
   return (
-    <div className="grid gap-2">
+    <div className="grid min-w-0 max-w-full gap-2">
       <article className="flex justify-end">
         <div className="min-w-0 w-full max-w-[85%] overflow-hidden bg-primary px-4 py-3 text-sm leading-6 text-primary-foreground shadow-xs [overflow-wrap:anywhere]">
           <Textarea
@@ -3050,7 +3050,7 @@ export default function Home() {
           >
             <div
               className={cn(
-                "mx-auto flex w-full max-w-3xl flex-col",
+                "mx-auto flex w-full min-w-0 max-w-3xl flex-col",
                 hasMessages ? "gap-4" : "h-full",
               )}
             >
@@ -3108,7 +3108,7 @@ export default function Home() {
                       key={message.id}
                       ref={registerMessageElement(message.id)}
                       data-message-id={message.id}
-                      className="grid gap-2"
+                      className="grid min-w-0 max-w-full gap-2"
                     >
                       {message.role === "assistant" &&
                         reasoning.trim() &&
@@ -3122,8 +3122,8 @@ export default function Home() {
                           const canToggle = reasoningLineCount > 6;
 
                           return (
-                            <article className="flex justify-start">
-                              <div className="w-full border border-dashed bg-muted/40 px-4 py-3 text-sm leading-6 text-muted-foreground shadow-xs [overflow-wrap:anywhere]">
+                            <article className="flex min-w-0 max-w-full justify-start">
+                              <div className="w-full min-w-0 max-w-full overflow-hidden border border-dashed bg-muted/40 px-4 py-3 text-sm leading-6 text-muted-foreground shadow-xs [overflow-wrap:anywhere]">
                                 <div className="mb-2 flex items-center justify-between gap-3">
                                   <div className="text-xs font-medium uppercase tracking-wide">
                                     Thinking
@@ -3206,7 +3206,7 @@ export default function Home() {
                           <>
                             <article
                               className={cn(
-                                "flex",
+                                "flex min-w-0 max-w-full",
                                 message.role === "user"
                                   ? "justify-end"
                                   : "justify-start",
@@ -3220,7 +3220,7 @@ export default function Home() {
                                   "min-w-0 text-sm leading-6 [overflow-wrap:anywhere]",
                                   message.role === "user"
                                     ? "max-h-[28rem] max-w-[85%] overflow-y-auto overflow-x-hidden chat-message-scrollbar bg-primary px-4 py-3 text-primary-foreground shadow-xs"
-                                    : "w-full max-w-full overflow-visible bg-card px-4 py-3 text-card-foreground shadow-xs",
+                                    : "w-full min-w-0 max-w-full overflow-hidden bg-card px-4 py-3 text-card-foreground shadow-xs",
                                   status === "error" && "border-destructive/50",
                                 )}
                               >
