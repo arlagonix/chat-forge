@@ -1,7 +1,7 @@
 "use client";
 
 import { Check, Clipboard, Download, WrapText } from "lucide-react";
-import { Children, isValidElement, ReactNode, useState } from "react";
+import React, { isValidElement, ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -129,9 +129,9 @@ function CodeBlock({
   children: ReactNode;
   className?: string;
 }) {
-  const [copied, setCopied] = useState(false);
-  const [wrapped, setWrapped] = useState(true);
-  const code = Children.toArray(children).map(textFromNode).join("");
+  const [copied, setCopied] = React.useState(false);
+  const [wrapped, setWrapped] = React.useState(true);
+  const code = React.Children.toArray(children).map(textFromNode).join("");
   const language = languageFromNode(children);
   const payload = codePayload(code);
   const suggestedFilename = filenameForLanguage(language);
@@ -182,6 +182,7 @@ function CodeBlock({
           >
             <WrapText className="size-3.5" />
           </Button>
+
           <Button
             type="button"
             variant="secondary"
@@ -197,6 +198,7 @@ function CodeBlock({
               <Clipboard className="size-3.5" />
             )}
           </Button>
+
           <Button
             type="button"
             variant="secondary"
@@ -210,6 +212,7 @@ function CodeBlock({
           </Button>
         </div>
       </div>
+
       <div
         className={cn(
           "chat-code-scroll",
