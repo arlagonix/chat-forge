@@ -20,6 +20,6 @@
       "@/*": ["src/*"]
     }
   },
-  "include": ["src", "electron"],
+  "include": ["src/main.tsx", "src/App.tsx", "src/**/*.d.ts", "electron"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }
