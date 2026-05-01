@@ -1,30 +1,41 @@
-# React + TypeScript + Vite
+# Chat Forge
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Local-first Electron chat client for OpenAI-compatible providers.
 
-Currently, two official plugins are available:
+## Project layout
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react/README.md) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type aware lint rules:
-
-- Configure the top-level `parserOptions` property like this:
-
-```js
-export default {
-  // other rules...
-  parserOptions: {
-    ecmaVersion: 'latest',
-    sourceType: 'module',
-    project: ['./tsconfig.json', './tsconfig.node.json'],
-    tsconfigRootDir: __dirname,
-  },
-}
+```text
+electron/
+  main.ts      Electron main process, storage IPC, provider proxy/streaming IPC
+  preload.ts   Safe renderer API exposed through contextBridge
+src/
+  App.tsx      Main chat UI and state orchestration
+  main.tsx     React entry point
+  components/
+    ai-chat/   Markdown and streaming message rendering
+    ui/        Only the shadcn/Radix primitives currently used by the app
+  lib/
+    ai-chat/   Provider, storage, chat type, and chat utility modules
+    theme.tsx  Light/dark theme state
+    utils.ts   Shared className helper
 ```
 
-- Replace `plugin:@typescript-eslint/recommended` to `plugin:@typescript-eslint/recommended-type-checked` or `plugin:@typescript-eslint/strict-type-checked`
-- Optionally add `plugin:@typescript-eslint/stylistic-type-checked`
-- Install [eslint-plugin-react](https://github.com/jsx-eslint/eslint-plugin-react) and add `plugin:react/recommended` & `plugin:react/jsx-runtime` to the `extends` list
+## Development
+
+```bash
+npm install
+npm run dev
+```
+
+## Build
+
+```bash
+npm run build:renderer
+npm run build:win
+```
+
+`npm run build` runs TypeScript, builds the renderer, then packages the Electron app using `electron-builder.json5`.
+
+## Refactor notes
+
+The project intentionally keeps only UI components and dependencies that are imported by the current app. Before adding a new shadcn component, add only that component and its direct dependencies instead of copying the whole generated component catalog.

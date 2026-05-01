@@ -41,7 +41,7 @@ import {
   useState,
 } from "react";
 
-import { MarkdownMessage } from "@/components/ai-chat/markdown-message";
+import { SmoothAssistantMessageContent } from "@/components/ai-chat/smooth-assistant-message";
 import { Button } from "@/components/ui/button";
 import {
   Command,
@@ -83,6 +83,31 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  buildTokenMetrics,
+  createId,
+  createNewProvider,
+  createProviderId,
+  formatChatActivityDate,
+  getChatActivityDate,
+  formatMetricDetails,
+  formatOptionalNumber,
+  formatTokenMetrics,
+  getActiveVariant,
+  getAssistantContent,
+  getProviderFallbackModel,
+  groupChatsByActivityDate,
+  isEditableShortcutTarget,
+  labelForError,
+  normalizeProviderForState,
+  normalizeProviderModels,
+  parseOptionalNumber,
+  providerDisplayName,
+  providerLabel,
+  sanitizeGenerationSettings,
+  sortChatsByUpdatedAt,
+  titleFromMessage,
+} from "@/lib/ai-chat/chat-utils";
+import {
   getActiveModelSettings,
   loadProviderModels,
   streamProviderChat,
@@ -106,11 +131,9 @@ import {
   saveSystemPrompt,
 } from "@/lib/ai-chat/storage";
 import type {
-  ChatAssistantMessage,
   ChatAssistantVariant,
   ChatMessage,
   ChatSession,
-  ChatTokenUsage,
   ProviderConfig,
   ProviderGenerationSettings,
   ProvidersState,
@@ -118,551 +141,6 @@ import type {
 import { useTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
-
-function createId() {
-  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-}
-
-function labelForError(error: unknown) {
-  return error instanceof Error ? error.message : "Unknown error.";
-}
-
-function providerDisplayName(provider: Pick<ProviderConfig, "name">) {
-  return provider.name.trim() || "New provider";
-}
-
-function normalizeProviderModels(models: string[]) {
-  return [...new Set(models.map((model) => model.trim()).filter(Boolean))].sort(
-    (left, right) => left.localeCompare(right),
-  );
-}
-
-function getProviderFallbackModel(
-  provider: Pick<ProviderConfig, "model" | "enabledModelIds">,
-) {
-  return (
-    provider.model.trim() ||
-    normalizeProviderModels(provider.enabledModelIds ?? [])[0] ||
-    ""
-  );
-}
-
-function providerLabel(provider: ProviderConfig) {
-  const model = getProviderFallbackModel(provider) || "No model selected";
-  return `${providerDisplayName(provider)} · ${model}`;
-}
-
-function normalizeProviderForState(provider: ProviderConfig): ProviderConfig {
-  const models = normalizeProviderModels(provider.models ?? []);
-  const enabledModelIds = normalizeProviderModels(
-    provider.enabledModelIds ?? [],
-  );
-  const model = provider.model.trim();
-
-  return {
-    ...provider,
-    name: provider.name ?? "",
-    baseUrl: provider.baseUrl ?? "",
-    apiKey: provider.apiKey ?? "",
-    model,
-    models: normalizeProviderModels([...models, ...enabledModelIds, model]),
-    enabledModelIds,
-    headers: provider.headers ?? {},
-    customHeaders: undefined,
-    defaultSettings: {
-      ...defaultGenerationSettings,
-      ...(provider.defaultSettings ?? {}),
-    },
-    modelSettings: provider.modelSettings ?? {},
-  };
-}
-
-function createProviderId() {
-  return `provider-${createId()}`;
-}
-
-function createNewProvider(): ProviderConfig {
-  return normalizeProviderForState({
-    ...defaultProvider,
-    id: createProviderId(),
-    name: "New provider",
-    baseUrl: "",
-    apiKey: "",
-    model: "",
-    models: [],
-    enabledModelIds: [],
-    headers: {},
-    defaultSettings: defaultGenerationSettings,
-    modelSettings: {},
-  });
-}
-
-function estimateTokens(text: string) {
-  const trimmedText = text.trim();
-  if (!trimmedText) return 0;
-
-  return Math.max(1, Math.ceil(trimmedText.length / 4));
-}
-
-function formatDuration(durationMs: number) {
-  if (durationMs < 1000) return `${Math.round(durationMs)}ms`;
-
-  return `${(durationMs / 1000).toFixed(2)}s`;
-}
-
-function buildTokenMetrics({
-  content,
-  durationMs,
-  usage,
-  provider,
-  finishReason,
-}: {
-  content: string;
-  durationMs: number;
-  usage?: ChatTokenUsage;
-  provider: ProviderConfig;
-  finishReason?: string;
-}) {
-  const exactOutputTokens = usage?.completionTokens;
-  const outputTokens = exactOutputTokens ?? estimateTokens(content);
-  const tokensPerSecond =
-    outputTokens > 0 ? outputTokens / (durationMs / 1000) : 0;
-
-  return {
-    durationMs,
-    tokenUsage: usage,
-    outputTokens,
-    tokensPerSecond,
-    isApproximate: exactOutputTokens === undefined,
-    providerName: providerDisplayName(provider),
-    model: provider.model,
-    finishReason,
-  };
-}
-
-function formatOptionalNumber(value: number | undefined) {
-  return value === undefined || !Number.isFinite(value) ? "" : String(value);
-}
-
-function parseOptionalNumber(value: string) {
-  const trimmed = value.trim();
-  if (!trimmed) return undefined;
-
-  const parsed = Number(trimmed);
-  return Number.isFinite(parsed) ? parsed : undefined;
-}
-
-function sanitizeGenerationSettings(
-  settings: ProviderGenerationSettings,
-): ProviderGenerationSettings {
-  return Object.fromEntries(
-    Object.entries(settings).filter(([, value]) => {
-      if (value === undefined) return false;
-      if (typeof value === "string") return value.trim().length > 0;
-      return true;
-    }),
-  ) as ProviderGenerationSettings;
-}
-
-function getSettingsForProvider(provider: ProviderConfig) {
-  return getActiveModelSettings(provider);
-}
-
-function formatMetricDetails(
-  metrics: NonNullable<ChatAssistantVariant["metrics"]>,
-) {
-  const rows = [
-    [
-      "Duration",
-      metrics.durationMs !== undefined
-        ? formatDuration(metrics.durationMs)
-        : undefined,
-    ],
-    [
-      "Speed",
-      metrics.tokensPerSecond !== undefined
-        ? `${metrics.isApproximate ? "~" : ""}${metrics.tokensPerSecond.toFixed(1)} tok/s`
-        : undefined,
-    ],
-    [
-      "Output tokens",
-      metrics.outputTokens !== undefined
-        ? `${metrics.isApproximate ? "~" : ""}${metrics.outputTokens}`
-        : undefined,
-    ],
-    ["Prompt tokens", metrics.tokenUsage?.promptTokens],
-    ["Completion tokens", metrics.tokenUsage?.completionTokens],
-    ["Total tokens", metrics.tokenUsage?.totalTokens],
-    ["Finish reason", metrics.finishReason],
-    ["Provider", metrics.providerName],
-    ["Model", metrics.model],
-  ];
-
-  return rows.filter(([, value]) => value !== undefined && value !== "");
-}
-
-function formatTokenMetrics(
-  metrics: NonNullable<ChatAssistantVariant["metrics"]>,
-) {
-  const approximatePrefix = metrics.isApproximate ? "~" : "";
-  const outputTokens = metrics.outputTokens ?? 0;
-  const tokensPerSecond = metrics.tokensPerSecond ?? 0;
-  const totalTokens = metrics.tokenUsage?.totalTokens;
-
-  return [
-    `${approximatePrefix}${tokensPerSecond.toFixed(1)} tok/s`,
-    formatDuration(metrics.durationMs ?? 0),
-    `${approximatePrefix}${outputTokens} output tokens`,
-    totalTokens !== undefined ? `${totalTokens} total tokens` : undefined,
-  ]
-    .filter(Boolean)
-    .join(" · ");
-}
-
-function getActiveVariant(message: ChatAssistantMessage) {
-  return message.variants[message.activeVariantIndex] ?? message.variants[0];
-}
-
-function getAssistantContent(message: ChatMessage) {
-  if (message.role === "user") return message.content;
-
-  return getActiveVariant(message)?.content ?? "";
-}
-
-function titleFromMessage(message: string) {
-  const firstLine = message.replace(/\s+/g, " ").trim();
-  if (!firstLine) return "New chat";
-
-  return firstLine.length > 44 ? `${firstLine.slice(0, 44)}...` : firstLine;
-}
-
-function sortChatsByUpdatedAt(chats: ChatSession[]) {
-  return [...chats].sort(
-    (left, right) =>
-      new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime(),
-  );
-}
-
-function isEditableShortcutTarget(target: EventTarget | null) {
-  if (!(target instanceof HTMLElement)) return false;
-
-  return Boolean(
-    target.closest(
-      'input, textarea, select, button, [contenteditable="true"], [role="textbox"]',
-    ),
-  );
-}
-
-function getChatActivityDate(chat: ChatSession) {
-  return chat.updatedAt;
-}
-
-function formatChatActivityDate(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "Unknown date";
-
-  const day = String(date.getDate()).padStart(2, "0");
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const year = date.getFullYear();
-  const hours = String(date.getHours()).padStart(2, "0");
-  const minutes = String(date.getMinutes()).padStart(2, "0");
-
-  return `${day}.${month}.${year} ${hours}:${minutes}`;
-}
-
-const CHAT_GROUP_MONTH_NAMES = [
-  "JANUARY",
-  "FEBRUARY",
-  "MARCH",
-  "APRIL",
-  "MAY",
-  "JUNE",
-  "JULY",
-  "AUGUST",
-  "SEPTEMBER",
-  "OCTOBER",
-  "NOVEMBER",
-  "DECEMBER",
-];
-
-function isSameLocalDay(left: Date, right: Date) {
-  return (
-    left.getFullYear() === right.getFullYear() &&
-    left.getMonth() === right.getMonth() &&
-    left.getDate() === right.getDate()
-  );
-}
-
-function getStartOfLocalDay(date: Date) {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
-}
-
-function formatChatGroupLabel(value: string, now = new Date()) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "UNKNOWN DATE";
-
-  if (isSameLocalDay(date, now)) return "TODAY";
-
-  const yesterday = getStartOfLocalDay(now);
-  yesterday.setDate(yesterday.getDate() - 1);
-  if (isSameLocalDay(date, yesterday)) return "YESTERDAY";
-
-  return `${date.getDate()} ${CHAT_GROUP_MONTH_NAMES[date.getMonth()]} ${date.getFullYear()}`;
-}
-
-type ChatGroup = {
-  label: string;
-  chats: ChatSession[];
-};
-
-function groupChatsByActivityDate(chats: ChatSession[]) {
-  const now = new Date();
-  const groups: ChatGroup[] = [];
-
-  for (const chat of chats) {
-    const label = formatChatGroupLabel(getChatActivityDate(chat), now);
-    const lastGroup = groups.at(-1);
-
-    if (lastGroup?.label === label) {
-      lastGroup.chats.push(chat);
-    } else {
-      groups.push({ label, chats: [chat] });
-    }
-  }
-
-  return groups;
-}
-
-const AssistantMessageContent = memo(function AssistantMessageContent({
-  content,
-  className,
-}: {
-  content: string;
-  className?: string;
-}) {
-  return <MarkdownMessage content={content} className={className} />;
-});
-
-function takeSafeVisibleSlice(remaining: string, maxChars: number) {
-  if (remaining.length <= maxChars) return remaining;
-
-  const slice = remaining.slice(0, maxChars);
-  const boundaries = [
-    slice.lastIndexOf("\n"),
-    slice.lastIndexOf(" "),
-    slice.lastIndexOf("."),
-    slice.lastIndexOf(","),
-    slice.lastIndexOf(";"),
-    slice.lastIndexOf(":"),
-    slice.lastIndexOf("!"),
-    slice.lastIndexOf("?"),
-  ];
-  const boundary = Math.max(...boundaries);
-
-  if (boundary >= Math.min(12, Math.max(0, maxChars - 1))) {
-    return remaining.slice(0, boundary + 1);
-  }
-
-  return slice;
-}
-
-function takeVisibleWords(
-  remaining: string,
-  maxWords: number,
-  fallbackChars: number,
-) {
-  let end = 0;
-  let words = 0;
-  const wordPattern = /\s*\S+\s*/g;
-  let wordMatch: RegExpExecArray | null;
-
-  while ((wordMatch = wordPattern.exec(remaining)) && words < maxWords) {
-    end = wordPattern.lastIndex;
-    words += 1;
-  }
-
-  return end > 0
-    ? remaining.slice(0, end)
-    : takeSafeVisibleSlice(remaining, fallbackChars);
-}
-
-function getSmoothRevealSlice(remaining: string, isApiStreaming: boolean) {
-  if (!remaining) return "";
-
-  if (!isApiStreaming) {
-    return takeSafeVisibleSlice(
-      remaining,
-      Math.max(160, Math.ceil(remaining.length / 10)),
-    );
-  }
-
-  if (remaining.length < 80) {
-    return remaining.slice(0, remaining.length < 24 ? 1 : 2);
-  }
-
-  if (remaining.length < 500) {
-    return takeVisibleWords(remaining, 2, 32);
-  }
-
-  if (remaining.length < 1500) {
-    return takeVisibleWords(remaining, 6, 96);
-  }
-
-  return takeSafeVisibleSlice(remaining, 220);
-}
-
-function useSmoothStreamingText({
-  content,
-  isApiStreaming,
-  flushVersion,
-  forceInstant = false,
-  onVisualProgress,
-  onVisualStreamingChange,
-}: {
-  content: string;
-  isApiStreaming: boolean;
-  flushVersion: number;
-  forceInstant?: boolean;
-  onVisualProgress?: () => void;
-  onVisualStreamingChange?: (isVisuallyStreaming: boolean) => void;
-}) {
-  const [visibleContent, setVisibleContent] = useState(content);
-  const visibleContentRef = useRef(content);
-  const visualStreamingRef = useRef(false);
-  const lastFlushVersionRef = useRef(flushVersion);
-
-  const setVisualStreaming = useCallback(
-    (isVisuallyStreaming: boolean) => {
-      if (visualStreamingRef.current === isVisuallyStreaming) return;
-      visualStreamingRef.current = isVisuallyStreaming;
-      onVisualStreamingChange?.(isVisuallyStreaming);
-    },
-    [onVisualStreamingChange],
-  );
-
-  useEffect(() => {
-    if (forceInstant) {
-      lastFlushVersionRef.current = flushVersion;
-      visibleContentRef.current = content;
-      setVisibleContent(content);
-      setVisualStreaming(false);
-      onVisualProgress?.();
-      return;
-    }
-
-    if (flushVersion !== lastFlushVersionRef.current) {
-      lastFlushVersionRef.current = flushVersion;
-      visibleContentRef.current = content;
-      setVisibleContent(content);
-      setVisualStreaming(false);
-      onVisualProgress?.();
-      return;
-    }
-
-    if (!content.startsWith(visibleContentRef.current)) {
-      visibleContentRef.current = content;
-      setVisibleContent(content);
-      setVisualStreaming(false);
-      onVisualProgress?.();
-      return;
-    }
-
-    setVisualStreaming(visibleContentRef.current.length < content.length);
-  }, [
-    content,
-    flushVersion,
-    forceInstant,
-    onVisualProgress,
-    setVisualStreaming,
-  ]);
-
-  useEffect(() => {
-    if (forceInstant) return;
-
-    let timeoutId: number | undefined;
-    let cancelled = false;
-
-    function tick() {
-      if (cancelled) return;
-
-      const current = visibleContentRef.current;
-      if (current.length >= content.length) {
-        setVisualStreaming(false);
-        return;
-      }
-
-      const remaining = content.slice(current.length);
-      const nextSlice = getSmoothRevealSlice(remaining, isApiStreaming);
-      if (!nextSlice) {
-        setVisualStreaming(false);
-        return;
-      }
-
-      const nextVisibleContent = current + nextSlice;
-      visibleContentRef.current = nextVisibleContent;
-      setVisibleContent(nextVisibleContent);
-      setVisualStreaming(nextVisibleContent.length < content.length);
-      onVisualProgress?.();
-
-      if (nextVisibleContent.length < content.length) {
-        timeoutId = window.setTimeout(tick, isApiStreaming ? 22 : 16);
-      }
-    }
-
-    if (visibleContentRef.current.length < content.length) {
-      setVisualStreaming(true);
-      timeoutId = window.setTimeout(tick, isApiStreaming ? 24 : 12);
-    } else {
-      setVisualStreaming(false);
-    }
-
-    return () => {
-      cancelled = true;
-      if (timeoutId !== undefined) window.clearTimeout(timeoutId);
-    };
-  }, [
-    content,
-    forceInstant,
-    isApiStreaming,
-    onVisualProgress,
-    setVisualStreaming,
-  ]);
-
-  return visibleContent;
-}
-
-const SmoothAssistantMessageContent = memo(
-  function SmoothAssistantMessageContent({
-    content,
-    className,
-    isApiStreaming,
-    flushVersion,
-    forceInstant = false,
-    onVisualProgress,
-    onVisualStreamingChange,
-  }: {
-    content: string;
-    className?: string;
-    isApiStreaming: boolean;
-    flushVersion: number;
-    forceInstant?: boolean;
-    onVisualProgress?: () => void;
-    onVisualStreamingChange?: (isVisuallyStreaming: boolean) => void;
-  }) {
-    const visibleContent = useSmoothStreamingText({
-      content,
-      isApiStreaming,
-      flushVersion,
-      forceInstant,
-      onVisualProgress,
-      onVisualStreamingChange,
-    });
-
-    return (
-      <AssistantMessageContent content={visibleContent} className={className} />
-    );
-  },
-);
 
 const UserMessageEditor = memo(function UserMessageEditor({
   initialContent,
@@ -1022,7 +500,7 @@ export default function Home() {
   const isSending = activeChat
     ? generatingChatIds.includes(activeChat.id)
     : false;
-  const activeModelSettings = getSettingsForProvider({
+  const activeModelSettings = getActiveModelSettings({
     ...activeProvider,
     model: "",
   });
