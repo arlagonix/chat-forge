@@ -363,8 +363,6 @@ type MessageContextMenuState = {
   selectedText: string;
 };
 
-const CHAT_BOTTOM_THRESHOLD_PX = 24;
-
 export default function Home() {
   const [mounted, setMounted] = useState(false);
   const [providersState, setProvidersState] = useState<ProvidersState>(() => ({
@@ -413,6 +411,7 @@ export default function Home() {
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
   const chatBottomRef = useRef<HTMLDivElement | null>(null);
   const messageElementRefs = useRef(new Map<string, HTMLDivElement>());
+  const reasoningScrollElementRefs = useRef(new Map<string, HTMLDivElement>());
   const chatComposerRef = useRef<ChatComposerHandle | null>(null);
   const generationRefs = useRef<Record<string, ActiveGeneration>>({});
   const modelLoadStatusTimerRef = useRef<number | null>(null);
@@ -758,7 +757,7 @@ export default function Home() {
     return nextIsScrollable;
   }
 
-  function isChatNearBottom(threshold = CHAT_BOTTOM_THRESHOLD_PX) {
+  function isChatNearBottom(threshold = 1) {
     if (!canChatScroll()) return true;
     return getChatDistanceFromBottom() <= threshold;
   }
@@ -768,25 +767,6 @@ export default function Home() {
 
     lastScrollStateRef.current = isNearBottom;
     setIsNearChatBottom(isNearBottom);
-  }
-
-  function cancelScheduledChatScroll() {
-    if (scrollFrameRef.current !== null) {
-      window.cancelAnimationFrame(scrollFrameRef.current);
-      scrollFrameRef.current = null;
-    }
-
-    if (scrollSettleTimeoutRef.current !== null) {
-      window.clearTimeout(scrollSettleTimeoutRef.current);
-      scrollSettleTimeoutRef.current = null;
-    }
-  }
-
-  function detachChatFromBottom() {
-    shouldStickToBottomRef.current = false;
-    isAutoScrollingRef.current = false;
-    updateNearBottomState(false);
-    cancelScheduledChatScroll();
   }
 
   function markUserScrolling() {
@@ -829,87 +809,33 @@ export default function Home() {
     syncChatScrollableState();
 
     isAutoScrollingRef.current = true;
-
     const nextScrollTop = Math.max(
       0,
       scrollElement.scrollHeight - scrollElement.clientHeight,
     );
-
     scrollElement.scrollTo({ top: nextScrollTop, behavior: "smooth" });
+    lastChatScrollTopRef.current = nextScrollTop;
+    updateNearBottomState(true);
 
     window.setTimeout(() => {
       isAutoScrollingRef.current = false;
-
-      const currentScrollElement = chatScrollRef.current;
-      if (!currentScrollElement) return;
-
-      lastChatScrollTopRef.current = currentScrollElement.scrollTop;
-
-      const isNearBottom = isChatNearBottom();
-      updateNearBottomState(isNearBottom);
-
-      if (shouldStickToBottomRef.current && isNearBottom) {
-        scrollToBottomNow();
-      }
+      if (shouldStickToBottomRef.current) scrollToBottomNow();
     }, 500);
   }
 
   const scheduleChatScrollToBottom = useCallback(() => {
-    if (scrollFrameRef.current !== null) {
-      window.cancelAnimationFrame(scrollFrameRef.current);
-    }
-
-    scrollFrameRef.current = window.requestAnimationFrame(() => {
-      scrollFrameRef.current = null;
-
-      if (!shouldStickToBottomRef.current) return;
-
-      scrollToBottomNow();
-
-      window.requestAnimationFrame(() => {
-        if (shouldStickToBottomRef.current) scrollToBottomNow();
-      });
-
-      if (scrollSettleTimeoutRef.current !== null) {
-        window.clearTimeout(scrollSettleTimeoutRef.current);
-      }
-
-      scrollSettleTimeoutRef.current = window.setTimeout(() => {
-        scrollSettleTimeoutRef.current = null;
-        if (shouldStickToBottomRef.current) scrollToBottomNow();
-      }, 60);
-    });
+    // Intentionally disabled.
+    // The chat should not auto-scroll during generation or message updates.
   }, []);
 
   const handleAssistantVisualProgress = useCallback(
     (chatId: string) => {
       if (chatId !== activeChatId) return;
 
-      const isScrollable = syncChatScrollableState();
-
-      if (!isScrollable) {
-        shouldStickToBottomRef.current = true;
-        updateNearBottomState(true);
-        return;
-      }
-
-      if (!shouldStickToBottomRef.current) {
-        updateNearBottomState(isChatNearBottom());
-        return;
-      }
-
-      const isNearBottom = isChatNearBottom();
-
-      if (!isNearBottom && isUserScrollingRef.current) {
-        detachChatFromBottom();
-        return;
-      }
-
-      if (isNearBottom || shouldStickToBottomRef.current) {
-        scheduleChatScrollToBottom();
-      }
+      syncChatScrollableState();
+      updateNearBottomState(isChatNearBottom(24));
     },
-    [activeChatId, scheduleChatScrollToBottom],
+    [activeChatId],
   );
 
   const handleAssistantVisualStreamingChange = useCallback(
@@ -943,99 +869,46 @@ export default function Home() {
     };
   }
 
+  function registerReasoningScrollElement(messageId: string) {
+    return (element: HTMLDivElement | null) => {
+      if (element) {
+        reasoningScrollElementRefs.current.set(messageId, element);
+      } else {
+        reasoningScrollElementRefs.current.delete(messageId);
+      }
+    };
+  }
+
+  function scrollReasoningToBottom(messageId: string) {
+    window.requestAnimationFrame(() => {
+      const scrollElement = reasoningScrollElementRefs.current.get(messageId);
+      if (!scrollElement) return;
+
+      scrollElement.scrollTop = scrollElement.scrollHeight;
+    });
+  }
+
   useLayoutEffect(() => {
     syncChatScrollableState();
-
-    if (shouldStickToBottomRef.current) {
-      scheduleChatScrollToBottom();
-    }
-  }, [messages, scheduleChatScrollToBottom]);
+    updateNearBottomState(isChatNearBottom(24));
+  }, [messages]);
 
   useLayoutEffect(() => {
     const scrollElement = chatScrollRef.current;
     if (!scrollElement) return;
 
-    let frameId: number | null = null;
-    let previousWidth = scrollElement.clientWidth;
-    let previousHeight = scrollElement.clientHeight;
-
     function handleResize() {
-      const currentScrollElement = chatScrollRef.current;
-      if (!currentScrollElement) return;
-
-      const nextWidth = currentScrollElement.clientWidth;
-      const nextHeight = currentScrollElement.clientHeight;
-
-      if (nextWidth === previousWidth && nextHeight === previousHeight) {
-        syncChatScrollableState();
-        return;
-      }
-
-      previousWidth = nextWidth;
-      previousHeight = nextHeight;
-
-      const wasStickingToBottom = shouldStickToBottomRef.current;
-      const previousDistanceFromBottom = getChatDistanceFromBottom();
-
-      isResizingChatRef.current = true;
-
-      if (frameId !== null) {
-        window.cancelAnimationFrame(frameId);
-      }
-
-      frameId = window.requestAnimationFrame(() => {
-        frameId = window.requestAnimationFrame(() => {
-          frameId = null;
-
-          const resizedScrollElement = chatScrollRef.current;
-          if (!resizedScrollElement) return;
-
-          const isScrollable = syncChatScrollableState();
-
-          if (!isScrollable) {
-            shouldStickToBottomRef.current = true;
-            lastChatScrollTopRef.current = resizedScrollElement.scrollTop;
-            isResizingChatRef.current = false;
-            return;
-          }
-
-          if (wasStickingToBottom) {
-            shouldStickToBottomRef.current = true;
-            scrollToBottomNow();
-          } else {
-            const restoredScrollTop = Math.max(
-              0,
-              resizedScrollElement.scrollHeight -
-                resizedScrollElement.clientHeight -
-                previousDistanceFromBottom,
-            );
-            resizedScrollElement.scrollTop = restoredScrollTop;
-            lastChatScrollTopRef.current = restoredScrollTop;
-            updateNearBottomState(isChatNearBottom());
-          }
-
-          if (resizeSettleTimeoutRef.current !== null) {
-            window.clearTimeout(resizeSettleTimeoutRef.current);
-          }
-
-          resizeSettleTimeoutRef.current = window.setTimeout(() => {
-            resizeSettleTimeoutRef.current = null;
-            isResizingChatRef.current = false;
-            syncChatScrollableState();
-            if (shouldStickToBottomRef.current) scrollToBottomNow();
-          }, 80);
-        });
-      });
+      syncChatScrollableState();
+      updateNearBottomState(isChatNearBottom(24));
     }
 
     const resizeObserver = new ResizeObserver(handleResize);
     resizeObserver.observe(scrollElement);
 
-    syncChatScrollableState();
+    handleResize();
 
     return () => {
       resizeObserver.disconnect();
-      if (frameId !== null) window.cancelAnimationFrame(frameId);
     };
   }, [activeChatId]);
 
@@ -1113,64 +986,19 @@ export default function Home() {
       const scrollElement = chatScrollRef.current;
       if (!scrollElement) return;
 
-      if (!syncChatScrollableState()) {
-        lastChatScrollTopRef.current = scrollElement.scrollTop;
-        return;
-      }
-
-      const previousScrollTop = lastChatScrollTopRef.current;
-      const currentScrollTop = scrollElement.scrollTop;
-      const isScrollingUp = currentScrollTop < previousScrollTop - 1;
-      lastChatScrollTopRef.current = currentScrollTop;
-
-      if (isAutoScrollingRef.current || isResizingChatRef.current) return;
-
-      const isNearBottom = isChatNearBottom();
-      updateNearBottomState(isNearBottom);
-
-      if (isNearBottom) {
-        shouldStickToBottomRef.current = true;
-        return;
-      }
-
-      if (isScrollingUp || isUserScrollingRef.current) {
-        detachChatFromBottom();
-      }
+      syncChatScrollableState();
+      lastChatScrollTopRef.current = scrollElement.scrollTop;
+      updateNearBottomState(isChatNearBottom(24));
     });
   }
 
-  function handleChatWheel(event: WheelEvent<HTMLDivElement>) {
+  function handleChatWheel() {
     closeMessageContextMenu();
-
-    if (isResizingChatRef.current) return;
-
-    const isScrollable = syncChatScrollableState();
-
-    if (!isScrollable) {
-      shouldStickToBottomRef.current = true;
-      updateNearBottomState(true);
-      return;
-    }
-
     markUserScrolling();
 
-    // User intent should always win, even if an auto-scroll is in progress.
-    if (event.deltaY < 0) {
-      detachChatFromBottom();
-      return;
-    }
-
-    if (isAutoScrollingRef.current) return;
-
     window.requestAnimationFrame(() => {
-      const isNearBottom = isChatNearBottom();
-
-      if (isNearBottom) {
-        shouldStickToBottomRef.current = true;
-        scheduleChatScrollToBottom();
-      }
-
-      updateNearBottomState(isNearBottom);
+      syncChatScrollableState();
+      updateNearBottomState(isChatNearBottom(24));
     });
   }
 
@@ -1181,7 +1009,6 @@ export default function Home() {
       closeMessageContextMenu();
     }
 
-    if (isAutoScrollingRef.current) return;
     markUserScrolling();
   }
 
@@ -2120,6 +1947,7 @@ export default function Home() {
       return next;
     });
     messageElementRefs.current.delete(messageId);
+    reasoningScrollElementRefs.current.delete(messageId);
     showSuccess("Message deleted.");
   }
 
@@ -2685,6 +2513,9 @@ export default function Home() {
                                   )}
                                 </div>
                                 <div
+                                  ref={registerReasoningScrollElement(
+                                    message.id,
+                                  )}
                                   className={cn(
                                     "min-w-0 text-xs leading-5",
                                     isExpanded
@@ -2702,11 +2533,12 @@ export default function Home() {
                                       visualFlushRequests[message.id] ?? 0
                                     }
                                     forceInstant={Boolean(content)}
-                                    onVisualProgress={() =>
+                                    onVisualProgress={() => {
                                       handleAssistantVisualProgress(
                                         activeChat?.id ?? "",
-                                      )
-                                    }
+                                      );
+                                      scrollReasoningToBottom(message.id);
+                                    }}
                                     onVisualStreamingChange={(isStreaming) =>
                                       handleAssistantVisualStreamingChange(
                                         `${message.id}:reasoning`,
