@@ -312,7 +312,7 @@
   .chat-markdown-compact h2,
   .chat-markdown-compact h3,
   .chat-markdown-compact h4 {
-    @apply mt-3 mb-2 text-sm font-semibold leading-5;
+    @apply mt-3 mb-2 font-semibold leading-5;
   }
 
   .chat-markdown hr {
@@ -320,7 +320,7 @@
   }
 
   .chat-markdown table {
-    @apply my-3 block max-w-full table-auto border-collapse overflow-hidden text-sm;
+    @apply my-3 block max-w-full table-auto border-collapse overflow-hidden;
   }
 
   .chat-markdown th,
@@ -333,11 +333,11 @@
   }
 
   .chat-markdown code {
-    @apply bg-muted px-1 py-0.5 font-mono text-[0.9em] break-words;
+    @apply bg-muted px-1 py-0.5 font-mono break-words;
   }
 
   .chat-markdown .chat-code-block {
-    @apply relative my-4 w-full min-w-0 max-w-full overflow-hidden border text-sm;
+    @apply relative my-4 w-full min-w-0 max-w-full overflow-hidden border;
     background: var(--code-bg);
     color: var(--code-fg);
   }
@@ -373,7 +373,7 @@
   }
 
   .chat-markdown .chat-code-pre {
-    @apply m-0 block bg-transparent p-3 text-sm;
+    @apply m-0 block bg-transparent p-3;
     min-width: 100%;
   }
 
@@ -396,7 +396,7 @@
   }
 
   .chat-markdown .chat-code-block code {
-    @apply bg-transparent p-0 text-sm;
+    @apply bg-transparent p-0;
   }
 
   .chat-markdown .hljs {

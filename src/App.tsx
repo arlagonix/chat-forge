@@ -88,15 +88,12 @@ import {
   createNewProvider,
   createProviderId,
   formatChatActivityDate,
-  getChatActivityDate,
-  formatMetricDetails,
   formatOptionalNumber,
   formatTokenMetrics,
   getActiveVariant,
-  getAssistantContent,
+  getChatActivityDate,
   getProviderFallbackModel,
   groupChatsByActivityDate,
-  isEditableShortcutTarget,
   labelForError,
   normalizeProviderForState,
   normalizeProviderModels,
@@ -365,6 +362,8 @@ type MessageContextMenuState = {
   linkHref: string | null;
   selectedText: string;
 };
+
+const CHAT_BOTTOM_THRESHOLD_PX = 24;
 
 export default function Home() {
   const [mounted, setMounted] = useState(false);
@@ -759,7 +758,7 @@ export default function Home() {
     return nextIsScrollable;
   }
 
-  function isChatNearBottom(threshold = 24) {
+  function isChatNearBottom(threshold = CHAT_BOTTOM_THRESHOLD_PX) {
     if (!canChatScroll()) return true;
     return getChatDistanceFromBottom() <= threshold;
   }
@@ -769,6 +768,25 @@ export default function Home() {
 
     lastScrollStateRef.current = isNearBottom;
     setIsNearChatBottom(isNearBottom);
+  }
+
+  function cancelScheduledChatScroll() {
+    if (scrollFrameRef.current !== null) {
+      window.cancelAnimationFrame(scrollFrameRef.current);
+      scrollFrameRef.current = null;
+    }
+
+    if (scrollSettleTimeoutRef.current !== null) {
+      window.clearTimeout(scrollSettleTimeoutRef.current);
+      scrollSettleTimeoutRef.current = null;
+    }
+  }
+
+  function detachChatFromBottom() {
+    shouldStickToBottomRef.current = false;
+    isAutoScrollingRef.current = false;
+    updateNearBottomState(false);
+    cancelScheduledChatScroll();
   }
 
   function markUserScrolling() {
@@ -781,7 +799,7 @@ export default function Home() {
     userScrollTimeoutRef.current = window.setTimeout(() => {
       isUserScrollingRef.current = false;
       userScrollTimeoutRef.current = null;
-    }, 180);
+    }, 50);
   }
 
   function scrollToBottomNow() {
@@ -811,18 +829,29 @@ export default function Home() {
     syncChatScrollableState();
 
     isAutoScrollingRef.current = true;
+
     const nextScrollTop = Math.max(
       0,
       scrollElement.scrollHeight - scrollElement.clientHeight,
     );
+
     scrollElement.scrollTo({ top: nextScrollTop, behavior: "smooth" });
-    lastChatScrollTopRef.current = nextScrollTop;
-    updateNearBottomState(true);
 
     window.setTimeout(() => {
       isAutoScrollingRef.current = false;
-      if (shouldStickToBottomRef.current) scrollToBottomNow();
-    }, 260);
+
+      const currentScrollElement = chatScrollRef.current;
+      if (!currentScrollElement) return;
+
+      lastChatScrollTopRef.current = currentScrollElement.scrollTop;
+
+      const isNearBottom = isChatNearBottom();
+      updateNearBottomState(isNearBottom);
+
+      if (shouldStickToBottomRef.current && isNearBottom) {
+        scrollToBottomNow();
+      }
+    }, 500);
   }
 
   const scheduleChatScrollToBottom = useCallback(() => {
@@ -856,9 +885,27 @@ export default function Home() {
     (chatId: string) => {
       if (chatId !== activeChatId) return;
 
-      syncChatScrollableState();
+      const isScrollable = syncChatScrollableState();
 
-      if (shouldStickToBottomRef.current) {
+      if (!isScrollable) {
+        shouldStickToBottomRef.current = true;
+        updateNearBottomState(true);
+        return;
+      }
+
+      if (!shouldStickToBottomRef.current) {
+        updateNearBottomState(isChatNearBottom());
+        return;
+      }
+
+      const isNearBottom = isChatNearBottom();
+
+      if (!isNearBottom && isUserScrollingRef.current) {
+        detachChatFromBottom();
+        return;
+      }
+
+      if (isNearBottom || shouldStickToBottomRef.current) {
         scheduleChatScrollToBottom();
       }
     },
@@ -1087,7 +1134,7 @@ export default function Home() {
       }
 
       if (isScrollingUp || isUserScrollingRef.current) {
-        shouldStickToBottomRef.current = false;
+        detachChatFromBottom();
       }
     });
   }
@@ -1095,9 +1142,11 @@ export default function Home() {
   function handleChatWheel(event: WheelEvent<HTMLDivElement>) {
     closeMessageContextMenu();
 
-    if (isAutoScrollingRef.current || isResizingChatRef.current) return;
+    if (isResizingChatRef.current) return;
 
-    if (!syncChatScrollableState()) {
+    const isScrollable = syncChatScrollableState();
+
+    if (!isScrollable) {
       shouldStickToBottomRef.current = true;
       updateNearBottomState(true);
       return;
@@ -1105,18 +1154,22 @@ export default function Home() {
 
     markUserScrolling();
 
+    // User intent should always win, even if an auto-scroll is in progress.
     if (event.deltaY < 0) {
-      shouldStickToBottomRef.current = false;
-      updateNearBottomState(false);
+      detachChatFromBottom();
       return;
     }
 
+    if (isAutoScrollingRef.current) return;
+
     window.requestAnimationFrame(() => {
       const isNearBottom = isChatNearBottom();
+
       if (isNearBottom) {
         shouldStickToBottomRef.current = true;
         scheduleChatScrollToBottom();
       }
+
       updateNearBottomState(isNearBottom);
     });
   }
@@ -2291,8 +2344,8 @@ export default function Home() {
                 Chat Forge
               </h1>
               {/* <p className="truncate text-xs text-muted-foreground">
-                {activeChatModel || "No model selected"}
-              </p> */}
+                  {activeChatModel || "No model selected"}
+                </p> */}
             </div>
 
             <DropdownMenu>
@@ -2695,7 +2748,7 @@ export default function Home() {
                             >
                               <div
                                 className={cn(
-                                  "min-w-0 text-sm leading-6 [overflow-wrap:anywhere]",
+                                  "min-w-0 text-base leading-6 [overflow-wrap:anywhere]",
                                   message.role === "user"
                                     ? "max-h-[28rem] max-w-[85%] overflow-y-auto overflow-x-hidden chat-message-scrollbar bg-primary px-4 py-3 text-primary-foreground shadow-xs"
                                     : "w-full min-w-0 max-w-full overflow-hidden bg-card px-4 py-3 text-card-foreground shadow-xs",
