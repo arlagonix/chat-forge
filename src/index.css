@@ -337,27 +337,42 @@
   }
 
   .chat-markdown .chat-code-block {
-    @apply relative my-4 w-full min-w-0 max-w-full overflow-hidden border;
+    @apply relative my-4 w-full min-w-0 max-w-full border;
     background: var(--code-bg);
+    border-color: var(--border);
     color: var(--code-fg);
+    overflow: visible;
   }
 
-  .chat-markdown .chat-code-toolbar {
-    @apply absolute right-6 top-2 z-20 flex justify-end;
-    pointer-events: none;
+  .chat-markdown .chat-code-header {
+    position: sticky;
+    top: -1.5rem;
+    z-index: 20;
+    display: flex;
+    min-width: 0;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+    background: var(--code-bg);
+  }
+
+  .chat-markdown .chat-code-language {
+    @apply min-w-0 truncate font-mono text-[11px] leading-5 text-muted-foreground;
   }
 
   .chat-markdown .chat-code-toolbar-actions {
-    @apply flex w-max items-center gap-1;
-    pointer-events: auto;
+    @apply flex w-max shrink-0 items-center gap-1;
   }
 
   .chat-markdown .chat-code-action {
-    @apply h-7 w-7 rounded-none border bg-background/95 text-muted-foreground shadow-xs hover:text-foreground;
+    @apply h-7 w-7 rounded-none border-0 bg-transparent text-muted-foreground shadow-none hover:bg-muted hover:text-foreground;
   }
 
   .chat-markdown .chat-code-action-active {
-    @apply text-foreground;
+    @apply bg-muted text-foreground;
   }
 
   .chat-markdown .chat-code-scroll {

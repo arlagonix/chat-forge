@@ -14,6 +14,52 @@ type MarkdownMessageProps = {
   className?: string;
 };
 
+const LANGUAGE_LABELS: Record<string, string> = {
+  bash: "bash",
+  c: "c",
+  cpp: "cpp",
+  csharp: "csharp",
+  cs: "csharp",
+  css: "css",
+  csv: "csv",
+  dart: "dart",
+  dockerfile: "dockerfile",
+  go: "go",
+  html: "html",
+  java: "java",
+  javascript: "javascript",
+  js: "javascript",
+  json: "json",
+  jsx: "jsx",
+  kotlin: "kotlin",
+  kt: "kotlin",
+  markdown: "markdown",
+  md: "markdown",
+  php: "php",
+  powershell: "powershell",
+  ps1: "powershell",
+  python: "python",
+  py: "python",
+  rb: "ruby",
+  ruby: "ruby",
+  rust: "rust",
+  rs: "rust",
+  scala: "scala",
+  sh: "shell",
+  shell: "shell",
+  sql: "sql",
+  swift: "swift",
+  text: "text",
+  ts: "typescript",
+  tsx: "tsx",
+  txt: "text",
+  typescript: "typescript",
+  xml: "xml",
+  yaml: "yaml",
+  yml: "yaml",
+  zsh: "zsh",
+};
+
 const LANGUAGE_EXTENSIONS: Record<string, string> = {
   bash: "sh",
   c: "c",
@@ -91,6 +137,14 @@ function codePayload(code: string) {
   return code.replace(/\n$/, "");
 }
 
+function normalizeCodeLanguage(language?: string) {
+  const normalized = language?.trim().toLowerCase();
+
+  if (!normalized) return "text";
+
+  return LANGUAGE_LABELS[normalized] ?? normalized;
+}
+
 function filenameForLanguage(language?: string) {
   if (!language) return "file.txt";
 
@@ -134,6 +188,7 @@ function CodeBlock({
   const [wrapped, setWrapped] = React.useState(true);
   const code = React.Children.toArray(children).map(textFromNode).join("");
   const language = languageFromNode(children);
+  const displayLanguage = normalizeCodeLanguage(language);
   const payload = codePayload(code);
   const suggestedFilename = filenameForLanguage(language);
 
@@ -166,8 +221,12 @@ function CodeBlock({
 
   return (
     <div className={cn("chat-code-block", className)}>
-      <div className="chat-code-toolbar" aria-label="Code block actions">
-        <div className="chat-code-toolbar-actions">
+      <div className="chat-code-header">
+        <span className="chat-code-language" title={displayLanguage}>
+          {displayLanguage}
+        </span>
+
+        <div className="chat-code-toolbar-actions" aria-label="Code block actions">
           <Button
             type="button"
             variant="secondary"
