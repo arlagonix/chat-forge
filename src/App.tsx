@@ -138,6 +138,10 @@ import { useTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
+const APP_NAME = "Chat Forge";
+const APP_VERSION_LABEL = `v${__APP_VERSION__}`;
+const APP_TITLE = `${APP_NAME} ${APP_VERSION_LABEL}`;
+
 const SUBMITTED_USER_MESSAGE_VISIBLE_TAIL_PX = 56;
 const SUBMITTED_USER_MESSAGE_EXTRA_SPACE_PX = 24;
 const SUBMIT_SCROLL_SPACER_MIN_PX = 180;
@@ -439,6 +443,10 @@ export default function Home() {
   const lastChatScrollTopRef = useRef(0);
   const didHydrateRef = useRef(false);
   const { resolvedTheme, setTheme } = useTheme();
+
+  useEffect(() => {
+    document.title = APP_TITLE;
+  }, []);
 
   useEffect(() => {
     if (!messageContextMenu) return;
@@ -2272,8 +2280,11 @@ export default function Home() {
         <div className="border-b py-3 pl-3 pr-2">
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
-              <h1 className="truncate text-sm font-semibold leading-5">
-                Chat Forge
+              <h1 className="flex min-w-0 items-baseline gap-1 truncate text-sm font-semibold leading-5">
+                <span className="truncate">{APP_NAME}</span>
+                <span className="shrink-0 text-muted-foreground">
+                  {APP_VERSION_LABEL}
+                </span>
               </h1>
               {/* <p className="truncate text-xs text-muted-foreground">
                   {activeChatModel || "No model selected"}
