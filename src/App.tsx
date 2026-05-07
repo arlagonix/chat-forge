@@ -27,7 +27,6 @@ import type {
   FormEvent,
   MouseEvent as ReactMouseEvent,
   PointerEvent as ReactPointerEvent,
-  WheelEvent,
 } from "react";
 import {
   forwardRef,
@@ -143,7 +142,6 @@ const SUBMITTED_USER_MESSAGE_VISIBLE_TAIL_PX = 56;
 const SUBMITTED_USER_MESSAGE_EXTRA_SPACE_PX = 24;
 const SUBMIT_SCROLL_SPACER_MIN_PX = 180;
 const SUBMIT_SCROLL_SPACER_MAX_PX = 320;
-
 
 const UserMessageEditor = memo(function UserMessageEditor({
   initialContent,
@@ -941,7 +939,9 @@ export default function Home() {
     // space after it. Add a temporary spacer so the browser can actually move the
     // message upward and leave room for the assistant answer.
     const requiredExtraSpace =
-      targetScrollTop - currentMaxScrollTop + SUBMITTED_USER_MESSAGE_EXTRA_SPACE_PX;
+      targetScrollTop -
+      currentMaxScrollTop +
+      SUBMITTED_USER_MESSAGE_EXTRA_SPACE_PX;
     const comfortableExtraSpace = Math.min(
       SUBMIT_SCROLL_SPACER_MAX_PX,
       Math.max(SUBMIT_SCROLL_SPACER_MIN_PX, scrollElement.clientHeight * 0.32),
@@ -2520,7 +2520,7 @@ export default function Home() {
               {!hasMessages ? (
                 <div className="flex h-full items-center justify-center px-3">
                   <div className="max-w-md border bg-card p-6 text-center shadow-xs">
-                    <h2 className="text-base font-semibold">
+                    <h2 className="text-sm font-semibold">
                       Start a conversation
                     </h2>
                     <p className="mt-2 text-sm leading-6 text-muted-foreground">
@@ -2684,10 +2684,10 @@ export default function Home() {
                             >
                               <div
                                 className={cn(
-                                  "min-w-0 text-base leading-6 [overflow-wrap:anywhere]",
+                                  "min-w-0 text-sm leading-6 [overflow-wrap:anywhere]",
                                   message.role === "user"
                                     ? "max-h-[28rem] max-w-[85%] overflow-y-auto overflow-x-hidden chat-message-scrollbar bg-primary px-4 py-3 text-primary-foreground shadow-xs"
-                                    : "w-full min-w-0 max-w-full overflow-hidden bg-card px-4 py-3 text-card-foreground shadow-xs",
+                                    : "w-full min-w-0 max-w-full overflow-visible bg-card px-4 py-3 text-card-foreground shadow-xs",
                                   status === "error" && "border-destructive/50",
                                 )}
                               >
