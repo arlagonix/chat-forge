@@ -61,6 +61,7 @@ const blockedUpstreamHeaders = new Set([
 ]);
 
 const activeStreamControllers = new Map<string, AbortController>();
+const APP_TITLE = `Chat Forge v${app.getVersion()}`;
 let win: BrowserWindow | null = null;
 
 function normalizeBaseUrl(baseUrl: string) {
@@ -319,7 +320,7 @@ function createWindow() {
     height: 860,
     minWidth: 940,
     minHeight: 620,
-    title: "Chat Forge",
+    title: APP_TITLE,
     icon: getWindowIconPath(),
     webPreferences: {
       preload: resolvePreloadPath(),
