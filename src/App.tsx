@@ -676,11 +676,19 @@ export default function Home() {
       if (event.repeat) return;
       if (!event.ctrlKey || event.shiftKey || event.altKey || event.metaKey)
         return;
-      if (event.code !== "KeyN") return;
 
-      event.preventDefault();
-      event.stopPropagation();
-      void createNewChat();
+      if (event.code === "KeyN") {
+        event.preventDefault();
+        event.stopPropagation();
+        void createNewChat();
+        return;
+      }
+
+      if (event.code === "Delete") {
+        event.preventDefault();
+        event.stopPropagation();
+        void clearCurrentChat();
+      }
     }
 
     document.addEventListener("keydown", handleGlobalShortcut, {
@@ -692,7 +700,7 @@ export default function Home() {
         capture: true,
       });
     };
-  }, [isSending]);
+  }, [activeChat, isSending]);
 
   useEffect(() => {
     if (!didHydrateRef.current) return;
@@ -2313,7 +2321,8 @@ export default function Home() {
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={clearCurrentChat}>
                   <Trash2 className="size-4" />
-                  Clear current chat
+                  <span className="flex-1">Clear current chat</span>
+                  <span className="text-xs text-muted-foreground">Ctrl+Delete</span>
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
