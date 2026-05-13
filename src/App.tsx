@@ -148,7 +148,7 @@ const APP_TITLE = `${APP_NAME} ${APP_VERSION_LABEL}`;
 const CHAT_BOTTOM_THRESHOLD_PX = 32;
 const SCROLL_TO_BOTTOM_BUTTON_THRESHOLD_PX = 1000;
 const STICKY_SCROLL_SUPPRESSION_MS = 1000;
-const STICKY_SCROLL_SETTLE_FRAMES = 3;
+const STICKY_SCROLL_SETTLE_FRAMES = 5;
 const SIDEBAR_COLLAPSED_STORAGE_KEY = "chat-forge-sidebar-collapsed";
 
 const UserMessageEditor = memo(function UserMessageEditor({
@@ -308,7 +308,7 @@ const ChatComposer = memo(
         className="bg-background px-3 py-3 md:px-4 md:py-4"
         data-draft-input
       >
-        <div className="mx-auto w-full max-w-[44rem] border bg-card p-3 pt-0 shadow-sm">
+        <div className="mx-auto w-full max-w-3xl border bg-card p-3 pt-0 shadow-sm">
           <div className="mx-auto grid w-full gap-2">
             <Textarea
               ref={textareaRef}
@@ -432,6 +432,7 @@ export default function Home() {
   });
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
+  const chatContentRef = useRef<HTMLDivElement | null>(null);
   const chatBottomRef = useRef<HTMLDivElement | null>(null);
   const messageElementRefs = useRef(new Map<string, HTMLDivElement>());
   const pendingChatBottomScrollRef = useRef(false);
@@ -847,7 +848,7 @@ export default function Home() {
   }
 
   function isActiveChatGenerating() {
-    return Boolean(activeChatId && generatingChatIds.includes(activeChatId));
+    return Boolean(activeChatId && isChatGenerating(activeChatId));
   }
 
   function getStickyScrollSettleFrames() {
@@ -997,8 +998,20 @@ export default function Home() {
             )
           : currentMessageIds;
       });
+
+      if (
+        activeChatId &&
+        autoScrollEnabledRef.current &&
+        !isStickyScrollSuppressed()
+      ) {
+        scheduleStickyScrollToBottom({
+          settleFrames: isActiveChatGenerating()
+            ? STICKY_SCROLL_SETTLE_FRAMES
+            : 1,
+        });
+      }
     },
-    [],
+    [activeChatId, generatingChatIds],
   );
 
   function registerMessageElement(messageId: string) {
@@ -1034,11 +1047,16 @@ export default function Home() {
 
   useLayoutEffect(() => {
     const scrollElement = chatScrollRef.current;
+    const contentElement = chatContentRef.current;
     if (!scrollElement) return;
 
     function handleResize() {
       if (autoScrollEnabledRef.current && !isStickyScrollSuppressed()) {
-        scheduleStickyScrollToBottom();
+        scheduleStickyScrollToBottom({
+          settleFrames: isActiveChatGenerating()
+            ? STICKY_SCROLL_SETTLE_FRAMES
+            : 1,
+        });
         return;
       }
 
@@ -1047,13 +1065,16 @@ export default function Home() {
 
     const resizeObserver = new ResizeObserver(handleResize);
     resizeObserver.observe(scrollElement);
+    if (contentElement) {
+      resizeObserver.observe(contentElement);
+    }
 
     handleResize();
 
     return () => {
       resizeObserver.disconnect();
     };
-  }, [activeChatId]);
+  }, [activeChatId, messages.length]);
 
   useEffect(() => {
     if (!activeChatId) return;
@@ -2237,9 +2258,7 @@ export default function Home() {
       assistantMessage,
     ];
 
-    clearStickyScrollSuppression();
-    setChatAutoScrollEnabled(true);
-    requestChatBottomScrollAfterRender();
+    armStickyScrollToBottom();
     setExpandedMetricsIds({});
     setEditingMessageId(null);
 
@@ -2655,6 +2674,7 @@ export default function Home() {
             )}
           >
             <div
+              ref={chatContentRef}
               className={cn(
                 "mx-auto flex w-full min-w-0 max-w-3xl flex-col [overflow-anchor:none]",
                 hasMessages ? "gap-4" : "h-full",
