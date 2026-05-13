@@ -384,6 +384,8 @@ export async function sendProviderChat({
 export type StreamProviderChatResult = {
   usage?: ChatTokenUsage;
   finishReason?: string;
+  content?: string;
+  reasoning?: string;
 };
 
 export async function streamProviderChat({
@@ -415,7 +417,23 @@ export async function streamProviderChat({
     throw new Error("Message is required.");
   }
 
-  const tagParser = createReasoningTagParser({ onContentDelta, onReasoningDelta });
+  let streamedContent = "";
+  let streamedReasoning = "";
+
+  const emitContentDelta = (delta: string) => {
+    streamedContent += delta;
+    onContentDelta(delta);
+  };
+
+  const emitReasoningDelta = (delta: string) => {
+    streamedReasoning += delta;
+    onReasoningDelta?.(delta);
+  };
+
+  const tagParser = createReasoningTagParser({
+    onContentDelta: emitContentDelta,
+    onReasoningDelta: emitReasoningDelta,
+  });
 
   const stream = assertElectronBridge().streamChat({
     baseUrl: provider.baseUrl,
@@ -441,10 +459,10 @@ export async function streamProviderChat({
       if (event.type === "content") {
         tagParser.push(event.delta);
       } else if (event.type === "reasoning") {
-        onReasoningDelta?.(event.delta);
+        emitReasoningDelta(event.delta);
       } else if (event.type === "raw") {
         const reasoningDelta = readReasoningDelta(event.data);
-        if (reasoningDelta) onReasoningDelta?.(reasoningDelta);
+        if (reasoningDelta) emitReasoningDelta(reasoningDelta);
 
         const contentDelta = readContentDelta(event.data);
         if (contentDelta) tagParser.push(contentDelta);
@@ -452,9 +470,43 @@ export async function streamProviderChat({
     });
 
     tagParser.flush();
+
+    const finalRawContent = typeof result.content === "string" ? result.content : "";
+    const finalRawReasoning = typeof result.reasoning === "string" ? result.reasoning : "";
+    let finalParsedContent = "";
+    let finalParsedReasoning = "";
+
+    if (finalRawContent) {
+      const finalParser = createReasoningTagParser({
+        onContentDelta: (delta) => {
+          finalParsedContent += delta;
+        },
+        onReasoningDelta: (delta) => {
+          finalParsedReasoning += delta;
+        },
+      });
+      finalParser.push(finalRawContent);
+      finalParser.flush();
+    }
+
+    const finalContent = finalParsedContent || finalRawContent;
+    const finalReasoning = `${finalRawReasoning}${finalParsedReasoning}`;
+
+    if (finalContent && finalContent.startsWith(streamedContent)) {
+      const missingContent = finalContent.slice(streamedContent.length);
+      if (missingContent) emitContentDelta(missingContent);
+    }
+
+    if (finalReasoning && finalReasoning.startsWith(streamedReasoning)) {
+      const missingReasoning = finalReasoning.slice(streamedReasoning.length);
+      if (missingReasoning) emitReasoningDelta(missingReasoning);
+    }
+
     return {
       usage: result.usage ?? undefined,
       finishReason: result.finishReason ?? undefined,
+      content: finalContent || undefined,
+      reasoning: finalReasoning || undefined,
     };
   } catch (error) {
     if (signal?.aborted) {
