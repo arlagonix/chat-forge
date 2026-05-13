@@ -48,6 +48,8 @@ type ChatTokenUsage = {
 type StreamResult = {
   usage?: ChatTokenUsage;
   finishReason?: string;
+  content?: string;
+  reasoning?: string;
 };
 
 const blockedUpstreamHeaders = new Set([
@@ -902,6 +904,8 @@ ipcMain.handle(
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
+      let finalContent = "";
+      let finalReasoning = "";
 
       function sendRawData(data: unknown) {
         const eventUsage = readUsage(data);
@@ -912,6 +916,8 @@ ipcMain.handle(
 
         const reasoningDelta = readReasoningDelta(data);
         if (reasoningDelta) {
+          finalReasoning += reasoningDelta;
+
           event.sender.send(`ai:stream-delta:${streamId}`, {
             type: "reasoning",
             delta: reasoningDelta,
@@ -920,6 +926,8 @@ ipcMain.handle(
 
         const contentDelta = readContentDelta(data);
         if (contentDelta) {
+          finalContent += contentDelta;
+
           event.sender.send(`ai:stream-delta:${streamId}`, {
             type: "content",
             delta: contentDelta,
@@ -972,7 +980,7 @@ ipcMain.handle(
         processLine(buffer);
       }
 
-      return { usage, finishReason };
+      return { usage, finishReason, content: finalContent, reasoning: finalReasoning };
     } finally {
       activeStreamControllers.delete(streamId);
     }

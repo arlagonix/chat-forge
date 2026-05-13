@@ -33,7 +33,9 @@ contextBridge.exposeInMainWorld("codeForgeAI", {
         return ipcRenderer
           .invoke("ai:stream-chat", streamId, request)
           .finally(() => {
-            ipcRenderer.removeListener(channel, listener);
+            setTimeout(() => {
+              ipcRenderer.removeListener(channel, listener);
+            }, 0);
           });
       },
     };

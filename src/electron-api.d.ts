@@ -16,6 +16,8 @@ type AiStreamDeltaEvent =
 type AiStreamResult = {
   usage?: ChatTokenUsage;
   finishReason?: string;
+  content?: string;
+  reasoning?: string;
 };
 
 type AiStreamHandle = {
