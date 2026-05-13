@@ -27,6 +27,7 @@ import {
 import type {
   FormEvent,
   MouseEvent as ReactMouseEvent,
+  ReactNode,
   PointerEvent as ReactPointerEvent,
   WheelEvent as ReactWheelEvent,
 } from "react";
@@ -242,8 +243,12 @@ const ChatComposer = memo(
       isSending: boolean;
       onSend: (content: string) => Promise<boolean> | boolean;
       onStop: () => void;
+      footerStart?: ReactNode;
     }
-  >(function ChatComposer({ disabled, isSending, onSend, onStop }, ref) {
+  >(function ChatComposer(
+    { disabled, isSending, onSend, onStop, footerStart },
+    ref,
+  ) {
     const [draft, setDraft] = useState("");
     const textareaRef = useRef<HTMLTextAreaElement | null>(null);
     const trimmedDraft = draft.trim();
@@ -303,8 +308,8 @@ const ChatComposer = memo(
         className="bg-background px-3 py-3 md:px-4 md:py-4"
         data-draft-input
       >
-        <div className="mx-auto w-full max-w-3xl border bg-card p-3 pt-0 shadow-sm">
-          <div className="mx-auto grid w-full max-w-3xl gap-2">
+        <div className="mx-auto w-full max-w-[44rem] border bg-card p-3 pt-0 shadow-sm">
+          <div className="mx-auto grid w-full gap-2">
             <Textarea
               ref={textareaRef}
               value={draft}
@@ -321,7 +326,8 @@ const ChatComposer = memo(
               placeholder="Type a message..."
               className="min-h-[5.5rem] resize-none border-0 !bg-transparent px-1 leading-6 shadow-none focus-visible:ring-0"
             />
-            <div className="flex justify-end">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="min-w-0 flex-1">{footerStart}</div>
               {isSending ? (
                 <Button
                   type="button"
@@ -2350,6 +2356,146 @@ export default function Home() {
     }
   }
 
+  function renderAppOptionsMenu(triggerClassName?: string) {
+    return (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            className={triggerClassName}
+            title="Menu"
+          >
+            <MoreVertical className="size-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          align="end"
+          className="rounded-none"
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            window.requestAnimationFrame(() => {
+              (document.activeElement as HTMLElement | null)?.blur();
+            });
+          }}
+        >
+          <DropdownMenuItem onClick={() => setSettingsOpen(true)}>
+            <Settings className="size-4" />
+            Settings
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => setSystemPromptOpen(true)}>
+            <MessageSquareText className="size-4" />
+            System prompt
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={() =>
+              setTheme(resolvedTheme === "dark" ? "light" : "dark")
+            }
+          >
+            {resolvedTheme === "dark" ? (
+              <Sun className="size-4" />
+            ) : (
+              <Moon className="size-4" />
+            )}
+            {resolvedTheme === "dark" ? "Light theme" : "Dark theme"}
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onClick={clearCurrentChat}>
+            <Trash2 className="size-4" />
+            <span className="flex-1">Clear current chat</span>
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    );
+  }
+
+  function renderComposerModelSelector() {
+    return (
+      <Popover
+        open={isSidebarModelComboboxOpen}
+        onOpenChange={setIsSidebarModelComboboxOpen}
+      >
+        <PopoverTrigger asChild>
+          <Button
+            type="button"
+            variant="outline"
+            role="combobox"
+            disabled={!activeChat || isSending}
+            aria-expanded={isSidebarModelComboboxOpen}
+            className="model-picker-trigger h-9 w-full max-w-[14rem] justify-between overflow-hidden rounded-none px-3 text-left font-normal"
+            title={
+              isSending
+                ? "Wait until this chat finishes generating"
+                : activeChatModel
+                  ? providerLabel(activeChatProvider)
+                  : "Select a model"
+            }
+          >
+            <span
+              className={cn(
+                "min-w-0 flex-1 truncate",
+                !activeChatModel && "text-muted-foreground",
+              )}
+            >
+              {activeChatModel || "Select model"}
+            </span>
+            <ChevronsUpDown className="ml-2 size-4 shrink-0 opacity-50" />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent
+          align="start"
+          className="w-[min(var(--radix-popover-trigger-width),24rem)] rounded-none p-0"
+        >
+          <Command shouldFilter={false}>
+            <CommandInput
+              value={sidebarModelSearchValue}
+              onValueChange={setSidebarModelSearchValue}
+              placeholder="Search models..."
+            />
+            <CommandList>
+              {visibleProviderGroups.length > 0 ? (
+                visibleProviderGroups.map(({ provider, models }) => (
+                  <CommandGroup
+                    key={provider.id}
+                    heading={providerDisplayName(provider)}
+                  >
+                    {models.map((model) => (
+                      <CommandItem
+                        key={`${provider.id}:${model}`}
+                        value={`${providerDisplayName(provider)} ${model}`}
+                        onSelect={() =>
+                          selectActiveChatProviderModel(provider.id, model)
+                        }
+                        className="min-w-0 cursor-pointer"
+                        title={`${providerDisplayName(provider)} · ${model}`}
+                      >
+                        <span className="min-w-0 flex-1 truncate">{model}</span>
+                        <Check
+                          className={cn(
+                            "size-4",
+                            activeChatProvider.id === provider.id &&
+                              activeChatModel === model
+                              ? "opacity-100"
+                              : "opacity-0",
+                          )}
+                        />
+                      </CommandItem>
+                    ))}
+                  </CommandGroup>
+                ))
+              ) : (
+                <CommandEmpty>
+                  No visible models. Enable models in Settings.
+                </CommandEmpty>
+              )}
+            </CommandList>
+          </Command>
+        </PopoverContent>
+      </Popover>
+    );
+  }
+
   if (!mounted) {
     return (
       <main className="flex h-dvh items-center justify-center bg-background text-muted-foreground">
@@ -2389,148 +2535,10 @@ export default function Home() {
               </h1>
             </div>
 
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  className="shrink-0 rounded-none"
-                  title="Menu"
-                >
-                  <MoreVertical className="size-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent
-                align="end"
-                className="rounded-none"
-                onCloseAutoFocus={(event) => {
-                  event.preventDefault();
-                  window.requestAnimationFrame(() => {
-                    (document.activeElement as HTMLElement | null)?.blur();
-                  });
-                }}
-              >
-                <DropdownMenuItem onClick={() => setSettingsOpen(true)}>
-                  <Settings className="size-4" />
-                  Settings
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setSystemPromptOpen(true)}>
-                  <MessageSquareText className="size-4" />
-                  System prompt
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={() =>
-                    setTheme(resolvedTheme === "dark" ? "light" : "dark")
-                  }
-                >
-                  {resolvedTheme === "dark" ? (
-                    <Sun className="size-4" />
-                  ) : (
-                    <Moon className="size-4" />
-                  )}
-                  {resolvedTheme === "dark" ? "Light theme" : "Dark theme"}
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={clearCurrentChat}>
-                  <Trash2 className="size-4" />
-                  <span className="flex-1">Clear current chat</span>
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            {renderAppOptionsMenu("shrink-0 rounded-none")}
           </div>
         </div>
 
-        <div className="grid gap-2 border-b p-3">
-          <div className="flex gap-2">
-            <Popover
-              open={isSidebarModelComboboxOpen}
-              onOpenChange={setIsSidebarModelComboboxOpen}
-            >
-              <PopoverTrigger asChild>
-                <Button
-                  type="button"
-                  variant="outline"
-                  role="combobox"
-                  disabled={!activeChat || isSending}
-                  aria-expanded={isSidebarModelComboboxOpen}
-                  className="model-picker-trigger min-w-0 flex-1 overflow-hidden rounded-none px-3 text-left font-normal"
-                  title={
-                    isSending
-                      ? "Wait until this chat finishes generating"
-                      : activeChatModel
-                        ? providerLabel(activeChatProvider)
-                        : "Select a model"
-                  }
-                >
-                  <span
-                    className={cn(
-                      "min-w-0 flex-1 truncate",
-                      !activeChatModel && "text-muted-foreground",
-                    )}
-                  >
-                    {activeChatModel || "Select model"}
-                  </span>
-                  <ChevronsUpDown className="ml-2 size-4 shrink-0 opacity-50" />
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent
-                align="start"
-                className="w-[var(--radix-popover-trigger-width)] rounded-none p-0"
-              >
-                <Command shouldFilter={false}>
-                  <CommandInput
-                    value={sidebarModelSearchValue}
-                    onValueChange={setSidebarModelSearchValue}
-                    placeholder="Search models..."
-                  />
-                  <CommandList>
-                    {visibleProviderGroups.length > 0 ? (
-                      visibleProviderGroups.map(({ provider, models }) => (
-                        <CommandGroup
-                          key={provider.id}
-                          heading={providerDisplayName(provider)}
-                        >
-                          {models.map((model) => (
-                            <CommandItem
-                              key={`${provider.id}:${model}`}
-                              value={`${providerDisplayName(provider)} ${model}`}
-                              onSelect={() =>
-                                selectActiveChatProviderModel(
-                                  provider.id,
-                                  model,
-                                )
-                              }
-                              className="min-w-0 cursor-pointer"
-                              title={`${providerDisplayName(provider)} · ${model}`}
-                            >
-                              <span className="min-w-0 flex-1 truncate">
-                                {model}
-                              </span>
-                              <Check
-                                className={cn(
-                                  "size-4",
-                                  activeChatProvider.id === provider.id &&
-                                    activeChatModel === model
-                                    ? "opacity-100"
-                                    : "opacity-0",
-                                )}
-                              />
-                            </CommandItem>
-                          ))}
-                        </CommandGroup>
-                      ))
-                    ) : (
-                      <CommandEmpty>
-                        No visible models. Enable models in Settings.
-                      </CommandEmpty>
-                    )}
-                  </CommandList>
-                </Command>
-              </PopoverContent>
-            </Popover>
-          </div>
-        </div>
         <div className="min-h-0 flex-1 overflow-y-auto p-2 chat-scrollbar">
           <div className="grid gap-3">
             {groupedChats.map((group) => (
@@ -2627,6 +2635,7 @@ export default function Home() {
           >
             <Plus className="size-4" />
           </Button>
+          {renderAppOptionsMenu("rounded-none")}
         </div>
       ) : null}
 
@@ -3114,6 +3123,7 @@ export default function Home() {
           isSending={isSending}
           onSend={sendMessage}
           onStop={stopGeneration}
+          footerStart={renderComposerModelSelector()}
         />
       </section>
 
