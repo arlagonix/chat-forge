@@ -326,7 +326,7 @@
   }
 
   .chat-markdown table {
-    @apply my-3 block max-w-full table-auto border-collapse overflow-hidden rounded-lg;
+    @apply my-3 block max-w-full table-auto border-collapse overflow-hidden;
   }
 
   .chat-markdown th,
@@ -375,7 +375,7 @@
   }
 
   .chat-markdown .chat-code-action {
-    @apply h-7 w-7 rounded-lg border-0 bg-transparent text-muted-foreground shadow-none hover:bg-muted hover:text-foreground;
+    @apply h-7 w-7 rounded-none border-0 bg-transparent text-muted-foreground shadow-none hover:bg-muted hover:text-foreground;
   }
 
   .chat-markdown .chat-code-action-active {

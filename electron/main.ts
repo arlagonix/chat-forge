@@ -401,6 +401,10 @@ function safeString(value: unknown, fallback = "") {
   return typeof value === "string" ? value : fallback;
 }
 
+function safeOptionalString(value: unknown) {
+  return typeof value === "string" ? value : undefined;
+}
+
 function safeStringArray(value: unknown) {
   return Array.isArray(value)
     ? value.filter((item): item is string => typeof item === "string")
@@ -409,6 +413,72 @@ function safeStringArray(value: unknown) {
 
 function sanitizeFileNamePart(value: string) {
   return value.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 120) || "item";
+}
+
+function getValidDateTime(value?: string) {
+  if (!value) return undefined;
+
+  const time = new Date(value).getTime();
+  return Number.isNaN(time) ? undefined : time;
+}
+
+function getLatestDateValue(values: Array<string | undefined>) {
+  let latestValue: string | undefined;
+  let latestTime = Number.NEGATIVE_INFINITY;
+
+  for (const value of values) {
+    const time = getValidDateTime(value);
+    if (time === undefined || time < latestTime) continue;
+
+    latestValue = value;
+    latestTime = time;
+  }
+
+  return latestValue;
+}
+
+function getMessageActivityDate(message: unknown) {
+  if (!isPlainObject(message)) return undefined;
+
+  const createdAt = safeOptionalString(message.createdAt);
+  if (message.role === "user") return createdAt;
+
+  if (message.role !== "assistant") return undefined;
+
+  const variantDates = Array.isArray(message.variants)
+    ? message.variants.map((variant) =>
+        isPlainObject(variant)
+          ? safeOptionalString(variant.createdAt)
+          : undefined,
+      )
+    : [];
+
+  return getLatestDateValue([createdAt, ...variantDates]) ?? createdAt;
+}
+
+function getChatActivityDate(chat: unknown) {
+  if (!isPlainObject(chat)) return undefined;
+
+  const messages = Array.isArray(chat.messages) ? chat.messages : [];
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const value = getMessageActivityDate(messages[index]);
+    if (getValidDateTime(value) !== undefined) return value;
+  }
+
+  const lastMessageAt = safeOptionalString(chat.lastMessageAt);
+  if (getValidDateTime(lastMessageAt) !== undefined) return lastMessageAt;
+
+  const createdAt = safeOptionalString(chat.createdAt);
+  if (getValidDateTime(createdAt) !== undefined) return createdAt;
+
+  return safeOptionalString(chat.updatedAt);
+}
+
+function compareChatsByActivityDate(left: unknown, right: unknown) {
+  const rightActivityTime = getValidDateTime(getChatActivityDate(right)) ?? 0;
+  const leftActivityTime = getValidDateTime(getChatActivityDate(left)) ?? 0;
+
+  return rightActivityTime - leftActivityTime;
 }
 
 function chatFilePath(chatId: string) {
@@ -486,11 +556,14 @@ async function initializeJsonStorageIfNeeded() {
 function normalizeChatSummary(chat: unknown) {
   if (!isPlainObject(chat) || typeof chat.id !== "string") return undefined;
 
+  const createdAt = safeString(chat.createdAt, new Date().toISOString());
+
   return {
     id: chat.id,
     title: safeString(chat.title, "New chat"),
-    createdAt: safeString(chat.createdAt, new Date().toISOString()),
+    createdAt,
     updatedAt: safeString(chat.updatedAt, new Date().toISOString()),
+    lastMessageAt: getChatActivityDate(chat) ?? createdAt,
     providerId:
       typeof chat.providerId === "string" ? chat.providerId : undefined,
     model: typeof chat.model === "string" ? chat.model : undefined,
@@ -533,10 +606,7 @@ async function rebuildChatIndex() {
     if (summary) chats.push(summary);
   }
 
-  chats.sort(
-    (left, right) =>
-      new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime(),
-  );
+  chats.sort(compareChatsByActivityDate);
   await writeJsonAtomic(paths.chatsIndex, { chats });
   return chats;
 }
@@ -564,10 +634,7 @@ async function writeChatIndexFromChats(chats: unknown[]) {
       (item): item is NonNullable<ReturnType<typeof normalizeChatSummary>> =>
         Boolean(item),
     );
-  summaries.sort(
-    (left, right) =>
-      new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime(),
-  );
+  summaries.sort(compareChatsByActivityDate);
   await writeJsonAtomic(getStoragePaths().chatsIndex, { chats: summaries });
 }
 
@@ -584,11 +651,7 @@ async function loadJsonChats() {
     if (isPlainObject(chat) && typeof chat.id === "string") chats.push(chat);
   }
 
-  chats.sort(
-    (left, right) =>
-      new Date(safeString(right.updatedAt)).getTime() -
-      new Date(safeString(left.updatedAt)).getTime(),
-  );
+  chats.sort(compareChatsByActivityDate);
   return chats;
 }
 

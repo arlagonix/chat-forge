@@ -1,4 +1,5 @@
 import { defaultGenerationSettings, defaultProvider } from "./provider-presets";
+import { sortChatsByUpdatedAt } from "./chat-utils";
 import type { ChatSession, ProviderConfig, ProvidersState } from "./types";
 
 const DB_NAME = "chat-forge";
@@ -229,10 +230,7 @@ async function legacyLoadChats(): Promise<ChatSession[]> {
     const store = transaction.objectStore(CHATS_STORE);
     const chats = await requestToPromise<ChatSession[]>(store.getAll());
 
-    return chats.sort(
-      (left, right) =>
-        new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime(),
-    );
+    return sortChatsByUpdatedAt(chats);
   } finally {
     db.close();
   }
@@ -467,10 +465,7 @@ export async function loadChats(): Promise<ChatSession[]> {
 
   if (api) {
     const chats = await api.loadChats();
-    return chats.sort(
-      (left, right) =>
-        new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime(),
-    );
+    return sortChatsByUpdatedAt(chats);
   }
 
   return legacyLoadChats();
