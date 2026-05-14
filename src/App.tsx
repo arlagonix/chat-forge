@@ -1389,22 +1389,24 @@ export default function Home() {
   }
 
   function selectAssistantVariant(messageId: string, variantIndex: number) {
-    updateActiveChatMessages((currentMessages) =>
-      currentMessages.map((message) => {
-        if (message.id !== messageId || message.role !== "assistant") {
-          return message;
-        }
+    updateActiveChatMessages(
+      (currentMessages) =>
+        currentMessages.map((message) => {
+          if (message.id !== messageId || message.role !== "assistant") {
+            return message;
+          }
 
-        const safeIndex = Math.min(
-          Math.max(variantIndex, 0),
-          message.variants.length - 1,
-        );
+          const safeIndex = Math.min(
+            Math.max(variantIndex, 0),
+            message.variants.length - 1,
+          );
 
-        return {
-          ...message,
-          activeVariantIndex: safeIndex,
-        };
-      }),
+          return {
+            ...message,
+            activeVariantIndex: safeIndex,
+          };
+        }),
+      { touch: false },
     );
   }
 
@@ -1512,7 +1514,6 @@ export default function Home() {
               ...chat,
               providerId: fallbackProvider.id,
               model: getProviderFallbackModel(fallbackProvider),
-              updatedAt: new Date().toISOString(),
             }
           : chat,
       ),
@@ -1528,7 +1529,6 @@ export default function Home() {
         ...chat,
         providerId,
         model: normalizedModel,
-        updatedAt: new Date().toISOString(),
       }));
     }
 
@@ -2565,14 +2565,14 @@ export default function Home() {
                 <div className="px-2 pt-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                   {group.label}
                 </div>
-                <div className="grid gap-1.5">
+                <div className="grid gap-[1px]">
                   {group.chats.map((chat) => (
                     <div
                       key={chat.id}
                       role="button"
                       tabIndex={0}
                       className={cn(
-                        "group flex min-w-0 cursor-pointer items-center gap-1 border rounded-lg px-2 py-2 outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                        "group flex min-w-0 cursor-pointer items-center gap-1 border rounded-lg px-2 py-1 outline-none focus-visible:ring-2 focus-visible:ring-ring",
                         chat.id === activeChat?.id
                           ? "border-primary/30 bg-accent text-accent-foreground"
                           : "border-transparent hover:border-border hover:bg-muted/60",
@@ -2590,12 +2590,12 @@ export default function Home() {
                         <div className="truncate text-sm leading-5 ">
                           {chat.title}
                         </div>
-                        <div className="truncate text-[11px] leading-4 text-muted-foreground">
+                        {/* <div className="truncate text-[11px] leading-4 text-muted-foreground">
                           {chat.messages.length} message
                           {chat.messages.length === 1 ? "" : "s"}
                           {" · "}
                           {formatChatActivityDate(getChatActivityDate(chat))}
-                        </div>
+                        </div> */}
                       </div>
                       <Button
                         type="button"
@@ -2734,7 +2734,7 @@ export default function Home() {
                       key={message.id}
                       ref={registerMessageElement(message.id)}
                       data-message-id={message.id}
-                      className="grid min-w-0 max-w-full gap-2"
+                      className="grid min-w-0 max-w-full"
                     >
                       {message.role === "assistant" &&
                         reasoning.trim() &&

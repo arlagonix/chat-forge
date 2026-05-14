@@ -224,11 +224,56 @@ export function titleFromMessage(message: string) {
   return firstLine.length > 44 ? `${firstLine.slice(0, 44)}...` : firstLine;
 }
 
-export function sortChatsByUpdatedAt(chats: ChatSession[]) {
-  return [...chats].sort(
-    (left, right) =>
-      new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime(),
+function getValidDateTime(value?: string) {
+  if (!value) return undefined;
+
+  const time = new Date(value).getTime();
+  return Number.isNaN(time) ? undefined : time;
+}
+
+function getLatestDateValue(values: Array<string | undefined>) {
+  let latestValue: string | undefined;
+  let latestTime = Number.NEGATIVE_INFINITY;
+
+  for (const value of values) {
+    const time = getValidDateTime(value);
+    if (time === undefined || time < latestTime) continue;
+
+    latestValue = value;
+    latestTime = time;
+  }
+
+  return latestValue;
+}
+
+function getMessageActivityDate(message: ChatMessage) {
+  if (message.role === "user") return message.createdAt;
+
+  return (
+    getLatestDateValue([
+      message.createdAt,
+      ...message.variants.map((variant) => variant.createdAt),
+    ]) ?? message.createdAt
   );
+}
+
+export function getChatActivityDate(chat: ChatSession) {
+  for (let index = chat.messages.length - 1; index >= 0; index -= 1) {
+    const value = getMessageActivityDate(chat.messages[index]);
+    if (getValidDateTime(value) !== undefined) return value;
+  }
+
+  if (getValidDateTime(chat.createdAt) !== undefined) return chat.createdAt;
+  return chat.updatedAt;
+}
+
+export function sortChatsByUpdatedAt(chats: ChatSession[]) {
+  return [...chats].sort((left, right) => {
+    const rightActivityTime = getValidDateTime(getChatActivityDate(right)) ?? 0;
+    const leftActivityTime = getValidDateTime(getChatActivityDate(left)) ?? 0;
+
+    return rightActivityTime - leftActivityTime;
+  });
 }
 
 export function isEditableShortcutTarget(target: EventTarget | null) {
@@ -239,10 +284,6 @@ export function isEditableShortcutTarget(target: EventTarget | null) {
       'input, textarea, select, button, [contenteditable="true"], [role="textbox"]',
     ),
   );
-}
-
-export function getChatActivityDate(chat: ChatSession) {
-  return chat.updatedAt;
 }
 
 export function formatChatActivityDate(value: string) {
