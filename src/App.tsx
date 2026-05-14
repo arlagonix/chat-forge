@@ -166,6 +166,7 @@ const STICKY_SCROLL_SUPPRESSION_MS = 1000;
 const STICKY_SCROLL_SETTLE_FRAMES = 5;
 const SIDEBAR_COLLAPSED_STORAGE_KEY = "chat-forge-sidebar-collapsed";
 const COMPOSER_DRAFTS_STORAGE_KEY = "chat-forge-composer-drafts";
+const TOOL_TEST_STATES_STORAGE_KEY = "chat-forge-tool-test-states";
 const DEFAULT_TOOLS_SETTINGS: ToolsSettings = {
   enabled: true,
 };
@@ -182,6 +183,13 @@ type ToolDraft = {
   cwd: string;
   input: "none" | "json-stdin";
   timeoutMs: string;
+};
+
+type ToolTestState = {
+  argsText: string;
+  result: ToolCommandResult | null;
+  status?: "running";
+  runId?: string;
 };
 
 function loadComposerDrafts(): Record<string, string> {
@@ -222,6 +230,97 @@ function saveComposerDrafts(drafts: Record<string, string>) {
   window.localStorage.setItem(
     COMPOSER_DRAFTS_STORAGE_KEY,
     JSON.stringify(nonEmptyDrafts),
+  );
+}
+
+
+function isToolCommandResult(value: unknown): value is ToolCommandResult {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+
+  const candidate = value as Partial<ToolCommandResult>;
+
+  return (
+    (candidate.toolName === undefined ||
+      typeof candidate.toolName === "string") &&
+    typeof candidate.content === "string" &&
+    (typeof candidate.exitCode === "number" || candidate.exitCode === null) &&
+    typeof candidate.stdout === "string" &&
+    typeof candidate.stderr === "string" &&
+    typeof candidate.timedOut === "boolean"
+  );
+}
+
+function loadToolTestStates(): Record<string, ToolTestState> {
+  if (typeof window === "undefined") return {};
+
+  try {
+    const stored = window.localStorage.getItem(TOOL_TEST_STATES_STORAGE_KEY);
+    if (!stored) return {};
+
+    const parsed = JSON.parse(stored);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return {};
+    }
+
+    return Object.fromEntries(
+      Object.entries(parsed)
+        .map(([toolId, value]) => {
+          if (typeof toolId !== "string") return null;
+          if (!value || typeof value !== "object" || Array.isArray(value)) {
+            return null;
+          }
+
+          const candidate = value as Partial<ToolTestState>;
+          const argsText =
+            typeof candidate.argsText === "string"
+              ? candidate.argsText
+              : "{}";
+          const result = isToolCommandResult(candidate.result)
+            ? candidate.result
+            : null;
+
+          return [toolId, { argsText, result } satisfies ToolTestState] as const;
+        })
+        .filter(
+          (entry): entry is readonly [string, ToolTestState] => entry !== null,
+        ),
+    );
+  } catch {
+    return {};
+  }
+}
+
+function saveToolTestStates(states: Record<string, ToolTestState>) {
+  if (typeof window === "undefined") return;
+
+  const persisted = Object.fromEntries(
+    Object.entries(states)
+      .map(([toolId, state]) => {
+        const argsText = state.argsText || "{}";
+        const result = state.result ?? null;
+
+        if (argsText.trim() === "{}" && !result) return null;
+
+        return [toolId, { argsText, result }] as const;
+      })
+      .filter(
+        (entry): entry is readonly [
+          string,
+          { argsText: string; result: ToolCommandResult | null },
+        ] => entry !== null,
+      ),
+  );
+
+  if (Object.keys(persisted).length === 0) {
+    window.localStorage.removeItem(TOOL_TEST_STATES_STORAGE_KEY);
+    return;
+  }
+
+  window.localStorage.setItem(
+    TOOL_TEST_STATES_STORAGE_KEY,
+    JSON.stringify(persisted),
   );
 }
 
@@ -509,10 +608,9 @@ export default function Home() {
   const [isLoadingTools, setIsLoadingTools] = useState(false);
   const [toolDraft, setToolDraft] = useState<ToolDraft | null>(null);
   const [isSavingTool, setIsSavingTool] = useState(false);
-  const [isTestingTool, setIsTestingTool] = useState(false);
-  const [toolTestArgsText, setToolTestArgsText] = useState("{}");
-  const [toolTestResult, setToolTestResult] =
-    useState<ToolCommandResult | null>(null);
+  const [toolTestStatesByToolId, setToolTestStatesByToolId] = useState<
+    Record<string, ToolTestState>
+  >(() => loadToolTestStates());
   const [chats, setChats] = useState<ChatSession[]>([]);
   const [activeChatId, setActiveChatId] = useState<string | undefined>();
   const [composerDraftsByChatId, setComposerDraftsByChatId] = useState<
@@ -675,6 +773,12 @@ export default function Home() {
   });
   const selectedTool =
     loadedTools.find((tool) => tool.name === selectedToolName) ?? null;
+  const currentToolTestState = toolDraft
+    ? toolTestStatesByToolId[toolDraft.id]
+    : undefined;
+  const currentToolTestArgsText = currentToolTestState?.argsText ?? "{}";
+  const currentToolTestResult = currentToolTestState?.result ?? null;
+  const isTestingCurrentTool = currentToolTestState?.status === "running";
   const modelSuggestions = useMemo(() => {
     return normalizeProviderModels([
       ...(activeProvider.models ?? []),
@@ -918,7 +1022,6 @@ export default function Home() {
     const selected = loadedTools.find((tool) => tool.name === selectedToolName);
     if (selected) {
       setToolDraft(toolToDraft(selected));
-      setToolTestResult(null);
     }
   }, [loadedTools, selectedToolName]);
 
@@ -932,6 +1035,10 @@ export default function Home() {
   useEffect(() => {
     saveComposerDrafts(composerDraftsByChatId);
   }, [composerDraftsByChatId]);
+
+  useEffect(() => {
+    saveToolTestStates(toolTestStatesByToolId);
+  }, [toolTestStatesByToolId]);
 
   useEffect(() => {
     if (!didHydrateRef.current || chats.length === 0) return;
@@ -1584,34 +1691,86 @@ export default function Home() {
       );
       setToolDraft(null);
       setSelectedToolName(null);
-      setToolTestResult(null);
+      setToolTestStatesByToolId((current) => {
+        const { [toolDraft.id]: _deleted, ...rest } = current;
+        void _deleted;
+        return rest;
+      });
       showSuccess("Tool deleted");
     } catch (error) {
       showError("Failed to delete tool", labelForError(error));
     }
   }
 
+  function updateCurrentToolTestArgsText(argsText: string) {
+    if (!toolDraft) return;
+
+    setToolTestStatesByToolId((current) => ({
+      ...current,
+      [toolDraft.id]: {
+        argsText,
+        result: current[toolDraft.id]?.result ?? null,
+        status: current[toolDraft.id]?.status,
+        runId: current[toolDraft.id]?.runId,
+      },
+    }));
+  }
+
+  function clearCurrentToolTest() {
+    if (!toolDraft) return;
+
+    setToolTestStatesByToolId((current) => {
+      const { [toolDraft.id]: _cleared, ...rest } = current;
+      void _cleared;
+      return rest;
+    });
+  }
+
   async function runCurrentToolTest() {
     if (!toolDraft) return;
-    setIsTestingTool(true);
-    setToolTestResult(null);
+
+    const tool = draftToTool(toolDraft);
+    const argsText = currentToolTestArgsText;
+    const runId = createId();
+
+    setToolTestStatesByToolId((current) => ({
+      ...current,
+      [tool.id]: {
+        argsText,
+        result: null,
+        status: "running",
+        runId,
+      },
+    }));
+
+    function finish(result: ToolCommandResult) {
+      setToolTestStatesByToolId((current) => {
+        const previous = current[tool.id] ?? { argsText, result: null };
+        if (previous.runId && previous.runId !== runId) return current;
+
+        return {
+          ...current,
+          [tool.id]: {
+            argsText: previous.argsText ?? argsText,
+            result,
+          },
+        };
+      });
+    }
 
     try {
-      const tool = draftToTool(toolDraft);
       validateToolDraft(tool);
-      const args = toolTestArgsText.trim() ? JSON.parse(toolTestArgsText) : {};
+      const args = argsText.trim() ? JSON.parse(argsText) : {};
       const result = await getToolsBridge().test({ tool, args });
-      setToolTestResult(result);
+      finish(result);
     } catch (error) {
-      setToolTestResult({
+      finish({
         content: `Error: ${labelForError(error)}`,
         exitCode: null,
         stdout: "",
         stderr: labelForError(error),
         timedOut: false,
       });
-    } finally {
-      setIsTestingTool(false);
     }
   }
 
@@ -2385,6 +2544,12 @@ export default function Home() {
           { id: thinkingStepId, type: "thinking", content: "" },
         ]);
 
+        if (chatId === activeChatId) {
+          scheduleStickyScrollToBottom({
+            settleFrames: STICKY_SCROLL_SETTLE_FRAMES,
+          });
+        }
+
         const streamResult = await streamProviderChat({
           provider: providerForRun,
           systemPrompt,
@@ -2443,14 +2608,20 @@ export default function Home() {
         appendToolCallsToVariant(toolCalls);
 
         if (chatId === activeChatId) {
-          scheduleStickyScrollToBottom({ force: true });
+          scheduleStickyScrollToBottom({
+            force: true,
+            settleFrames: STICKY_SCROLL_SETTLE_FRAMES,
+          });
         }
 
         const toolResults = await Promise.all(toolCalls.map(executeToolCall));
         applyToolResultsToVariant(toolResults);
 
         if (chatId === activeChatId) {
-          scheduleStickyScrollToBottom({ force: true });
+          scheduleStickyScrollToBottom({
+            force: true,
+            settleFrames: STICKY_SCROLL_SETTLE_FRAMES,
+          });
         }
 
         currentMessages = buildContinuationMessages();
@@ -2522,7 +2693,10 @@ export default function Home() {
 
       if (chatId === activeChatId) {
         if (autoScrollEnabledRef.current && !isStickyScrollSuppressed()) {
-          scheduleStickyScrollToBottom({ force: true });
+          scheduleStickyScrollToBottom({
+            force: true,
+            settleFrames: STICKY_SCROLL_SETTLE_FRAMES,
+          });
         } else {
           syncChatScrollState();
         }
@@ -3303,7 +3477,7 @@ export default function Home() {
               ref={chatContentRef}
               className={cn(
                 "mx-auto flex w-full min-w-0 max-w-3xl flex-col [overflow-anchor:none]",
-                hasMessages ? "gap-4" : "h-full",
+                hasMessages ? "gap-5" : "h-full",
               )}
             >
               {!hasMessages ? (
@@ -3364,7 +3538,7 @@ export default function Home() {
                       key={message.id}
                       ref={registerMessageElement(message.id)}
                       data-message-id={message.id}
-                      className="grid min-w-0 max-w-full"
+                      className="grid min-w-0 max-w-full gap-2"
                     >
                       {message.role === "assistant" && hasProcessSteps && (
                         <div className="grid gap-2">
@@ -3633,7 +3807,7 @@ export default function Home() {
                                   "min-w-0 text-sm leading-6 [overflow-wrap:anywhere] w-full rounded-lg",
                                   message.role === "user"
                                     ? "max-h-[32rem] overflow-y-auto overflow-x-hidden chat-message-scrollbar bg-primary px-4 py-3 text-primary-foreground shadow-xs"
-                                    : "min-w-0 max-w-full overflow-visible px-0 py-3 text-card-foreground shadow-xs",
+                                    : "min-w-0 max-w-full overflow-visible px-0 py-1 text-card-foreground shadow-xs",
                                   status === "error" && "border-destructive/50",
                                 )}
                               >
@@ -4507,8 +4681,6 @@ export default function Home() {
                     const draft = createBlankToolDraft();
                     setSelectedToolName(null);
                     setToolDraft(draft);
-                    setToolTestResult(null);
-                    setToolTestArgsText("{}");
                   }}
                 >
                   <Plus className="size-4" />
@@ -4798,36 +4970,48 @@ export default function Home() {
                           Run this manifest locally with sample model arguments.
                         </p>
                       </div>
-                      <Button
-                        type="button"
-                        variant="secondary"
-                        className="rounded-lg"
-                        onClick={runCurrentToolTest}
-                        disabled={isTestingTool}
-                      >
-                        {isTestingTool ? "Running..." : "Run test"}
-                      </Button>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          className="rounded-lg"
+                          onClick={clearCurrentToolTest}
+                          disabled={!currentToolTestState || isTestingCurrentTool}
+                        >
+                          Clear test
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          className="rounded-lg"
+                          onClick={runCurrentToolTest}
+                          disabled={isTestingCurrentTool}
+                        >
+                          {isTestingCurrentTool ? "Running..." : "Run test"}
+                        </Button>
+                      </div>
                     </div>
                     <Textarea
-                      value={toolTestArgsText}
+                      value={currentToolTestArgsText}
                       onChange={(event) =>
-                        setToolTestArgsText(event.target.value)
+                        updateCurrentToolTestArgsText(event.target.value)
                       }
+                      disabled={isTestingCurrentTool}
                       className="min-h-24 resize-y font-mono text-xs"
                       spellCheck={false}
                       placeholder='{ "value": 144 }'
                     />
-                    {toolTestResult && (
+                    {currentToolTestResult && (
                       <div className="grid gap-2 rounded-lg border bg-card p-3">
                         <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
                           <span>
-                            Exit: {toolTestResult.exitCode ?? "null"} ·{" "}
-                            {toolTestResult.timedOut
+                            Exit: {currentToolTestResult.exitCode ?? "null"} ·{" "}
+                            {currentToolTestResult.timedOut
                               ? "Timed out"
                               : "Completed"}
                           </span>
-                          {toolTestResult.exitCode !== 0 ||
-                          toolTestResult.timedOut ? (
+                          {currentToolTestResult.exitCode !== 0 ||
+                          currentToolTestResult.timedOut ? (
                             <span className="inline-flex items-center gap-1 text-destructive">
                               <X className="size-3.5" />
                               Failed
@@ -4839,7 +5023,7 @@ export default function Home() {
                             </span>
                           )}
                         </div>
-                        {renderJsonCodeBlock(toolTestResult.content)}
+                        {renderJsonCodeBlock(currentToolTestResult.content)}
                       </div>
                     )}
                   </div>
