@@ -91,3 +91,33 @@ declare global {
     };
   }
 }
+
+
+type FindInPageRequest = {
+  text: string;
+  forward?: boolean;
+  findNext?: boolean;
+};
+
+type FindInPageResult = {
+  requestId: number;
+  activeMatchOrdinal: number;
+  matches: number;
+  selectionArea?: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
+  finalUpdate: boolean;
+};
+
+declare global {
+  interface Window {
+    chatForgeFind?: {
+      findInPage: (request: FindInPageRequest) => Promise<{ requestId: number }>;
+      stopFindInPage: (action?: "clearSelection" | "keepSelection" | "activateSelection") => Promise<void>;
+      onFoundInPage: (callback: (result: FindInPageResult) => void) => () => void;
+    };
+  }
+}

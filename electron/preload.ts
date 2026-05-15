@@ -130,3 +130,26 @@ contextBridge.exposeInMainWorld("chatForgeTools", {
     return ipcRenderer.invoke("tools:test", request);
   },
 });
+
+
+contextBridge.exposeInMainWorld("chatForgeFind", {
+  findInPage(request: unknown) {
+    return ipcRenderer.invoke("find-in-page:start", request);
+  },
+
+  stopFindInPage(action: unknown) {
+    return ipcRenderer.invoke("find-in-page:stop", action);
+  },
+
+  onFoundInPage(callback: (result: unknown) => void) {
+    const listener = (_event: IpcRendererEvent, result: unknown) => {
+      callback(result);
+    };
+
+    ipcRenderer.on("find-in-page:result", listener);
+
+    return () => {
+      ipcRenderer.removeListener("find-in-page:result", listener);
+    };
+  },
+});
