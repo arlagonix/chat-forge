@@ -179,6 +179,7 @@ const DEFAULT_TOOLS_SETTINGS: ToolsSettings = {
   enabled: true,
 };
 const MAX_TOOL_ROUNDS = 3;
+const TOOL_DESCRIPTION_PREVIEW_MAX_LENGTH = 240;
 
 function loadComposerDrafts(): Record<string, string> {
   if (typeof window === "undefined") return {};
@@ -1626,73 +1627,17 @@ ${value}
     );
   }
 
-  function normalizeToolDescription(description: string) {
-    return description
-      .replace(/`+/g, "")
-      .replace(/\s+/g, " ")
-      .trim()
-      .replace(/[.!?]+$/g, "");
-  }
+  function formatToolDescriptionPreview(description?: string) {
+    const normalizedDescription = description?.replace(/\s+/g, " ").trim() || "";
+    if (!normalizedDescription) return "";
 
-  function toBaseVerbPhrase(value: string) {
-    const replacements: Array<[RegExp, string]> = [
-      [/^gets?\b/i, "get"],
-      [/^fetch(?:es)?\b/i, "fetch"],
-      [/^retrieves?\b/i, "retrieve"],
-      [/^reads?\b/i, "read"],
-      [/^search(?:es)?\b/i, "search"],
-      [/^finds?\b/i, "find"],
-      [/^lists?\b/i, "list"],
-      [/^runs?\b/i, "run"],
-      [/^calculates?\b/i, "calculate"],
-      [/^generates?\b/i, "generate"],
-      [/^creates?\b/i, "create"],
-      [/^writes?\b/i, "write"],
-    ];
-
-    for (const [pattern, replacement] of replacements) {
-      if (pattern.test(value)) return value.replace(pattern, replacement);
+    if (normalizedDescription.length <= TOOL_DESCRIPTION_PREVIEW_MAX_LENGTH) {
+      return normalizedDescription;
     }
 
-    return value.charAt(0).toLowerCase() + value.slice(1);
-  }
-
-  function buildDeterministicToolDescription(toolCall: ChatToolCall) {
-    const tool = loadedTools.find(
-      (candidate) => candidate.name === toolCall.function.name,
-    );
-    const normalizedDescription = tool?.description
-      ? normalizeToolDescription(tool.description)
-      : "";
-
-    if (normalizedDescription) {
-      const useToolMatch = normalizedDescription.match(
-        /^use (?:this )?(?:tool|command|script|function)?\s*(?:to|for)\s+(.+)$/i,
-      );
-      const action = toBaseVerbPhrase(
-        useToolMatch?.[1]?.trim() || normalizedDescription,
-      );
-      return `I need to ${action}.`;
-    }
-
-    const normalizedName = toolCall.function.name.toLowerCase();
-    if (/(date|time|clock|now)/.test(normalizedName)) {
-      return "I need to get the current date/time information.";
-    }
-    if (/(confluence|page|wiki|doc)/.test(normalizedName)) {
-      return "I need to fetch page contents.";
-    }
-    if (/(web|search|browse|internet|searx|brave)/.test(normalizedName)) {
-      return "I need to search for relevant information.";
-    }
-    if (/(file|read|cat|content)/.test(normalizedName)) {
-      return "I need to read file contents.";
-    }
-    if (/(random|number)/.test(normalizedName)) {
-      return "I need to generate a value.";
-    }
-
-    return "I need to run this tool to continue.";
+    return `${normalizedDescription
+      .slice(0, TOOL_DESCRIPTION_PREVIEW_MAX_LENGTH)
+      .trimEnd()}…`;
   }
 
   function getEffectiveToolStatus(
@@ -1762,6 +1707,10 @@ ${value}
       toolCall,
       toolResult,
     );
+    const toolInfo = loadedTools.find(
+      (candidate) => candidate.name === toolCall.function.name,
+    );
+    const toolDescription = formatToolDescriptionPreview(toolInfo?.description);
     const showToolInput =
       hasMeaningfulToolInput(toolCall.function.arguments || "") &&
       (!executionPreview || executionPreview.usesStdin);
@@ -1788,9 +1737,11 @@ ${value}
                 <ChevronDown className="size-3.5 shrink-0" />
               )}
             </div>
-            <div className="mt-2 text-xs normal-case leading-5 tracking-normal text-muted-foreground/85">
-              {buildDeterministicToolDescription(toolCall)}
-            </div>
+            {toolDescription && (
+              <div className="mt-2 text-xs normal-case leading-5 tracking-normal text-muted-foreground/85">
+                {toolDescription}
+              </div>
+            )}
           </button>
 
           {!isCollapsed && (
