@@ -128,6 +128,7 @@ import {
   defaultProvider,
   providerPresets,
 } from "@/lib/ai-chat/provider-presets";
+import { runQueuedTool } from "@/lib/ai-chat/tool-execution-queue";
 import {
   createEmptyChat,
   deleteChat,
@@ -151,6 +152,7 @@ import type {
   ChatToolCall,
   ChatToolResult,
   LoadedToolInfo,
+  ToolExecutionStatus,
   ToolExecutionPreview,
   ChatSession,
   ProviderConfig,
@@ -473,13 +475,28 @@ const ChatComposer = memo(
   }),
 );
 
+type StreamBufferEvent =
+  | {
+      type: "content";
+      delta: string;
+      assistantMessageStepId: string;
+    }
+  | {
+      type: "reasoning";
+      delta: string;
+      reasoningStepId: string;
+    };
+
 type StreamBuffer = {
   chatId: string;
   assistantMessageId: string;
   variantId: string;
-  content: string;
-  reasoning: string;
-  reasoningStepId?: string;
+  events: StreamBufferEvent[];
+};
+
+type ActiveProcessStepRef = {
+  type: "thinking" | "assistant_message" | "tool_execution";
+  id?: string;
 };
 
 type ActiveGeneration = {
@@ -552,6 +569,7 @@ export default function Home() {
     );
   });
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
+  const [collapsedToolStepIds, setCollapsedToolStepIds] = useState<Record<string, boolean>>({});
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
   const chatContentRef = useRef<HTMLDivElement | null>(null);
   const chatBottomRef = useRef<HTMLDivElement | null>(null);
@@ -573,6 +591,7 @@ export default function Home() {
   const isResizingChatRef = useRef(false);
   const isChatScrollableRef = useRef(false);
   const streamBuffersRef = useRef<Record<string, StreamBuffer>>({});
+  const streamActiveProcessStepRefs = useRef<Record<string, ActiveProcessStepRef>>({});
   const streamFlushTimeoutRefs = useRef<Record<string, number>>({});
   const didHydrateRef = useRef(false);
 
@@ -1459,6 +1478,199 @@ ${value}
     );
   }
 
+  function normalizeToolDescription(description: string) {
+    return description
+      .replace(/`+/g, "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .replace(/[.!?]+$/g, "");
+  }
+
+  function toBaseVerbPhrase(value: string) {
+    const replacements: Array<[RegExp, string]> = [
+      [/^gets?\b/i, "get"],
+      [/^fetch(?:es)?\b/i, "fetch"],
+      [/^retrieves?\b/i, "retrieve"],
+      [/^reads?\b/i, "read"],
+      [/^search(?:es)?\b/i, "search"],
+      [/^finds?\b/i, "find"],
+      [/^lists?\b/i, "list"],
+      [/^runs?\b/i, "run"],
+      [/^calculates?\b/i, "calculate"],
+      [/^generates?\b/i, "generate"],
+      [/^creates?\b/i, "create"],
+      [/^writes?\b/i, "write"],
+    ];
+
+    for (const [pattern, replacement] of replacements) {
+      if (pattern.test(value)) return value.replace(pattern, replacement);
+    }
+
+    return value.charAt(0).toLowerCase() + value.slice(1);
+  }
+
+  function buildDeterministicToolDescription(toolCall: ChatToolCall) {
+    const tool = loadedTools.find(
+      (candidate) => candidate.name === toolCall.function.name,
+    );
+    const normalizedDescription = tool?.description
+      ? normalizeToolDescription(tool.description)
+      : "";
+
+    if (normalizedDescription) {
+      const useToolMatch = normalizedDescription.match(
+        /^use (?:this )?(?:tool|command|script|function)?\s*(?:to|for)\s+(.+)$/i,
+      );
+      const action = toBaseVerbPhrase(
+        useToolMatch?.[1]?.trim() || normalizedDescription,
+      );
+      return `I need to ${action}.`;
+    }
+
+    const normalizedName = toolCall.function.name.toLowerCase();
+    if (/(date|time|clock|now)/.test(normalizedName)) {
+      return "I need to get the current date/time information.";
+    }
+    if (/(confluence|page|wiki|doc)/.test(normalizedName)) {
+      return "I need to fetch page contents.";
+    }
+    if (/(web|search|browse|internet|searx|brave)/.test(normalizedName)) {
+      return "I need to search for relevant information.";
+    }
+    if (/(file|read|cat|content)/.test(normalizedName)) {
+      return "I need to read file contents.";
+    }
+    if (/(random|number)/.test(normalizedName)) {
+      return "I need to generate a value.";
+    }
+
+    return "I need to run this tool to continue.";
+  }
+
+  function getEffectiveToolStatus(
+    status: ToolExecutionStatus | undefined,
+    result?: ChatToolResult,
+  ): ToolExecutionStatus {
+    if (result?.isError) return "failed";
+    if (result) return "complete";
+    return status ?? "running";
+  }
+
+  function isToolExecutionCollapsed(stepId: string) {
+    const manualState = collapsedToolStepIds[stepId];
+    if (manualState !== undefined) return manualState;
+
+    return true;
+  }
+
+  function toggleToolExecutionCollapsed(stepId: string, nextCollapsed: boolean) {
+    setCollapsedToolStepIds((current) => ({
+      ...current,
+      [stepId]: nextCollapsed,
+    }));
+  }
+
+  function renderToolStatus(status: ToolExecutionStatus) {
+    if (status === "failed") {
+      return (
+        <span className="inline-flex items-center gap-1 text-red-600 dark:text-red-400">
+          <X className="size-3.5" />
+          Failed
+        </span>
+      );
+    }
+
+    if (status === "complete") {
+      return (
+        <span className="inline-flex items-center gap-1 text-green-600 dark:text-green-400">
+          <Check className="size-3.5" />
+          Complete
+        </span>
+      );
+    }
+
+    return (
+      <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400">
+        <Spinner className="size-3.5" />
+        {status === "pending" ? "Waiting" : "Running"}
+      </span>
+    );
+  }
+
+  function renderToolExecutionBlock({
+    id,
+    toolCall,
+    toolResult,
+    status,
+  }: {
+    id: string;
+    toolCall: ChatToolCall;
+    toolResult?: ChatToolResult;
+    status?: ToolExecutionStatus;
+  }) {
+    const effectiveStatus = getEffectiveToolStatus(status, toolResult);
+    const isCollapsed = isToolExecutionCollapsed(id);
+    const executionPreview = buildToolExecutionPreviewForCall(
+      toolCall,
+      toolResult,
+    );
+    const showToolInput =
+      hasMeaningfulToolInput(toolCall.function.arguments || "") &&
+      (!executionPreview || executionPreview.usesStdin);
+
+    return (
+      <article key={id} className="flex min-w-0 max-w-full justify-start">
+        <div className="w-full min-w-0 max-w-full overflow-hidden rounded-lg border bg-muted/25 px-4 py-3 text-xs leading-5 text-muted-foreground shadow-xs [overflow-wrap:anywhere]">
+          <button
+            type="button"
+            className="w-full rounded-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            onClick={() => toggleToolExecutionCollapsed(id, !isCollapsed)}
+            aria-expanded={!isCollapsed}
+          >
+            <div className="flex min-w-0 items-center justify-between gap-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              <div className="flex min-w-0 items-center gap-2">
+                <Wrench className="size-3.5 shrink-0" />
+                <span className="truncate">{toolCall.function.name}</span>
+                <span className="text-muted-foreground/60">•</span>
+                {renderToolStatus(effectiveStatus)}
+              </div>
+              {isCollapsed ? (
+                <ChevronRight className="size-3.5 shrink-0" />
+              ) : (
+                <ChevronDown className="size-3.5 shrink-0" />
+              )}
+            </div>
+            <div className="mt-2 text-xs normal-case leading-5 tracking-normal text-muted-foreground/85">
+              {buildDeterministicToolDescription(toolCall)}
+            </div>
+          </button>
+
+          {!isCollapsed && (
+            <div className="mt-3 grid gap-3">
+              {renderToolExecutionPreview(executionPreview)}
+              {showToolInput && (
+                <div className="grid gap-1.5">
+                  <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground/80">
+                    Input
+                  </div>
+                  {renderJsonCodeBlock(toolCall.function.arguments || "{}")}
+                </div>
+              )}
+              {toolResult?.content.trim() && (
+                <div className="grid gap-1.5">
+                  <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground/80">
+                    Output
+                  </div>
+                  {renderJsonCodeBlock(toolResult.content)}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </article>
+    );
+  }
+
   function hasMeaningfulToolInput(value: string) {
     const trimmed = value.trim();
     if (!trimmed) return false;
@@ -1574,13 +1786,32 @@ ${value}
 
   async function executeToolCall(
     toolCall: ChatToolCall,
+    options: {
+      chatId: string;
+      assistantMessageId: string;
+      variantId: string;
+      stepId: string;
+    },
   ): Promise<ChatToolResult> {
     const toolName = toolCall.function.name;
+    const tool = loadedTools.find((candidate) => candidate.name === toolName);
 
     try {
       const argsText = toolCall.function.arguments.trim() || "{}";
       const args = JSON.parse(argsText);
-      const result = await getToolsBridge().execute({ name: toolName, args });
+      const result = await runQueuedTool(
+        toolName,
+        tool,
+        () => getToolsBridge().execute({ name: toolName, args }),
+        (status) =>
+          updateAssistantToolStepStatus(
+            options.chatId,
+            options.assistantMessageId,
+            options.variantId,
+            options.stepId,
+            status,
+          ),
+      );
 
       return {
         toolCallId: toolCall.id,
@@ -1647,9 +1878,10 @@ ${value}
     chatId: string,
     assistantMessageId: string,
     variantId: string,
-    patch: Partial<Pick<ChatAssistantVariant, "content" | "reasoning">>,
-    options: { reasoningStepId?: string } = {},
+    events: StreamBufferEvent[],
   ) {
+    if (!events.length) return;
+
     updateChatMessages(
       chatId,
       (currentMessages) =>
@@ -1666,26 +1898,50 @@ ${value}
             variants: message.variants.map((variant) => {
               if (variant.id !== variantId) return variant;
 
-              const nextReasoning = patch.reasoning
-                ? `${variant.reasoning ?? ""}${patch.reasoning}`
-                : variant.reasoning;
-              const nextProcessSteps =
-                patch.reasoning && options.reasoningStepId
-                  ? (variant.processSteps ?? []).map((step) =>
-                      step.id === options.reasoningStepId &&
-                      step.type === "thinking"
-                        ? { ...step, content: step.content + patch.reasoning }
-                        : step,
-                    )
-                  : variant.processSteps;
+              let contentDelta = "";
+              let reasoningDelta = "";
+              const contentDeltasByStepId = new Map<string, string>();
+              const reasoningDeltasByStepId = new Map<string, string>();
+
+              for (const event of events) {
+                if (event.type === "content") {
+                  contentDelta += event.delta;
+                  contentDeltasByStepId.set(
+                    event.assistantMessageStepId,
+                    `${contentDeltasByStepId.get(event.assistantMessageStepId) ?? ""}${event.delta}`,
+                  );
+                } else {
+                  reasoningDelta += event.delta;
+                  reasoningDeltasByStepId.set(
+                    event.reasoningStepId,
+                    `${reasoningDeltasByStepId.get(event.reasoningStepId) ?? ""}${event.delta}`,
+                  );
+                }
+              }
+
+              const processSteps = (variant.processSteps ?? []).map((step) => {
+                if (step.type === "assistant_message") {
+                  const delta = contentDeltasByStepId.get(step.id);
+                  return delta ? { ...step, content: step.content + delta } : step;
+                }
+
+                if (step.type === "thinking") {
+                  const delta = reasoningDeltasByStepId.get(step.id);
+                  return delta ? { ...step, content: step.content + delta } : step;
+                }
+
+                return step;
+              });
 
               return {
                 ...variant,
-                content: patch.content
-                  ? variant.content + patch.content
+                content: contentDelta
+                  ? variant.content + contentDelta
                   : variant.content,
-                reasoning: nextReasoning,
-                processSteps: nextProcessSteps,
+                reasoning: reasoningDelta
+                  ? `${variant.reasoning ?? ""}${reasoningDelta}`
+                  : variant.reasoning,
+                processSteps,
               };
             }),
           };
@@ -1704,23 +1960,19 @@ ${value}
 
   function flushBufferedAssistantVariant(bufferKey: string) {
     const buffered = streamBuffersRef.current[bufferKey];
-    if (!buffered || (!buffered.content && !buffered.reasoning)) return;
+    if (!buffered || buffered.events.length === 0) return;
 
+    const events = buffered.events;
     streamBuffersRef.current[bufferKey] = {
       ...buffered,
-      content: "",
-      reasoning: "",
+      events: [],
     };
 
     appendToAssistantVariant(
       buffered.chatId,
       buffered.assistantMessageId,
       buffered.variantId,
-      {
-        content: buffered.content || undefined,
-        reasoning: buffered.reasoning || undefined,
-      },
-      { reasoningStepId: buffered.reasoningStepId },
+      events,
     );
   }
 
@@ -1746,30 +1998,33 @@ ${value}
     chatId: string,
     assistantMessageId: string,
     variantId: string,
-    patch: Partial<Pick<ChatAssistantVariant, "content" | "reasoning">>,
-    options: { reasoningStepId?: string } = {},
+    event: StreamBufferEvent,
   ) {
     const bufferKey = getStreamBufferKey(chatId, assistantMessageId, variantId);
     const buffered = streamBuffersRef.current[bufferKey] ?? {
       chatId,
       assistantMessageId,
       variantId,
-      content: "",
-      reasoning: "",
+      events: [],
     };
 
     streamBuffersRef.current[bufferKey] = {
       ...buffered,
-      content: patch.content
-        ? buffered.content + patch.content
-        : buffered.content,
-      reasoning: patch.reasoning
-        ? buffered.reasoning + patch.reasoning
-        : buffered.reasoning,
-      reasoningStepId: options.reasoningStepId ?? buffered.reasoningStepId,
+      events: [...buffered.events, event],
     };
 
     scheduleBufferedAssistantFlush(bufferKey);
+  }
+
+  function setActiveStreamProcessStep(
+    bufferKey: string,
+    step: ActiveProcessStepRef,
+  ) {
+    streamActiveProcessStepRefs.current[bufferKey] = step;
+  }
+
+  function getActiveStreamProcessStep(bufferKey: string) {
+    return streamActiveProcessStepRefs.current[bufferKey];
   }
 
   function updateAssistantVariant(
@@ -1819,6 +2074,75 @@ ${value}
       }),
       { touch: false },
     );
+  }
+
+  function updateAssistantToolStepStatus(
+    chatId: string,
+    assistantMessageId: string,
+    variantId: string,
+    stepId: string,
+    status: ToolExecutionStatus,
+  ) {
+    updateAssistantVariant(
+      chatId,
+      assistantMessageId,
+      variantId,
+      (variant) => ({
+        ...variant,
+        processSteps: (variant.processSteps ?? []).map((step) =>
+          step.id === stepId && step.type === "tool_execution"
+            ? { ...step, status }
+            : step,
+        ),
+      }),
+      { touch: false },
+    );
+  }
+
+  function ensureAssistantMessageProcessStep(
+    chatId: string,
+    assistantMessageId: string,
+    variantId: string,
+    bufferKey: string,
+  ) {
+    const activeStep = getActiveStreamProcessStep(bufferKey);
+    if (activeStep?.type === "assistant_message" && activeStep.id) {
+      return activeStep.id;
+    }
+
+    const assistantMessageStepId = createId();
+    appendAssistantProcessSteps(chatId, assistantMessageId, variantId, [
+      { id: assistantMessageStepId, type: "assistant_message", content: "" },
+    ]);
+    setActiveStreamProcessStep(bufferKey, {
+      type: "assistant_message",
+      id: assistantMessageStepId,
+    });
+
+    return assistantMessageStepId;
+  }
+
+  function ensureThinkingProcessStep(
+    chatId: string,
+    assistantMessageId: string,
+    variantId: string,
+    bufferKey: string,
+  ) {
+    const activeStep = getActiveStreamProcessStep(bufferKey);
+    if (activeStep?.type === "thinking" && activeStep.id) {
+      return activeStep.id;
+    }
+
+    const thinkingStepId = createId();
+    appendAssistantProcessSteps(chatId, assistantMessageId, variantId, [
+      { id: thinkingStepId, type: "thinking", content: "" },
+    ]);
+    setActiveStreamProcessStep(bufferKey, {
+      type: "thinking",
+      id: thinkingStepId,
+    });
+
+    return thinkingStepId;
   }
 
   function selectAssistantVariant(messageId: string, variantIndex: number) {
@@ -2165,11 +2489,29 @@ ${value}
         generation.variantId,
       ),
     );
-    setVisualFlushRequests((current) => ({
-      ...current,
-      [generation.assistantMessageId]:
-        (current[generation.assistantMessageId] ?? 0) + 1,
-    }));
+    const chat = chats.find((item) => item.id === chatId);
+    const assistantMessage = chat?.messages.find(
+      (message): message is Extract<ChatMessage, { role: "assistant" }> =>
+        message.id === generation.assistantMessageId &&
+        message.role === "assistant",
+    );
+    const activeVariant = assistantMessage
+      ? getActiveVariant(assistantMessage)
+      : undefined;
+    const visualFlushKeys = [
+      generation.assistantMessageId,
+      ...(activeVariant?.processSteps ?? []).map(
+        (step) => `${generation.assistantMessageId}:${step.id}`,
+      ),
+    ];
+
+    setVisualFlushRequests((current) => {
+      const next = { ...current };
+      for (const key of visualFlushKeys) {
+        next[key] = (next[key] ?? 0) + 1;
+      }
+      return next;
+    });
     generation.controller.abort();
   }
 
@@ -2245,6 +2587,12 @@ ${value}
 
     const appendToolCallsToVariant = (toolCalls: ChatToolCall[]) => {
       toolCallsForContext = [...toolCallsForContext, ...toolCalls];
+      const toolSteps = toolCalls.map((toolCall) => ({
+        id: createId(),
+        type: "tool_execution" as const,
+        status: "pending" as const,
+        toolCall,
+      }));
 
       updateAssistantVariant(
         chatId,
@@ -2253,16 +2601,13 @@ ${value}
         (variant) => ({
           ...variant,
           toolCalls: [...(variant.toolCalls ?? []), ...toolCalls],
-          processSteps: [
-            ...(variant.processSteps ?? []),
-            ...toolCalls.map((toolCall) => ({
-              id: createId(),
-              type: "tool_execution" as const,
-              toolCall,
-            })),
-          ],
+          processSteps: [...(variant.processSteps ?? []), ...toolSteps],
         }),
         { touch: false },
+      );
+
+      return new Map(
+        toolSteps.map((step) => [step.toolCall.id, step.id] as const),
       );
     };
 
@@ -2280,7 +2625,7 @@ ${value}
             ...variant,
             toolResults: [...existingResults, ...toolResults],
             processSteps: (variant.processSteps ?? []).map((step) => {
-              if (step.type !== "tool_execution" || step.toolResult) {
+              if (step.type !== "tool_execution") {
                 return step;
               }
 
@@ -2288,13 +2633,25 @@ ${value}
                 (item) => item.toolCallId === step.toolCall.id,
               );
 
-              return toolResult ? { ...step, toolResult } : step;
+              return toolResult
+                ? {
+                    ...step,
+                    status: toolResult.isError ? "failed" : "complete",
+                    toolResult,
+                  }
+                : step;
             }),
           };
         },
         { touch: false },
       );
     };
+
+    const bufferKey = getStreamBufferKey(
+      chatId,
+      assistantMessageId,
+      variantId,
+    );
 
     const buildContinuationMessages = (): ChatMessage[] => [
       ...contextMessages,
@@ -2335,6 +2692,10 @@ ${value}
         appendAssistantProcessSteps(chatId, assistantMessageId, variantId, [
           { id: thinkingStepId, type: "thinking", content: "" },
         ]);
+        setActiveStreamProcessStep(bufferKey, {
+          type: "thinking",
+          id: thinkingStepId,
+        });
 
         if (chatId === activeChatId) {
           scheduleStickyScrollToBottom({
@@ -2351,12 +2712,20 @@ ${value}
           tools: getEnabledTools(),
           onContentDelta: (delta) => {
             accumulatedContent += delta;
+            const assistantMessageStepId = ensureAssistantMessageProcessStep(
+              chatId,
+              assistantMessageId,
+              variantId,
+              bufferKey,
+            );
             appendBufferedAssistantVariant(
               chatId,
               assistantMessageId,
               variantId,
               {
-                content: delta,
+                type: "content",
+                delta,
+                assistantMessageStepId,
               },
             );
 
@@ -2366,14 +2735,36 @@ ${value}
           },
           onReasoningDelta: (delta) => {
             accumulatedReasoning += delta;
+
+            const activeStep = getActiveStreamProcessStep(bufferKey);
+            const isWhitespaceOnlyReasoning = delta.trim().length === 0;
+
+            // Some OpenAI-compatible providers emit whitespace-only reasoning
+            // deltas in the middle of normal content streaming. Those invisible
+            // reasoning chunks should not split one visible assistant answer into
+            // multiple message blocks.
+            if (
+              isWhitespaceOnlyReasoning &&
+              activeStep?.type !== "thinking"
+            ) {
+              return;
+            }
+
+            const reasoningStepId = ensureThinkingProcessStep(
+              chatId,
+              assistantMessageId,
+              variantId,
+              bufferKey,
+            );
             appendBufferedAssistantVariant(
               chatId,
               assistantMessageId,
               variantId,
               {
-                reasoning: delta,
+                type: "reasoning",
+                delta,
+                reasoningStepId,
               },
-              { reasoningStepId: thinkingStepId },
             );
 
             if (chatId === activeChatId) {
@@ -2384,9 +2775,7 @@ ${value}
 
         lastStreamResult = streamResult;
 
-        flushBufferedAssistantVariant(
-          getStreamBufferKey(chatId, assistantMessageId, variantId),
-        );
+        flushBufferedAssistantVariant(bufferKey);
 
         const toolCalls = streamResult.toolCalls ?? [];
         if (!toolCalls.length) break;
@@ -2397,7 +2786,8 @@ ${value}
           );
         }
 
-        appendToolCallsToVariant(toolCalls);
+        const toolStepIdsByToolCallId = appendToolCallsToVariant(toolCalls);
+        setActiveStreamProcessStep(bufferKey, { type: "tool_execution" });
 
         if (chatId === activeChatId) {
           scheduleStickyScrollToBottom({
@@ -2406,7 +2796,16 @@ ${value}
           });
         }
 
-        const toolResults = await Promise.all(toolCalls.map(executeToolCall));
+        const toolResults = await Promise.all(
+          toolCalls.map((toolCall) =>
+            executeToolCall(toolCall, {
+              chatId,
+              assistantMessageId,
+              variantId,
+              stepId: toolStepIdsByToolCallId.get(toolCall.id) ?? toolCall.id,
+            }),
+          ),
+        );
         applyToolResultsToVariant(toolResults);
 
         if (chatId === activeChatId) {
@@ -2420,18 +2819,14 @@ ${value}
         currentUserMessage = undefined;
       }
 
-      flushBufferedAssistantVariant(
-        getStreamBufferKey(chatId, assistantMessageId, variantId),
-      );
+      flushBufferedAssistantVariant(bufferKey);
 
       markVariantDone(lastStreamResult ?? {});
     } catch (error) {
       const wasAborted =
         error instanceof DOMException && error.name === "AbortError";
 
-      flushBufferedAssistantVariant(
-        getStreamBufferKey(chatId, assistantMessageId, variantId),
-      );
+      flushBufferedAssistantVariant(bufferKey);
 
       const durationMs = Math.max(1, performance.now() - responseStartedAtMs);
 
@@ -2447,16 +2842,30 @@ ${value}
         variantId,
         (variant) => {
           const currentContent = variant.content.trim();
-          const content = wasAborted
-            ? variant.content || "Generation stopped."
+          const appendedContent = wasAborted
+            ? variant.content
+              ? ""
+              : "Generation stopped."
             : currentContent
-              ? `${variant.content}\n\nError: ${labelForError(error)}`
+              ? `\n\nError: ${labelForError(error)}`
               : `Error: ${labelForError(error)}`;
+          const content = `${variant.content}${appendedContent}`;
+          const processSteps = appendedContent.trim()
+            ? [
+                ...(variant.processSteps ?? []),
+                {
+                  id: createId(),
+                  type: "assistant_message" as const,
+                  content: appendedContent,
+                },
+              ]
+            : variant.processSteps;
 
           return {
             ...variant,
             status: wasAborted ? "done" : "error",
             content,
+            processSteps,
             metrics: {
               startedAt:
                 variant.metrics?.startedAt ??
@@ -2473,6 +2882,8 @@ ${value}
         },
       );
     } finally {
+      delete streamActiveProcessStepRefs.current[bufferKey];
+      delete streamBuffersRef.current[bufferKey];
       const currentGeneration = generationRefs.current[chatId];
       if (currentGeneration?.controller === controller) {
         delete generationRefs.current[chatId];
@@ -3335,6 +3746,15 @@ ${value}
                   const toolResults = activeVariant?.toolResults ?? [];
                   const processSteps = activeVariant?.processSteps ?? [];
                   const hasProcessSteps = processSteps.length > 0;
+                  const assistantMessageProcessSteps = processSteps.filter(
+                    (step) => step.type === "assistant_message",
+                  );
+                  const hasInlineAssistantMessageSteps =
+                    assistantMessageProcessSteps.length > 0;
+                  const lastInlineAssistantMessageStepId =
+                    assistantMessageProcessSteps[
+                      assistantMessageProcessSteps.length - 1
+                    ]?.id;
                   const status = activeVariant?.status;
                   const metrics = activeVariant?.metrics;
                   const isVisuallyStreaming = visualStreamingMessageIds.some(
@@ -3361,16 +3781,15 @@ ${value}
                       {message.role === "assistant" && hasProcessSteps && (
                         <div className="grid gap-2">
                           {processSteps.map((step) => {
+                            const isLatestProcessStep =
+                              processSteps[processSteps.length - 1]?.id ===
+                              step.id;
+
                             if (step.type === "thinking") {
                               if (!step.content.trim()) return null;
 
-                              const isLatestProcessStep =
-                                processSteps[processSteps.length - 1]?.id ===
-                                step.id;
                               const isThinkingStreaming =
-                                status === "streaming" &&
-                                isLatestProcessStep &&
-                                !content;
+                                status === "streaming" && isLatestProcessStep;
 
                               return (
                                 <article
@@ -3392,7 +3811,7 @@ ${value}
                                             `${message.id}:${step.id}`
                                           ] ?? 0
                                         }
-                                        forceInstant={Boolean(content)}
+                                        forceInstant={!isThinkingStreaming}
                                         onVisualProgress={() =>
                                           handleAssistantVisualProgress(
                                             activeChat?.id ?? "",
@@ -3413,80 +3832,85 @@ ${value}
                               );
                             }
 
-                            const result = step.toolResult;
-                            const executionPreview =
-                              buildToolExecutionPreviewForCall(
-                                step.toolCall,
-                                result,
-                              );
-                            const showToolInput =
-                              hasMeaningfulToolInput(
-                                step.toolCall.function.arguments || "",
-                              ) &&
-                              (!executionPreview || executionPreview.usesStdin);
+                            if (step.type === "assistant_message") {
+                              if (!step.content.trim()) return null;
 
-                            return (
-                              <article
-                                key={step.id}
-                                className="flex min-w-0 max-w-full justify-start"
-                              >
-                                <div className="w-full min-w-0 max-w-full overflow-hidden rounded-lg border bg-muted/25 px-4 py-3 text-xs leading-5 text-muted-foreground shadow-xs [overflow-wrap:anywhere]">
-                                  <div className="mb-3 flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                                    <Wrench className="size-3.5" />
-                                    <span>{step.toolCall.function.name}</span>
-                                    <span className="text-muted-foreground/60">
-                                      •
-                                    </span>
-                                    {result ? (
-                                      <span
-                                        className={cn(
-                                          "inline-flex items-center gap-1",
-                                          result.isError
-                                            ? "text-red-600 dark:text-red-400"
-                                            : "text-green-600 dark:text-green-400",
-                                        )}
+                              const isAssistantBlockStreaming =
+                                status === "streaming" && isLatestProcessStep;
+                              const blockCopyId = `${message.id}:${step.id}`;
+                              const isLastAssistantMessageStep =
+                                step.id === lastInlineAssistantMessageStepId;
+
+                              return (
+                                <div key={step.id} className="grid gap-1">
+                                  <article
+                                    className="flex min-w-0 max-w-full justify-start"
+                                    onContextMenu={(event) =>
+                                      captureMessageContext(event, message.id)
+                                    }
+                                  >
+                                    <div className="min-w-0 max-w-full overflow-visible rounded-lg px-0 py-1 text-sm leading-6 text-card-foreground shadow-xs [overflow-wrap:anywhere]">
+                                      <SmoothAssistantMessageContent
+                                        content={step.content}
+                                        isApiStreaming={isAssistantBlockStreaming}
+                                        flushVersion={
+                                          visualFlushRequests[
+                                            `${message.id}:${step.id}`
+                                          ] ?? 0
+                                        }
+                                        onVisualProgress={() =>
+                                          handleAssistantVisualProgress(
+                                            activeChat?.id ?? "",
+                                          )
+                                        }
+                                        onVisualStreamingChange={(
+                                          isStreaming,
+                                        ) =>
+                                          handleAssistantVisualStreamingChange(
+                                            `${message.id}:${step.id}`,
+                                            isStreaming,
+                                          )
+                                        }
+                                      />
+                                    </div>
+                                  </article>
+                                  {!isLastAssistantMessageStep && (
+                                    <div className="flex justify-end">
+                                      <TooltipIconButton
+                                        type="button"
+                                        variant="ghost"
+                                        size="icon-sm"
+                                        label={
+                                          copiedMessageId === blockCopyId
+                                            ? "Copied"
+                                            : "Copy block"
+                                        }
+                                        onClick={() =>
+                                          copyMessageContent(
+                                            blockCopyId,
+                                            step.content,
+                                          )
+                                        }
+                                        disabled={!step.content.trim()}
                                       >
-                                        {result.isError ? (
-                                          <X className="size-3.5" />
+                                        {copiedMessageId === blockCopyId ? (
+                                          <Check className="size-3" />
                                         ) : (
-                                          <Check className="size-3.5" />
+                                          <Copy className="size-3" />
                                         )}
-                                        {result.isError ? "Failed" : "Complete"}
-                                      </span>
-                                    ) : (
-                                      <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400">
-                                        <Spinner className="size-3.5" />
-                                        Running
-                                      </span>
-                                    )}
-                                  </div>
-                                  <div className="grid gap-3">
-                                    {renderToolExecutionPreview(
-                                      executionPreview,
-                                    )}
-                                    {showToolInput && (
-                                      <div className="grid gap-1.5">
-                                        <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground/80">
-                                          Input
-                                        </div>
-                                        {renderJsonCodeBlock(
-                                          step.toolCall.function.arguments ||
-                                            "{}",
-                                        )}
-                                      </div>
-                                    )}
-                                    {result?.content.trim() && (
-                                      <div className="grid gap-1.5">
-                                        <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground/80">
-                                          Output
-                                        </div>
-                                        {renderJsonCodeBlock(result.content)}
-                                      </div>
-                                    )}
-                                  </div>
+                                      </TooltipIconButton>
+                                    </div>
+                                  )}
                                 </div>
-                              </article>
-                            );
+                              );
+                            }
+
+                            return renderToolExecutionBlock({
+                              id: step.id,
+                              toolCall: step.toolCall,
+                              toolResult: step.toolResult,
+                              status: step.status,
+                            });
                           })}
                         </div>
                       )}
@@ -3539,80 +3963,17 @@ ${value}
                               const result = toolResults.find(
                                 (item) => item.toolCallId === toolCall.id,
                               );
-                              const executionPreview =
-                                buildToolExecutionPreviewForCall(
-                                  toolCall,
-                                  result,
-                                );
-                              const showToolInput =
-                                hasMeaningfulToolInput(
-                                  toolCall.function.arguments || "",
-                                ) &&
-                                (!executionPreview ||
-                                  executionPreview.usesStdin);
 
-                              return (
-                                <article
-                                  key={toolCall.id}
-                                  className="flex min-w-0 max-w-full justify-start"
-                                >
-                                  <div className="w-full min-w-0 max-w-full overflow-hidden rounded-lg border bg-muted/25 px-4 py-3 text-xs leading-5 text-muted-foreground shadow-xs [overflow-wrap:anywhere]">
-                                    <div className="mb-3 flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                                      <Wrench className="size-3.5" />
-                                      <span>{toolCall.function.name}</span>
-                                      <span className="text-muted-foreground/60">
-                                        •
-                                      </span>
-                                      {result ? (
-                                        <span
-                                          className={cn(
-                                            "inline-flex items-center gap-1",
-                                            result.isError
-                                              ? "text-red-600 dark:text-red-400"
-                                              : "text-green-600 dark:text-green-400",
-                                          )}
-                                        >
-                                          {result.isError ? (
-                                            <X className="size-3.5" />
-                                          ) : (
-                                            <Check className="size-3.5" />
-                                          )}
-                                          {result.isError
-                                            ? "Failed"
-                                            : "Complete"}
-                                        </span>
-                                      ) : (
-                                        <span className="text-muted-foreground/80">
-                                          Running
-                                        </span>
-                                      )}
-                                    </div>
-                                    <div className="grid gap-3">
-                                      {renderToolExecutionPreview(
-                                        executionPreview,
-                                      )}
-                                      {showToolInput && (
-                                        <div className="grid gap-1.5">
-                                          <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground/80">
-                                            Input
-                                          </div>
-                                          {renderJsonCodeBlock(
-                                            toolCall.function.arguments || "{}",
-                                          )}
-                                        </div>
-                                      )}
-                                      {result && (
-                                        <div className="grid gap-1.5">
-                                          <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground/80">
-                                            Output
-                                          </div>
-                                          {renderJsonCodeBlock(result.content)}
-                                        </div>
-                                      )}
-                                    </div>
-                                  </div>
-                                </article>
-                              );
+                              return renderToolExecutionBlock({
+                                id: toolCall.id,
+                                toolCall,
+                                toolResult: result,
+                                status: result
+                                  ? result.isError
+                                    ? "failed"
+                                    : "complete"
+                                  : "running",
+                              });
                             })}
                           </div>
                         )}
@@ -3631,9 +3992,9 @@ ${value}
                           }
                         />
                       ) : (
-                        (content ||
-                          message.role !== "assistant" ||
-                          status !== "streaming") && (
+                        (message.role === "user" ||
+                          (!hasInlineAssistantMessageSteps &&
+                            (content || status !== "streaming"))) && (
                           <>
                             <article
                               className={cn(
