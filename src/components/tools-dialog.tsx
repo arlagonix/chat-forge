@@ -25,6 +25,7 @@ import { Separator } from "@/components/ui/separator";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 import { createId, labelForError } from "@/lib/ai-chat/chat-utils";
+import { runQueuedTool } from "@/lib/ai-chat/tool-execution-queue";
 import {
   deleteTool as deleteStoredTool,
   loadTools,
@@ -52,12 +53,14 @@ type ToolDraft = {
   cwd: string;
   input: "none" | "json-stdin";
   timeoutMs: string;
+  maxConcurrentRuns: string;
+  delayBetweenRunsMs: string;
 };
 
 type ToolTestState = {
   argsText: string;
   result: ToolCommandResult | null;
-  status?: "running";
+  status?: "pending" | "running";
   runId?: string;
 };
 
@@ -96,6 +99,8 @@ function createBlankToolDraft(): ToolDraft {
     cwd: "",
     input: "json-stdin",
     timeoutMs: "30000",
+    maxConcurrentRuns: "",
+    delayBetweenRunsMs: "0",
   };
 }
 
@@ -111,6 +116,9 @@ function toolToDraft(tool: LoadedToolInfo): ToolDraft {
     cwd: tool.cwd ?? "",
     input: tool.input,
     timeoutMs: String(tool.timeoutMs),
+    maxConcurrentRuns:
+      tool.maxConcurrentRuns === undefined ? "" : String(tool.maxConcurrentRuns),
+    delayBetweenRunsMs: String(tool.delayBetweenRunsMs ?? 0),
   };
 }
 
@@ -401,6 +409,8 @@ function draftToTool(draft: ToolDraft): LoadedToolInfo {
 
   const args = parseArgsLines(draft.argsText);
   const timeoutMs = Number(draft.timeoutMs);
+  const maxConcurrentRuns = Number(draft.maxConcurrentRuns);
+  const delayBetweenRunsMs = Number(draft.delayBetweenRunsMs);
 
   return {
     id: draft.id,
@@ -416,6 +426,16 @@ function draftToTool(draft: ToolDraft): LoadedToolInfo {
       Number.isFinite(timeoutMs) && timeoutMs > 0
         ? Math.round(timeoutMs)
         : 30000,
+    maxConcurrentRuns:
+      draft.maxConcurrentRuns.trim() &&
+      Number.isFinite(maxConcurrentRuns) &&
+      maxConcurrentRuns > 0
+        ? Math.floor(maxConcurrentRuns)
+        : undefined,
+    delayBetweenRunsMs:
+      Number.isFinite(delayBetweenRunsMs) && delayBetweenRunsMs > 0
+        ? Math.round(delayBetweenRunsMs)
+        : 0,
   };
 }
 
@@ -494,7 +514,9 @@ export const ToolsDialog = memo(function ToolsDialog({
     : undefined;
   const currentToolTestArgsText = currentToolTestState?.argsText ?? "{}";
   const currentToolTestResult = currentToolTestState?.result ?? null;
-  const isTestingCurrentTool = currentToolTestState?.status === "running";
+  const isTestingCurrentTool =
+    currentToolTestState?.status === "pending" ||
+    currentToolTestState?.status === "running";
   const currentToolTestExecutionPreview =
     currentToolTestResult?.execution ??
     (isTestingCurrentTool && toolDraft
@@ -667,7 +689,28 @@ export const ToolsDialog = memo(function ToolsDialog({
     try {
       validateToolDraft(tool);
       const args = parseToolArgumentsText(argsText);
-      const result = await getToolsBridge().test({ tool, args });
+      const result = await runQueuedTool(
+        tool.name,
+        tool,
+        () => getToolsBridge().test({ tool, args }),
+        (status) => {
+          setToolTestStatesByToolId((current) => {
+            const previous = current[tool.id] ?? { argsText, result: null };
+            if (previous.runId && previous.runId !== runId) return current;
+
+            return {
+              ...current,
+              [tool.id]: {
+                ...previous,
+                argsText: previous.argsText ?? argsText,
+                result: null,
+                status,
+                runId,
+              },
+            };
+          });
+        },
+      );
       finish(result);
     } catch (error) {
       finish({
@@ -958,6 +1001,50 @@ export const ToolsDialog = memo(function ToolsDialog({
                   </div>
                 </div>
 
+                <div className="grid gap-3 rounded-lg border bg-muted/20 p-3">
+                  <div>
+                    <Label>Execution limits</Label>
+                    <p className="text-xs leading-5 text-muted-foreground">
+                      Leave concurrency empty for the current parallel behavior.
+                      Use 1 plus a delay for rate-limited tools.
+                    </p>
+                  </div>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="grid gap-2">
+                      <Label htmlFor="tool-max-concurrent-runs">
+                        Max concurrent runs
+                      </Label>
+                      <Input
+                        id="tool-max-concurrent-runs"
+                        value={toolDraft.maxConcurrentRuns}
+                        onChange={(event) =>
+                          updateToolDraft({
+                            maxConcurrentRuns: event.target.value,
+                          })
+                        }
+                        inputMode="numeric"
+                        placeholder="Empty = unlimited"
+                      />
+                    </div>
+                    <div className="grid gap-2">
+                      <Label htmlFor="tool-delay-between-runs">
+                        Delay between runs, ms
+                      </Label>
+                      <Input
+                        id="tool-delay-between-runs"
+                        value={toolDraft.delayBetweenRunsMs}
+                        onChange={(event) =>
+                          updateToolDraft({
+                            delayBetweenRunsMs: event.target.value,
+                          })
+                        }
+                        inputMode="numeric"
+                        placeholder="0"
+                      />
+                    </div>
+                  </div>
+                </div>
+
                 <div className="grid gap-2">
                   <Label htmlFor="tool-cwd">Working directory</Label>
                   <Input
@@ -997,7 +1084,11 @@ export const ToolsDialog = memo(function ToolsDialog({
                         onClick={runCurrentToolTest}
                         disabled={isTestingCurrentTool}
                       >
-                        {isTestingCurrentTool ? "Running..." : "Run test"}
+                        {currentToolTestState?.status === "pending"
+                          ? "Waiting..."
+                          : isTestingCurrentTool
+                            ? "Running..."
+                            : "Run test"}
                       </Button>
                     </div>
                   </div>
@@ -1022,7 +1113,11 @@ export const ToolsDialog = memo(function ToolsDialog({
                               : "Completed"}
                           </span>
                         ) : (
-                          <span>Running command</span>
+                          <span>
+                            {currentToolTestState?.status === "pending"
+                              ? "Waiting for execution slot"
+                              : "Running command"}
+                          </span>
                         )}
                         {currentToolTestResult ? (
                           currentToolTestResult.exitCode !== 0 ||
@@ -1040,7 +1135,9 @@ export const ToolsDialog = memo(function ToolsDialog({
                         ) : (
                           <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400">
                             <Spinner className="size-3.5" />
-                            Running
+                            {currentToolTestState?.status === "pending"
+                              ? "Waiting"
+                              : "Running"}
                           </span>
                         )}
                       </div>

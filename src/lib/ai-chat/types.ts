@@ -78,6 +78,8 @@ export type ChatToolResult = {
   execution?: ToolExecutionPreview;
 };
 
+export type ToolExecutionStatus = "pending" | "running" | "complete" | "failed";
+
 export type ChatAssistantProcessStep =
   | {
       id: string;
@@ -86,7 +88,13 @@ export type ChatAssistantProcessStep =
     }
   | {
       id: string;
+      type: "assistant_message";
+      content: string;
+    }
+  | {
+      id: string;
       type: "tool_execution";
+      status?: ToolExecutionStatus;
       toolCall: ChatToolCall;
       toolResult?: ChatToolResult;
     };
@@ -171,6 +179,8 @@ export type ToolDefinition = {
   cwd?: string;
   input: ToolInputMode;
   timeoutMs: number;
+  maxConcurrentRuns?: number;
+  delayBetweenRunsMs?: number;
 };
 
 export type LoadedToolInfo = ToolDefinition;

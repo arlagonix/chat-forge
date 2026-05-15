@@ -76,6 +76,8 @@ type ToolDefinition = {
   cwd?: string;
   input: ToolInputMode;
   timeoutMs: number;
+  maxConcurrentRuns?: number;
+  delayBetweenRunsMs?: number;
 };
 
 type ToolExecutionPreview = {
@@ -346,6 +348,18 @@ function normalizeTimeoutMs(value: unknown) {
     : DEFAULT_TOOL_TIMEOUT_MS;
 }
 
+function normalizeOptionalPositiveInteger(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? Math.floor(value)
+    : undefined;
+}
+
+function normalizeNonNegativeInteger(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? Math.round(value)
+    : 0;
+}
+
 function normalizeToolDefinition(candidate: unknown): ToolDefinition {
   const source = isPlainObject(candidate) ? candidate : {};
   const id = safeString(source.id).trim() || `tool-${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -367,6 +381,8 @@ function normalizeToolDefinition(candidate: unknown): ToolDefinition {
     cwd: cwd || undefined,
     input: normalizeToolInputMode(source.input),
     timeoutMs: normalizeTimeoutMs(source.timeoutMs),
+    maxConcurrentRuns: normalizeOptionalPositiveInteger(source.maxConcurrentRuns),
+    delayBetweenRunsMs: normalizeNonNegativeInteger(source.delayBetweenRunsMs),
   };
 }
 
