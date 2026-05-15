@@ -11,6 +11,7 @@ import {
   Eye,
   EyeOff,
   Info,
+  Search,
   MessageSquareText,
   Moon,
   MoreVertical,
@@ -544,6 +545,16 @@ type MessageContextMenuState = {
   selectedText: string;
 };
 
+type FindInPageResultState = {
+  activeMatchOrdinal: number;
+  matches: number;
+};
+
+const EMPTY_FIND_RESULT: FindInPageResultState = {
+  activeMatchOrdinal: 0,
+  matches: 0,
+};
+
 export default function Home() {
   const [mounted, setMounted] = useState(false);
   const [providersState, setProvidersState] = useState<ProvidersState>(() => ({
@@ -581,6 +592,10 @@ export default function Home() {
   const [modelSearchValue, setModelSearchValue] = useState("");
   const [messageContextMenu, setMessageContextMenu] =
     useState<MessageContextMenuState | null>(null);
+  const [findBarOpen, setFindBarOpen] = useState(false);
+  const [findQuery, setFindQuery] = useState("");
+  const [findResult, setFindResult] =
+    useState<FindInPageResultState>(EMPTY_FIND_RESULT);
   const [isSidebarModelComboboxOpen, setIsSidebarModelComboboxOpen] =
     useState(false);
   const [sidebarModelSearchValue, setSidebarModelSearchValue] = useState("");
@@ -607,6 +622,7 @@ export default function Home() {
   const messageElementRefs = useRef(new Map<string, HTMLDivElement>());
   const pendingChatBottomScrollRef = useRef(false);
   const chatComposerRef = useRef<ChatComposerHandle | null>(null);
+  const findInputRef = useRef<HTMLInputElement | null>(null);
   const generationRefs = useRef<Record<string, ActiveGeneration>>({});
   const modelLoadStatusTimerRef = useRef<number | null>(null);
   const scrollFrameRef = useRef<number | null>(null);
@@ -635,6 +651,70 @@ export default function Home() {
   useEffect(() => {
     document.title = APP_TITLE;
   }, []);
+
+  useEffect(() => {
+    return window.chatForgeFind?.onFoundInPage((result) => {
+      setFindResult({
+        activeMatchOrdinal: result.activeMatchOrdinal,
+        matches: result.matches,
+      });
+    });
+  }, []);
+
+  useEffect(() => {
+    function handleFindShortcut(event: KeyboardEvent) {
+      const isFindShortcut =
+        (event.ctrlKey || event.metaKey) &&
+        !event.altKey &&
+        event.key.toLowerCase() === "f";
+
+      if (!isFindShortcut) return;
+
+      event.preventDefault();
+
+      const selectedText = window.getSelection()?.toString().trim();
+      if (selectedText) {
+        setFindQuery(selectedText);
+      }
+
+      setFindBarOpen(true);
+      window.requestAnimationFrame(() => {
+        findInputRef.current?.focus();
+        findInputRef.current?.select();
+      });
+    }
+
+    document.addEventListener("keydown", handleFindShortcut);
+
+    return () => {
+      document.removeEventListener("keydown", handleFindShortcut);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!findBarOpen) {
+      void window.chatForgeFind?.stopFindInPage("clearSelection");
+      setFindResult(EMPTY_FIND_RESULT);
+      return;
+    }
+
+    window.requestAnimationFrame(() => {
+      findInputRef.current?.focus();
+      findInputRef.current?.select();
+    });
+  }, [findBarOpen]);
+
+  useEffect(() => {
+    if (!findBarOpen) return;
+
+    const timeout = window.setTimeout(() => {
+      runFindInPage(findQuery, { forward: true, findNext: false });
+    }, 80);
+
+    return () => {
+      window.clearTimeout(timeout);
+    };
+  }, [findBarOpen, findQuery]);
 
   useEffect(() => {
     window.localStorage.setItem(
@@ -674,6 +754,43 @@ export default function Home() {
       document.removeEventListener("keydown", handleDocumentKeyDown);
     };
   }, [messageContextMenu]);
+
+  function runFindInPage(
+    query: string,
+    options: { forward?: boolean; findNext?: boolean } = {},
+  ) {
+    const trimmedQuery = query.trim();
+
+    if (!trimmedQuery) {
+      void window.chatForgeFind?.stopFindInPage("clearSelection");
+      setFindResult(EMPTY_FIND_RESULT);
+      return;
+    }
+
+    if (!window.chatForgeFind) {
+      setFindResult(EMPTY_FIND_RESULT);
+      return;
+    }
+
+    void window.chatForgeFind.findInPage({
+      text: trimmedQuery,
+      forward: options.forward ?? true,
+      findNext: options.findNext ?? false,
+    });
+  }
+
+  function findNextMatch(forward: boolean) {
+    if (!findQuery.trim()) {
+      findInputRef.current?.focus();
+      return;
+    }
+
+    runFindInPage(findQuery, { forward, findNext: true });
+  }
+
+  function closeFindBar() {
+    setFindBarOpen(false);
+  }
 
   function focusDraftTextarea() {
     chatComposerRef.current?.focus();
@@ -3719,6 +3836,65 @@ ${value}
       ) : null}
 
       <section className="relative grid min-h-0 flex-1 grid-rows-[1fr_auto] bg-background">
+        {findBarOpen && (
+          <div className="absolute right-3 top-3 z-40 flex max-w-[calc(100%-1.5rem)] items-center gap-1 rounded-lg border bg-card/95 p-1.5 text-card-foreground shadow-md backdrop-blur">
+            <Search className="ml-1 size-4 shrink-0 text-muted-foreground" />
+            <Input
+              ref={findInputRef}
+              value={findQuery}
+              onChange={(event) => setFindQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  findNextMatch(!event.shiftKey);
+                }
+
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  closeFindBar();
+                }
+              }}
+              className="h-8 w-56 rounded-lg border-0 bg-transparent px-2 shadow-none focus-visible:ring-1"
+              placeholder="Find in page"
+              aria-label="Find in page"
+            />
+            <span className="min-w-14 text-center text-xs tabular-nums text-muted-foreground">
+              {findQuery.trim()
+                ? `${findResult.activeMatchOrdinal || 0}/${findResult.matches}`
+                : "0/0"}
+            </span>
+            <TooltipIconButton
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              label="Previous match"
+              onClick={() => findNextMatch(false)}
+              disabled={!findQuery.trim()}
+            >
+              <ChevronLeft className="size-3" />
+            </TooltipIconButton>
+            <TooltipIconButton
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              label="Next match"
+              onClick={() => findNextMatch(true)}
+              disabled={!findQuery.trim()}
+            >
+              <ChevronRight className="size-3" />
+            </TooltipIconButton>
+            <TooltipIconButton
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              label="Close find"
+              onClick={closeFindBar}
+            >
+              <X className="size-3" />
+            </TooltipIconButton>
+          </div>
+        )}
+
         <div
           className="relative min-h-0 overflow-hidden"
           onWheel={handleChatWheel}
@@ -3792,6 +3968,7 @@ ${value}
                     ]?.id;
                   const status = activeVariant?.status;
                   const metrics = activeVariant?.metrics;
+                  const generatedModelName = metrics?.model?.trim() ?? "";
                   const isVisuallyStreaming = visualStreamingMessageIds.some(
                     (streamingMessageId) =>
                       streamingMessageId === message.id ||
@@ -4243,13 +4420,22 @@ ${value}
                       {message.role === "assistant" && (
                         <div className="grid gap-2 text-[11px] leading-4 text-muted-foreground">
                           <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
-                            {isMessageStreaming ? (
-                              <span className="min-h-6 generating-gradient-text font-medium">
-                                Generating
-                              </span>
-                            ) : (
-                              <span className="min-h-6" aria-hidden="true" />
-                            )}
+                            <div className="min-h-6 min-w-0 flex-1 text-left">
+                              {isMessageStreaming ? (
+                                <span className="generating-gradient-text font-medium">
+                                  Generating
+                                </span>
+                              ) : generatedModelName ? (
+                                <span
+                                  className="block truncate text-muted-foreground"
+                                  title={`Generated with ${generatedModelName}`}
+                                >
+                                  {generatedModelName}
+                                </span>
+                              ) : (
+                                <span aria-hidden="true" />
+                              )}
+                            </div>
 
                             <div className="flex flex-wrap items-center justify-end gap-1.5">
                               {variantCount > 1 && (
@@ -4297,19 +4483,24 @@ ${value}
                               )}
 
                               <Popover>
-                                <PopoverTrigger asChild>
-                                  <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="icon-sm"
-                                    className="h-6 w-6 rounded-lg text-muted-foreground"
-                                    disabled={metrics?.durationMs === undefined}
-                                    title="Generation info"
-                                    aria-label="Generation info"
-                                  >
-                                    <Info className="size-3" />
-                                  </Button>
-                                </PopoverTrigger>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <PopoverTrigger asChild>
+                                      <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="icon-sm"
+                                        className="h-6 w-6 rounded-lg text-muted-foreground"
+                                        disabled={metrics?.durationMs === undefined}
+                                        title="Generation info"
+                                        aria-label="Generation info"
+                                      >
+                                        <Info className="size-3" />
+                                      </Button>
+                                    </PopoverTrigger>
+                                  </TooltipTrigger>
+                                  <TooltipContent>Generation info</TooltipContent>
+                                </Tooltip>
                                 <PopoverContent
                                   align="end"
                                   className="w-[min(26rem,calc(100vw-2rem))] rounded-lg p-3"

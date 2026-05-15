@@ -769,6 +769,10 @@ function createWindow() {
     }
   });
 
+  win.webContents.on("found-in-page", (_event, result) => {
+    win?.webContents.send("find-in-page:result", result);
+  });
+
   win.webContents.on(
     "did-fail-load",
     (_event, errorCode, errorDescription, validatedURL) => {
@@ -1252,6 +1256,51 @@ async function deleteJsonTool(toolId: unknown) {
     }
   });
 }
+
+function normalizeFindInPageRequest(request: unknown) {
+  const value = isPlainObject(request) ? request : {};
+  const text = safeString(value.text).trim();
+
+  return {
+    text,
+    options: {
+      forward: value.forward !== false,
+      findNext: value.findNext === true,
+      matchCase: value.matchCase === true,
+    },
+  };
+}
+
+function normalizeStopFindInPageAction(
+  action: unknown,
+): "clearSelection" | "keepSelection" | "activateSelection" {
+  if (
+    action === "clearSelection" ||
+    action === "keepSelection" ||
+    action === "activateSelection"
+  ) {
+    return action;
+  }
+
+  return "clearSelection";
+}
+
+ipcMain.handle("find-in-page:start", (event, request: unknown) => {
+  const { text, options } = normalizeFindInPageRequest(request);
+
+  if (!text) {
+    event.sender.stopFindInPage("clearSelection");
+    return { requestId: 0 };
+  }
+
+  return {
+    requestId: event.sender.findInPage(text, options),
+  };
+});
+
+ipcMain.handle("find-in-page:stop", (event, action: unknown) => {
+  event.sender.stopFindInPage(normalizeStopFindInPageAction(action));
+});
 
 ipcMain.handle("storage:is-initialized", async () =>
   isJsonStorageInitialized(),
