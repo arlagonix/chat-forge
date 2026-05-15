@@ -499,6 +499,37 @@ type ActiveProcessStepRef = {
   id?: string;
 };
 
+type VisibleAssistantProcessStep = ChatAssistantProcessStep & {
+  sourceStepIds: string[];
+};
+
+function getVisibleAssistantProcessSteps(
+  processSteps: ChatAssistantProcessStep[],
+): VisibleAssistantProcessStep[] {
+  const visibleSteps: VisibleAssistantProcessStep[] = [];
+
+  for (const step of processSteps) {
+    if (step.type === "thinking" && !step.content.trim()) {
+      continue;
+    }
+
+    const previousStep = visibleSteps[visibleSteps.length - 1];
+
+    if (
+      step.type === "assistant_message" &&
+      previousStep?.type === "assistant_message"
+    ) {
+      previousStep.content = `${previousStep.content}${step.content}`;
+      previousStep.sourceStepIds = [...previousStep.sourceStepIds, step.id];
+      continue;
+    }
+
+    visibleSteps.push({ ...step, sourceStepIds: [step.id] });
+  }
+
+  return visibleSteps;
+}
+
 type ActiveGeneration = {
   controller: AbortController;
   assistantMessageId: string;
@@ -3745,8 +3776,12 @@ ${value}
                   const toolCalls = activeVariant?.toolCalls ?? [];
                   const toolResults = activeVariant?.toolResults ?? [];
                   const processSteps = activeVariant?.processSteps ?? [];
-                  const hasProcessSteps = processSteps.length > 0;
-                  const assistantMessageProcessSteps = processSteps.filter(
+                  const visibleProcessSteps =
+                    getVisibleAssistantProcessSteps(processSteps);
+                  const hasVisibleProcessSteps = visibleProcessSteps.length > 0;
+                  const latestProcessStepId =
+                    processSteps[processSteps.length - 1]?.id;
+                  const assistantMessageProcessSteps = visibleProcessSteps.filter(
                     (step) => step.type === "assistant_message",
                   );
                   const hasInlineAssistantMessageSteps =
@@ -3778,12 +3813,21 @@ ${value}
                       data-message-id={message.id}
                       className="grid min-w-0 max-w-full gap-2"
                     >
-                      {message.role === "assistant" && hasProcessSteps && (
+                      {message.role === "assistant" && hasVisibleProcessSteps && (
                         <div className="grid gap-2">
-                          {processSteps.map((step) => {
+                          {visibleProcessSteps.map((step) => {
                             const isLatestProcessStep =
-                              processSteps[processSteps.length - 1]?.id ===
-                              step.id;
+                              step.sourceStepIds.includes(
+                                latestProcessStepId ?? "",
+                              );
+                            const stepFlushVersion = step.sourceStepIds.reduce(
+                              (total, sourceStepId) =>
+                                total +
+                                (visualFlushRequests[
+                                  `${message.id}:${sourceStepId}`
+                                ] ?? 0),
+                              0,
+                            );
 
                             if (step.type === "thinking") {
                               if (!step.content.trim()) return null;
@@ -3807,9 +3851,7 @@ ${value}
                                         className="chat-markdown-compact shrink-0"
                                         isApiStreaming={isThinkingStreaming}
                                         flushVersion={
-                                          visualFlushRequests[
-                                            `${message.id}:${step.id}`
-                                          ] ?? 0
+                                          stepFlushVersion
                                         }
                                         forceInstant={!isThinkingStreaming}
                                         onVisualProgress={() =>
@@ -3854,9 +3896,7 @@ ${value}
                                         content={step.content}
                                         isApiStreaming={isAssistantBlockStreaming}
                                         flushVersion={
-                                          visualFlushRequests[
-                                            `${message.id}:${step.id}`
-                                          ] ?? 0
+                                          stepFlushVersion
                                         }
                                         onVisualProgress={() =>
                                           handleAssistantVisualProgress(
@@ -3916,7 +3956,7 @@ ${value}
                       )}
 
                       {message.role === "assistant" &&
-                        !hasProcessSteps &&
+                        !hasVisibleProcessSteps &&
                         reasoning.trim() &&
                         (() => {
                           return (
@@ -3956,7 +3996,7 @@ ${value}
                         })()}
 
                       {message.role === "assistant" &&
-                        !hasProcessSteps &&
+                        !hasVisibleProcessSteps &&
                         toolCalls.length > 0 && (
                           <div className="grid gap-2">
                             {toolCalls.map((toolCall) => {
