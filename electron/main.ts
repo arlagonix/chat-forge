@@ -103,6 +103,7 @@ type PublicToolDefinition = ToolDefinition;
 
 type ToolsSettings = {
   enabled: boolean;
+  askUserEnabled: boolean;
 };
 
 type ToolLoadError = {
@@ -121,7 +122,10 @@ const blockedUpstreamHeaders = new Set([
 ]);
 
 const activeStreamControllers = new Map<string, AbortController>();
-const DEFAULT_TOOLS_SETTINGS: ToolsSettings = { enabled: true };
+const DEFAULT_TOOLS_SETTINGS: ToolsSettings = {
+  enabled: true,
+  askUserEnabled: true,
+};
 const DEFAULT_TOOL_TIMEOUT_MS = 30_000;
 const TOOL_NAME_PATTERN = /^[a-zA-Z0-9_-]{1,64}$/;
 const APP_TITLE = `Chat Forge v${app.getVersion()}`;
@@ -331,6 +335,8 @@ function normalizeToolsSettings(value: unknown): ToolsSettings {
 
   return {
     enabled: typeof value.enabled === "boolean" ? value.enabled : true,
+    askUserEnabled:
+      typeof value.askUserEnabled === "boolean" ? value.askUserEnabled : true,
   };
 }
 

@@ -1,4 +1,4 @@
-import { Check, Plus, RefreshCcw, Trash2, Wrench, X } from "lucide-react";
+import { Check, Lock, MessageSquareText, Plus, RefreshCcw, Trash2, Wrench, X } from "lucide-react";
 import { memo, useEffect, useMemo, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 
@@ -41,6 +41,44 @@ import { cn } from "@/lib/utils";
 
 const TOOL_TEST_STATES_STORAGE_KEY = "chat-forge-tool-test-states";
 const TOOL_TEST_STATE_SAVE_DELAY_MS = 350;
+const BUILTIN_ASK_USER_TOOL_NAME = "ask_user";
+const BUILTIN_ASK_USER_TOOL_ID = "builtin-ask-user";
+const BUILTIN_ASK_USER_TOOL_DESCRIPTION =
+  "Pauses the assistant so it can ask you focused clarification questions, always with a custom answer option, then resumes the same response.";
+const BUILTIN_ASK_USER_TOOL_PARAMETERS = {
+  type: "object",
+  properties: {
+    title: { type: "string" },
+    description: { type: "string" },
+    questions: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          id: { type: "string" },
+          question: { type: "string" },
+          description: { type: "string" },
+          options: {
+            type: "array",
+            description:
+              "Model-provided options. Do not include Other/custom; Chat Forge adds a custom typed answer option automatically.",
+            items: {
+              type: "object",
+              properties: {
+                id: { type: "string" },
+                label: { type: "string" },
+                description: { type: "string" },
+              },
+              required: ["id", "label"],
+            },
+          },
+        },
+        required: ["id", "question", "options"],
+      },
+    },
+  },
+  required: ["questions"],
+};
 
 type ToolDraft = {
   id: string;
@@ -446,6 +484,9 @@ function validateToolDraft(tool: LoadedToolInfo) {
       "Tool name must use only letters, numbers, underscores, or hyphens.",
     );
   }
+  if (tool.name === BUILTIN_ASK_USER_TOOL_NAME) {
+    throw new Error("ask_user is a built-in tool name and cannot be used by a custom command tool.");
+  }
   if (!tool.description) throw new Error("Tool description is required.");
   if (tool.parameters.type !== "object") {
     throw new Error('Parameters schema must include "type": "object".');
@@ -501,13 +542,17 @@ export const ToolsDialog = memo(function ToolsDialog({
   >(() => loadToolTestStates());
   const [selectedToolName, setSelectedToolName] = useState<string | null>(null);
 
+  const isAskUserToolSelected = selectedToolName === BUILTIN_ASK_USER_TOOL_NAME;
   const selectedTool = useMemo(
     () => loadedTools.find((tool) => tool.name === selectedToolName) ?? null,
     [loadedTools, selectedToolName],
   );
+  const totalToolsCount = loadedTools.length + 1;
   const enabledToolsCount = useMemo(
-    () => loadedTools.filter((tool) => tool.enabled).length,
-    [loadedTools],
+    () =>
+      loadedTools.filter((tool) => tool.enabled).length +
+      (toolsSettings.askUserEnabled ? 1 : 0),
+    [loadedTools, toolsSettings.askUserEnabled],
   );
   const currentToolTestState = toolDraft
     ? toolTestStatesByToolId[toolDraft.id]
@@ -524,11 +569,6 @@ export const ToolsDialog = memo(function ToolsDialog({
       : undefined);
 
   useEffect(() => {
-    if (loadedTools.length === 0) {
-      if (selectedToolName !== null) setSelectedToolName(null);
-      return;
-    }
-
     const isEditingUnsavedTool =
       toolDraft &&
       !selectedToolName &&
@@ -536,15 +576,22 @@ export const ToolsDialog = memo(function ToolsDialog({
 
     if (isEditingUnsavedTool) return;
 
+    if (selectedToolName === BUILTIN_ASK_USER_TOOL_NAME) return;
+
     if (
       !selectedToolName ||
       !loadedTools.some((tool) => tool.name === selectedToolName)
     ) {
-      setSelectedToolName(loadedTools[0].name);
+      setSelectedToolName(BUILTIN_ASK_USER_TOOL_NAME);
     }
   }, [loadedTools, selectedToolName, toolDraft]);
 
   useEffect(() => {
+    if (selectedToolName === BUILTIN_ASK_USER_TOOL_NAME) {
+      setToolDraft(null);
+      return;
+    }
+
     const selected = loadedTools.find((tool) => tool.name === selectedToolName);
     if (selected) {
       setToolDraft(toolToDraft(selected));
@@ -741,7 +788,7 @@ export const ToolsDialog = memo(function ToolsDialog({
                 Tools
               </Label>
               <span className="text-xs text-muted-foreground">
-                {enabledToolsCount}/{loadedTools.length} enabled
+                {enabledToolsCount}/{totalToolsCount} enabled
               </span>
             </div>
 
@@ -796,67 +843,118 @@ export const ToolsDialog = memo(function ToolsDialog({
             </div>
 
             <div className="grid gap-1.5">
-              {loadedTools.length > 0 ? (
-                loadedTools.map((tool) => (
-                  <div
-                    key={tool.id}
-                    role="button"
-                    tabIndex={0}
-                    className={cn(
-                      "group flex min-w-0 cursor-pointer items-start gap-2 rounded-lg border px-2 py-2 outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                      selectedTool?.id === tool.id
-                        ? "border-primary/30 bg-accent text-accent-foreground"
-                        : "border-transparent hover:border-border hover:bg-muted/60",
-                    )}
-                    onClick={() => setSelectedToolName(tool.name)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter" || event.key === " ") {
-                        event.preventDefault();
-                        setSelectedToolName(tool.name);
+              <div
+                key={BUILTIN_ASK_USER_TOOL_ID}
+                role="button"
+                tabIndex={0}
+                className={cn(
+                  "group flex min-w-0 cursor-pointer items-start gap-2 rounded-lg border px-2 py-2 outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                  isAskUserToolSelected
+                    ? "border-primary/30 bg-accent text-accent-foreground"
+                    : "border-transparent hover:border-border hover:bg-muted/60",
+                )}
+                onClick={() => setSelectedToolName(BUILTIN_ASK_USER_TOOL_NAME)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    setSelectedToolName(BUILTIN_ASK_USER_TOOL_NAME);
+                  }
+                }}
+              >
+                <MessageSquareText className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                <div className="min-w-0 flex-1">
+                  <div className="flex min-w-0 items-center gap-1.5 truncate text-sm leading-5">
+                    <span className="truncate">{BUILTIN_ASK_USER_TOOL_NAME}</span>
+                    <Lock className="size-3 shrink-0 text-muted-foreground" />
+                  </div>
+                  <div className="truncate text-[11px] leading-4 text-muted-foreground">
+                    {toolsSettings.askUserEnabled
+                      ? toolsSettings.enabled
+                        ? "Enabled · Built-in interactive"
+                        : "Enabled · Global tools off"
+                      : "Disabled · Built-in interactive"}
+                  </div>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={toolsSettings.askUserEnabled}
+                  onClick={(event) => event.stopPropagation()}
+                  onChange={(event) =>
+                    onToolsSettingsChange((current) => ({
+                      ...current,
+                      askUserEnabled: event.target.checked,
+                    }))
+                  }
+                  className="mt-0.5 size-4 shrink-0 accent-primary"
+                  title={
+                    toolsSettings.askUserEnabled
+                      ? "Disable ask_user"
+                      : "Enable ask_user"
+                  }
+                />
+              </div>
+
+              {loadedTools.map((tool) => (
+                <div
+                  key={tool.id}
+                  role="button"
+                  tabIndex={0}
+                  className={cn(
+                    "group flex min-w-0 cursor-pointer items-start gap-2 rounded-lg border px-2 py-2 outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                    selectedTool?.id === tool.id
+                      ? "border-primary/30 bg-accent text-accent-foreground"
+                      : "border-transparent hover:border-border hover:bg-muted/60",
+                  )}
+                  onClick={() => setSelectedToolName(tool.name)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      setSelectedToolName(tool.name);
+                    }
+                  }}
+                >
+                  <Wrench className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm leading-5">{tool.name}</div>
+                    <div className="truncate text-[11px] leading-4 text-muted-foreground">
+                      {tool.enabled ? "Enabled" : "Disabled"} · {tool.command}
+                    </div>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={tool.enabled}
+                    onClick={(event) => event.stopPropagation()}
+                    onChange={async (event) => {
+                      const updated = {
+                        ...tool,
+                        enabled: event.target.checked,
+                      };
+                      try {
+                        const saved = await saveTool(updated);
+                        onLoadedToolsChange((current) =>
+                          current.map((item) =>
+                            item.id === saved.id ? saved : item,
+                          ),
+                        );
+                        if (toolDraft?.id === saved.id) {
+                          setToolDraft(toolToDraft(saved));
+                        }
+                      } catch (error) {
+                        showError(
+                          "Failed to update tool",
+                          labelForError(error),
+                        );
                       }
                     }}
-                  >
-                    <Wrench className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-sm leading-5">{tool.name}</div>
-                      <div className="truncate text-[11px] leading-4 text-muted-foreground">
-                        {tool.enabled ? "Enabled" : "Disabled"} · {tool.command}
-                      </div>
-                    </div>
-                    <input
-                      type="checkbox"
-                      checked={tool.enabled}
-                      onClick={(event) => event.stopPropagation()}
-                      onChange={async (event) => {
-                        const updated = {
-                          ...tool,
-                          enabled: event.target.checked,
-                        };
-                        try {
-                          const saved = await saveTool(updated);
-                          onLoadedToolsChange((current) =>
-                            current.map((item) =>
-                              item.id === saved.id ? saved : item,
-                            ),
-                          );
-                          if (toolDraft?.id === saved.id) {
-                            setToolDraft(toolToDraft(saved));
-                          }
-                        } catch (error) {
-                          showError(
-                            "Failed to update tool",
-                            labelForError(error),
-                          );
-                        }
-                      }}
-                      className="mt-0.5 size-4 shrink-0 accent-primary"
-                      title={tool.enabled ? "Disable tool" : "Enable tool"}
-                    />
-                  </div>
-                ))
-              ) : (
-                <div className="rounded-lg border border-dashed px-3 py-6 text-center text-sm text-muted-foreground">
-                  No tools configured.
+                    className="mt-0.5 size-4 shrink-0 accent-primary"
+                    title={tool.enabled ? "Disable tool" : "Enable tool"}
+                  />
+                </div>
+              ))}
+
+              {loadedTools.length === 0 && (
+                <div className="rounded-lg border border-dashed px-3 py-4 text-center text-sm text-muted-foreground">
+                  No custom command tools configured.
                 </div>
               )}
             </div>
@@ -885,7 +983,81 @@ export const ToolsDialog = memo(function ToolsDialog({
           </aside>
 
           <div className="min-h-0 overflow-y-auto overscroll-contain px-5 py-4">
-            {toolDraft ? (
+            {isAskUserToolSelected ? (
+              <div className="grid gap-5 pb-1">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <Label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      Built-in tool
+                    </Label>
+                    <h3 className="mt-1 flex items-center gap-2 text-lg font-semibold text-foreground">
+                      <MessageSquareText className="size-5 text-muted-foreground" />
+                      {BUILTIN_ASK_USER_TOOL_NAME}
+                    </h3>
+                    <p className="mt-1 max-w-2xl text-sm leading-6 text-muted-foreground">
+                      {BUILTIN_ASK_USER_TOOL_DESCRIPTION}
+                    </p>
+                  </div>
+                  <span className="inline-flex shrink-0 items-center gap-1 rounded-lg border bg-muted/40 px-2 py-1 text-xs text-muted-foreground">
+                    <Lock className="size-3.5" />
+                    Locked
+                  </span>
+                </div>
+
+                <label className="flex cursor-pointer items-center justify-between gap-3 rounded-lg border bg-background px-3 py-2 text-sm">
+                  <span className="min-w-0">
+                    <span className="block font-medium">Enable ask_user</span>
+                    <span className="block text-xs leading-5 text-muted-foreground">
+                      When enabled globally, this sends the built-in interactive
+                      question tool schema to the model.
+                    </span>
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={toolsSettings.askUserEnabled}
+                    onChange={(event) =>
+                      onToolsSettingsChange((current) => ({
+                        ...current,
+                        askUserEnabled: event.target.checked,
+                      }))
+                    }
+                    className="size-4 shrink-0 accent-primary"
+                  />
+                </label>
+
+                {!toolsSettings.enabled && toolsSettings.askUserEnabled && (
+                  <div className="rounded-lg border border-dashed bg-muted/30 px-3 py-2 text-xs leading-5 text-muted-foreground">
+                    Global tools are disabled, so ask_user is currently not sent
+                    to the model even though this built-in tool is enabled.
+                  </div>
+                )}
+
+                <div className="grid gap-2 rounded-lg border bg-muted/20 p-3">
+                  <Label>Behavior</Label>
+                  <div className="grid gap-2 text-sm leading-6 text-muted-foreground">
+                    <p>
+                      The assistant can call this tool when it needs a decision
+                      before continuing. The response pauses, shows one compact
+                      form, and resumes after you submit the answers.
+                    </p>
+                    <p>
+                      It supports up to 5 single-choice questions per form and
+                      up to 8 model-provided options per question. Chat Forge
+                      always adds a custom “Type your answer” option.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid gap-2">
+                  <Label>Parameters JSON schema</Label>
+                  <div className="rounded-lg border bg-card p-3">
+                    {renderJsonCodeBlock(
+                      JSON.stringify(BUILTIN_ASK_USER_TOOL_PARAMETERS, null, 2),
+                    )}
+                  </div>
+                </div>
+              </div>
+            ) : toolDraft ? (
               <div className="grid gap-5 pb-1">
                 <div>
                   <Label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
@@ -1185,14 +1357,16 @@ export const ToolsDialog = memo(function ToolsDialog({
             >
               Close
             </Button>
-            <Button
-              type="button"
-              className="rounded-lg"
-              onClick={saveCurrentToolDraft}
-              disabled={!toolDraft || isSavingTool}
-            >
-              {isSavingTool ? "Saving..." : "Save"}
-            </Button>
+            {!isAskUserToolSelected && (
+              <Button
+                type="button"
+                className="rounded-lg"
+                onClick={saveCurrentToolDraft}
+                disabled={!toolDraft || isSavingTool}
+              >
+                {isSavingTool ? "Saving..." : "Save"}
+              </Button>
+            )}
           </div>
         </DialogFooter>
       </DialogContent>

@@ -80,6 +80,35 @@ export type ChatToolResult = {
 
 export type ToolExecutionStatus = "pending" | "running" | "complete" | "failed";
 
+export type AskUserOption = {
+  id: string;
+  label: string;
+  description?: string;
+};
+
+export type AskUserQuestion = {
+  id: string;
+  question: string;
+  description?: string;
+  options: AskUserOption[];
+};
+
+export type AskUserRequest = {
+  title?: string;
+  description?: string;
+  questions: AskUserQuestion[];
+};
+
+export type AskUserResponse = {
+  /** Selected option id per question, or "__custom__" when a custom answer was used. */
+  answers: Record<string, string>;
+  answerLabels?: Record<string, string>;
+  customAnswers?: Record<string, string>;
+  answeredAt: string;
+};
+
+export type UserInputStatus = "waiting" | "complete" | "cancelled" | "failed";
+
 export type ChatAssistantProcessStep =
   | {
       id: string;
@@ -96,6 +125,15 @@ export type ChatAssistantProcessStep =
       type: "tool_execution";
       status?: ToolExecutionStatus;
       toolCall: ChatToolCall;
+      toolResult?: ChatToolResult;
+    }
+  | {
+      id: string;
+      type: "user_input";
+      status?: UserInputStatus;
+      toolCall: ChatToolCall;
+      request: AskUserRequest;
+      response?: AskUserResponse;
       toolResult?: ChatToolResult;
     };
 
@@ -192,6 +230,7 @@ export type ToolLoadError = {
 
 export type ToolsSettings = {
   enabled: boolean;
+  askUserEnabled: boolean;
 };
 
 export type ToolsState = {

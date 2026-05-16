@@ -138,6 +138,8 @@ function normalizeProvidersState(value?: ProvidersState): ProvidersState {
 function normalizeToolsSettings(value: Partial<ToolsSettings> | undefined): ToolsSettings {
   return {
     enabled: typeof value?.enabled === "boolean" ? value.enabled : true,
+    askUserEnabled:
+      typeof value?.askUserEnabled === "boolean" ? value.askUserEnabled : true,
   };
 }
 
