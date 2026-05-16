@@ -147,6 +147,9 @@ import {
   saveToolsSettings,
 } from "@/lib/ai-chat/storage";
 import type {
+  AskUserQuestion,
+  AskUserRequest,
+  AskUserResponse,
   ChatAssistantProcessStep,
   ChatAssistantVariant,
   ChatMessage,
@@ -155,6 +158,7 @@ import type {
   LoadedToolInfo,
   ToolExecutionStatus,
   ToolExecutionPreview,
+  UserInputStatus,
   ChatSession,
   ProviderConfig,
   ProviderGenerationSettings,
@@ -177,6 +181,79 @@ const SIDEBAR_COLLAPSED_STORAGE_KEY = "chat-forge-sidebar-collapsed";
 const COMPOSER_DRAFTS_STORAGE_KEY = "chat-forge-composer-drafts";
 const DEFAULT_TOOLS_SETTINGS: ToolsSettings = {
   enabled: true,
+  askUserEnabled: true,
+};
+const ASK_USER_TOOL_NAME = "ask_user";
+const ASK_USER_CUSTOM_ANSWER_ID = "__custom__";
+const MAX_ASK_USER_QUESTIONS = 5;
+const MAX_ASK_USER_OPTIONS = 8;
+const MAX_ASK_USER_TITLE_LENGTH = 120;
+const MAX_ASK_USER_DESCRIPTION_LENGTH = 500;
+const MAX_ASK_USER_QUESTION_LENGTH = 500;
+const MAX_ASK_USER_OPTION_LABEL_LENGTH = 160;
+const MAX_ASK_USER_OPTION_DESCRIPTION_LENGTH = 300;
+const MAX_ASK_USER_CUSTOM_ANSWER_LENGTH = 2000;
+const ASK_USER_TOOL: LoadedToolInfo = {
+  id: "builtin-ask-user",
+  name: ASK_USER_TOOL_NAME,
+  enabled: true,
+  description:
+    "Pause and ask the user focused single-choice clarification questions, always allowing a custom typed answer for each question, then continue the same response. Use only when the answer materially changes the next step.",
+  parameters: {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      title: {
+        type: "string",
+        description: "Short heading for the question form.",
+      },
+      description: {
+        type: "string",
+        description: "Optional short explanation of why this input is needed.",
+      },
+      questions: {
+        type: "array",
+        description: "One to five single-choice questions to ask together.",
+        minItems: 1,
+        maxItems: MAX_ASK_USER_QUESTIONS,
+        items: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            id: {
+              type: "string",
+              description: "Stable snake_case answer key.",
+            },
+            question: { type: "string" },
+            description: { type: "string" },
+            options: {
+              type: "array",
+              description:
+                "Model-provided options. Do not include Other/custom; Chat Forge adds a custom typed answer option automatically.",
+              minItems: 2,
+              maxItems: MAX_ASK_USER_OPTIONS,
+              items: {
+                type: "object",
+                additionalProperties: false,
+                properties: {
+                  id: { type: "string" },
+                  label: { type: "string" },
+                  description: { type: "string" },
+                },
+                required: ["id", "label"],
+              },
+            },
+          },
+          required: ["id", "question", "options"],
+        },
+      },
+    },
+    required: ["questions"],
+  },
+  command: "",
+  args: [],
+  input: "none",
+  timeoutMs: 0,
 };
 const MAX_TOOL_ROUNDS = 3;
 const TOOL_DESCRIPTION_PREVIEW_MAX_LENGTH = 240;
@@ -348,6 +425,379 @@ const UserMessageEditor = memo(function UserMessageEditor({
   );
 });
 
+
+function createDefaultAskUserAnswers(request: AskUserRequest) {
+  return Object.fromEntries(
+    request.questions.map((question) => [question.id, question.options[0]?.id ?? ""]),
+  );
+}
+
+function createEmptyAskUserCustomAnswers(request: AskUserRequest) {
+  return Object.fromEntries(request.questions.map((question) => [question.id, ""]));
+}
+
+function formatUserInputStatus(status: UserInputStatus | undefined) {
+  if (status === "complete") return "Complete";
+  if (status === "cancelled") return "Cancelled";
+  if (status === "failed") return "Failed";
+  return "Waiting";
+}
+
+const AskUserBlock = memo(function AskUserBlock({
+  id,
+  request,
+  response,
+  status,
+  canSubmit,
+  isCollapsed,
+  onToggleCollapsed,
+  onSubmit,
+  onCancel,
+}: {
+  id: string;
+  request: AskUserRequest;
+  response?: AskUserResponse;
+  status?: UserInputStatus;
+  canSubmit: boolean;
+  isCollapsed: boolean;
+  onToggleCollapsed: () => void;
+  onSubmit: (response: AskUserResponse) => void;
+  onCancel: () => void;
+}) {
+  const [answers, setAnswers] = useState<Record<string, string>>(() =>
+    createDefaultAskUserAnswers(request),
+  );
+  const [customAnswers, setCustomAnswers] = useState<Record<string, string>>(
+    () => createEmptyAskUserCustomAnswers(request),
+  );
+  const effectiveStatus = status ?? "waiting";
+  const isWaiting = effectiveStatus === "waiting";
+
+  useEffect(() => {
+    setAnswers(response?.answers ?? createDefaultAskUserAnswers(request));
+    setCustomAnswers(
+      response?.customAnswers ?? createEmptyAskUserCustomAnswers(request),
+    );
+  }, [request, response]);
+
+  const allQuestionsAnswered = request.questions.every((question) => {
+    const selectedAnswer = answers[question.id];
+    if (selectedAnswer === ASK_USER_CUSTOM_ANSWER_ID) {
+      return Boolean(customAnswers[question.id]?.trim());
+    }
+
+    return question.options.some((option) => option.id === selectedAnswer);
+  });
+  const canSendAnswers = isWaiting && canSubmit && allQuestionsAnswered;
+
+  function getSelectedOptionLabel(questionId: string, optionId?: string) {
+    const question = request.questions.find((item) => item.id === questionId);
+    if (optionId === ASK_USER_CUSTOM_ANSWER_ID) {
+      return customAnswers[questionId]?.trim() ||
+        response?.customAnswers?.[questionId]?.trim() ||
+        "Type your answer";
+    }
+
+    return (
+      question?.options.find((option) => option.id === optionId)?.label ??
+      optionId ??
+      ""
+    );
+  }
+
+  function getAnswerSummary(question: AskUserQuestion, answerId?: string) {
+    if (answerId === ASK_USER_CUSTOM_ANSWER_ID) {
+      return (
+        response?.customAnswers?.[question.id] ??
+        customAnswers[question.id] ??
+        "Type your answer"
+      );
+    }
+
+    return getSelectedOptionLabel(question.id, answerId);
+  }
+
+  function handleSubmit() {
+    if (!canSendAnswers) return;
+
+    const normalizedAnswers = Object.fromEntries(
+      request.questions.map((question) => [question.id, answers[question.id]]),
+    );
+    const normalizedCustomAnswers = Object.fromEntries(
+      request.questions
+        .filter((question) => answers[question.id] === ASK_USER_CUSTOM_ANSWER_ID)
+        .map((question) => [question.id, customAnswers[question.id].trim()]),
+    );
+    const answerLabels = Object.fromEntries(
+      request.questions.map((question) => [
+        question.id,
+        answers[question.id] === ASK_USER_CUSTOM_ANSWER_ID
+          ? customAnswers[question.id].trim()
+          : getSelectedOptionLabel(question.id, answers[question.id]),
+      ]),
+    );
+
+    onSubmit({
+      answers: normalizedAnswers,
+      answerLabels,
+      customAnswers:
+        Object.keys(normalizedCustomAnswers).length > 0
+          ? normalizedCustomAnswers
+          : undefined,
+      answeredAt: new Date().toISOString(),
+    });
+  }
+
+  return (
+    <article key={id} className="flex min-w-0 max-w-full justify-start">
+      <div className="w-full min-w-0 max-w-full overflow-hidden rounded-lg border bg-muted/25 px-4 py-3 text-xs leading-5 text-muted-foreground shadow-xs [overflow-wrap:anywhere]">
+        <button
+          type="button"
+          className="w-full rounded-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          onClick={onToggleCollapsed}
+          aria-expanded={!isCollapsed}
+        >
+          <div className="flex min-w-0 items-center justify-between gap-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            <div className="flex min-w-0 items-center gap-2">
+              <MessageSquareText className="size-3.5 shrink-0" />
+              <span className="truncate">Input needed</span>
+              <span className="text-muted-foreground/60">•</span>
+              <span
+                className={cn(
+                  "inline-flex items-center gap-1",
+                  effectiveStatus === "complete" &&
+                    "text-green-600 dark:text-green-400",
+                  effectiveStatus === "waiting" &&
+                    "text-amber-600 dark:text-amber-400",
+                  (effectiveStatus === "cancelled" || effectiveStatus === "failed") &&
+                    "text-red-600 dark:text-red-400",
+                )}
+              >
+                {effectiveStatus === "complete" ? (
+                  <Check className="size-3.5" />
+                ) : effectiveStatus === "waiting" ? (
+                  <Spinner className="size-3.5" />
+                ) : (
+                  <X className="size-3.5" />
+                )}
+                {formatUserInputStatus(effectiveStatus)}
+              </span>
+              <span className="hidden text-muted-foreground/60 sm:inline">
+                • {request.questions.length} question
+                {request.questions.length === 1 ? "" : "s"}
+              </span>
+            </div>
+            {isCollapsed ? (
+              <ChevronRight className="size-3.5 shrink-0" />
+            ) : (
+              <ChevronDown className="size-3.5 shrink-0" />
+            )}
+          </div>
+          {(request.title?.trim() || request.description?.trim()) && (
+            <div className="mt-2 grid gap-1 text-xs normal-case leading-5 tracking-normal text-muted-foreground/85">
+              {request.title?.trim() && (
+                <div className="font-medium text-foreground/80">
+                  {request.title.trim()}
+                </div>
+              )}
+              {request.description?.trim() && <div>{request.description.trim()}</div>}
+            </div>
+          )}
+
+          {isCollapsed && response && effectiveStatus !== "waiting" && (
+            <div className="mt-2 grid gap-1 rounded-lg border bg-background/40 p-2 text-xs normal-case leading-5 tracking-normal">
+              {request.questions.map((question) => (
+                <div key={question.id} className="grid gap-0.5 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)] sm:gap-3">
+                  <span className="truncate text-muted-foreground">
+                    {question.question}
+                  </span>
+                  <span className="truncate font-medium text-foreground/85">
+                    {getAnswerSummary(question, response.answers[question.id])}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </button>
+
+        {!isCollapsed && (
+          <div className="mt-3 grid gap-3">
+            {request.questions.map((question, questionIndex) => {
+              const selectedOptionId = answers[question.id] ?? "";
+              const customInputId = `${id}-${question.id}-custom-text`;
+              return (
+                <div key={question.id} className="grid gap-2 rounded-lg border bg-background/40 p-3">
+                  <div className="grid gap-1">
+                    <div className="text-sm font-medium leading-5 text-foreground">
+                      {request.questions.length > 1 ? `${questionIndex + 1}. ` : ""}
+                      {question.question}
+                    </div>
+                    {question.description?.trim() && (
+                      <div className="text-xs leading-5 text-muted-foreground">
+                        {question.description.trim()}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="grid gap-1.5">
+                    {question.options.map((option) => {
+                      const inputId = `${id}-${question.id}-${option.id}`;
+                      const checked = selectedOptionId === option.id;
+
+                      return (
+                        <label
+                          key={option.id}
+                          htmlFor={inputId}
+                          className={cn(
+                            "flex cursor-pointer items-start gap-2 rounded-lg border px-3 py-2 text-left transition-colors",
+                            checked
+                              ? "border-primary/50 bg-primary/10 text-foreground"
+                              : "border-border/70 bg-background/60 hover:bg-muted/60",
+                            (!isWaiting || !canSubmit) && "cursor-default opacity-90",
+                          )}
+                        >
+                          <input
+                            id={inputId}
+                            type="radio"
+                            name={`${id}-${question.id}`}
+                            value={option.id}
+                            checked={checked}
+                            disabled={!isWaiting || !canSubmit}
+                            onChange={() =>
+                              setAnswers((current) => ({
+                                ...current,
+                                [question.id]: option.id,
+                              }))
+                            }
+                            className="mt-1 size-3.5 shrink-0 accent-primary"
+                          />
+                          <span className="grid gap-0.5">
+                            <span className="text-xs font-medium leading-5 text-foreground">
+                              {option.label}
+                            </span>
+                            {option.description?.trim() && (
+                              <span className="text-xs leading-5 text-muted-foreground">
+                                {option.description.trim()}
+                              </span>
+                            )}
+                          </span>
+                        </label>
+                      );
+                    })}
+
+                    <label
+                      htmlFor={customInputId}
+                      className={cn(
+                        "grid cursor-pointer gap-2 rounded-lg border px-3 py-2 text-left transition-colors",
+                        selectedOptionId === ASK_USER_CUSTOM_ANSWER_ID
+                          ? "border-primary/50 bg-primary/10 text-foreground"
+                          : "border-border/70 bg-background/60 hover:bg-muted/60",
+                        (!isWaiting || !canSubmit) && "cursor-default opacity-90",
+                      )}
+                    >
+                      <span className="flex items-start gap-2">
+                        <input
+                          type="radio"
+                          name={`${id}-${question.id}`}
+                          value={ASK_USER_CUSTOM_ANSWER_ID}
+                          checked={selectedOptionId === ASK_USER_CUSTOM_ANSWER_ID}
+                          disabled={!isWaiting || !canSubmit}
+                          onChange={() =>
+                            setAnswers((current) => ({
+                              ...current,
+                              [question.id]: ASK_USER_CUSTOM_ANSWER_ID,
+                            }))
+                          }
+                          className="mt-1 size-3.5 shrink-0 accent-primary"
+                        />
+                        <span className="text-xs font-medium leading-5 text-foreground">
+                          Type your answer
+                        </span>
+                      </span>
+                      <Input
+                        id={customInputId}
+                        value={customAnswers[question.id] ?? ""}
+                        onChange={(event) => {
+                          const nextValue = event.target.value.slice(
+                            0,
+                            MAX_ASK_USER_CUSTOM_ANSWER_LENGTH,
+                          );
+                          setCustomAnswers((current) => ({
+                            ...current,
+                            [question.id]: nextValue,
+                          }));
+                          setAnswers((current) => ({
+                            ...current,
+                            [question.id]: ASK_USER_CUSTOM_ANSWER_ID,
+                          }));
+                        }}
+                        disabled={!isWaiting || !canSubmit}
+                        maxLength={MAX_ASK_USER_CUSTOM_ANSWER_LENGTH}
+                        placeholder="Type your answer..."
+                        className="h-8 rounded-lg text-xs"
+                      />
+                    </label>
+                  </div>
+                </div>
+              );
+            })}
+
+            {isWaiting && !canSubmit && (
+              <div className="rounded-lg border border-dashed bg-muted/30 px-3 py-2 text-xs leading-5 text-muted-foreground">
+                This input request is no longer connected to an active generation. Regenerate the response to ask again.
+              </div>
+            )}
+
+            {response && effectiveStatus !== "waiting" && (
+              <div className="grid gap-1.5">
+                <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground/80">
+                  Selected answers
+                </div>
+                <div className="grid gap-1 rounded-lg border bg-background/40 p-3 text-xs leading-5">
+                  {request.questions.map((question) => (
+                    <div key={question.id} className="grid gap-0.5">
+                      <div className="font-medium text-foreground">
+                        {question.question}
+                      </div>
+                      <div className="text-muted-foreground">
+                        {getAnswerSummary(question, response.answers[question.id])}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {isWaiting && (
+              <div className="flex flex-wrap justify-end gap-2">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="rounded-lg"
+                  onClick={onCancel}
+                  disabled={!canSubmit}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  className="rounded-lg"
+                  onClick={handleSubmit}
+                  disabled={!canSendAnswers}
+                >
+                  Submit answers
+                </Button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </article>
+  );
+});
+
 type ChatComposerHandle = {
   clear: () => void;
   focus: () => void;
@@ -359,6 +809,7 @@ const ChatComposer = memo(
     {
       disabled: boolean;
       isSending: boolean;
+      draftKey: string;
       draft: string;
       onDraftChange: (draft: string) => void;
       onSend: (content: string) => Promise<boolean> | boolean;
@@ -366,11 +817,21 @@ const ChatComposer = memo(
       footerStart?: ReactNode;
     }
   >(function ChatComposer(
-    { disabled, isSending, draft, onDraftChange, onSend, onStop, footerStart },
+    {
+      disabled,
+      isSending,
+      draftKey,
+      draft,
+      onDraftChange,
+      onSend,
+      onStop,
+      footerStart,
+    },
     ref,
   ) {
     const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-    const trimmedDraft = draft.trim();
+    const [localDraft, setLocalDraft] = useState(draft);
+    const trimmedDraft = localDraft.trim();
     const canSend = !disabled && !isSending && trimmedDraft.length > 0;
 
     const focusTextarea = useCallback(() => {
@@ -390,11 +851,18 @@ const ChatComposer = memo(
     useImperativeHandle(
       ref,
       () => ({
-        clear: () => onDraftChange(""),
+        clear: () => {
+          setLocalDraft("");
+          onDraftChange("");
+        },
         focus: focusTextarea,
       }),
       [focusTextarea, onDraftChange],
     );
+
+    useEffect(() => {
+      setLocalDraft(draft);
+    }, [draftKey, draft]);
 
     useEffect(() => {
       const textarea = textareaRef.current;
@@ -411,14 +879,17 @@ const ChatComposer = memo(
       textarea.style.height = `${Math.min(textarea.scrollHeight, maxHeight)}px`;
       textarea.style.overflowY =
         textarea.scrollHeight > maxHeight ? "auto" : "hidden";
-    }, [draft]);
+    }, [localDraft]);
 
     async function handleSubmit(event: FormEvent<HTMLFormElement>) {
       event.preventDefault();
       if (!canSend) return;
 
-      const wasSent = await onSend(draft);
-      if (wasSent) onDraftChange("");
+      const wasSent = await onSend(localDraft);
+      if (wasSent) {
+        setLocalDraft("");
+        onDraftChange("");
+      }
     }
 
     return (
@@ -431,9 +902,13 @@ const ChatComposer = memo(
           <div className="mx-auto grid w-full gap-2">
             <Textarea
               ref={textareaRef}
-              value={draft}
+              value={localDraft}
               rows={3}
-              onChange={(event) => onDraftChange(event.target.value)}
+              onChange={(event) => {
+                const nextDraft = event.target.value;
+                setLocalDraft(nextDraft);
+                onDraftChange(nextDraft);
+              }}
               onKeyDown={(event) => {
                 if (event.key !== "Enter") return;
 
@@ -497,7 +972,7 @@ type StreamBuffer = {
 };
 
 type ActiveProcessStepRef = {
-  type: "thinking" | "assistant_message" | "tool_execution";
+  type: "thinking" | "assistant_message" | "tool_execution" | "user_input";
   id?: string;
 };
 
@@ -538,6 +1013,16 @@ type ActiveGeneration = {
   variantId: string;
 };
 
+type PendingAskUserRequest = {
+  chatId: string;
+  assistantMessageId: string;
+  variantId: string;
+  stepId: string;
+  resolve: (result: ChatToolResult) => void;
+  reject: (error: unknown) => void;
+  cleanup: () => void;
+};
+
 type MessageContextMenuState = {
   messageId: string;
   x: number;
@@ -571,9 +1056,10 @@ export default function Home() {
   const [loadedTools, setLoadedTools] = useState<LoadedToolInfo[]>([]);
   const [chats, setChats] = useState<ChatSession[]>([]);
   const [activeChatId, setActiveChatId] = useState<string | undefined>();
-  const [composerDraftsByChatId, setComposerDraftsByChatId] = useState<
-    Record<string, string>
-  >(() => loadComposerDrafts());
+  const [initialComposerDrafts] = useState<Record<string, string>>(() =>
+    loadComposerDrafts(),
+  );
+  const composerDraftsRef = useRef<Record<string, string>>(initialComposerDrafts);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [generatingChatIds, setGeneratingChatIds] = useState<string[]>([]);
   const [streamingAssistantByChatId, setStreamingAssistantByChatId] = useState<
@@ -625,6 +1111,7 @@ export default function Home() {
   const chatComposerRef = useRef<ChatComposerHandle | null>(null);
   const findInputRef = useRef<HTMLInputElement | null>(null);
   const generationRefs = useRef<Record<string, ActiveGeneration>>({});
+  const pendingAskUserRequestsRef = useRef<Record<string, PendingAskUserRequest>>({});
   const modelLoadStatusTimerRef = useRef<number | null>(null);
   const scrollFrameRef = useRef<number | null>(null);
   const stickyScrollFrameRef = useRef<number | null>(null);
@@ -642,6 +1129,7 @@ export default function Home() {
   const streamActiveProcessStepRefs = useRef<Record<string, ActiveProcessStepRef>>({});
   const streamFlushTimeoutRefs = useRef<Record<string, number>>({});
   const didHydrateRef = useRef(false);
+  const composerDraftSaveTimeoutRef = useRef<number | null>(null);
 
   // Auto-scroll state: enabled by default, disabled when user scrolls up
   const [autoScrollEnabled, setAutoScrollEnabled] = useState(true);
@@ -809,7 +1297,7 @@ export default function Home() {
     );
   }, [activeChatId, sortedChats]);
   const activeComposerDraft = activeChatId
-    ? (composerDraftsByChatId[activeChatId] ?? "")
+    ? (composerDraftsRef.current[activeChatId] ?? "")
     : "";
 
   const providers = providersState.providers.length
@@ -1059,8 +1547,14 @@ export default function Home() {
   }, [activeChatId]);
 
   useEffect(() => {
-    saveComposerDrafts(composerDraftsByChatId);
-  }, [composerDraftsByChatId]);
+    return () => {
+      if (composerDraftSaveTimeoutRef.current !== null) {
+        window.clearTimeout(composerDraftSaveTimeoutRef.current);
+      }
+
+      saveComposerDrafts(composerDraftsRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     if (!didHydrateRef.current || chats.length === 0) return;
@@ -1526,8 +2020,15 @@ export default function Home() {
   }
 
   function getEnabledTools() {
-    if (!toolsSettings.enabled) return [];
-    return loadedTools.filter((tool) => tool.enabled);
+    const enabledCommandTools = toolsSettings.enabled
+      ? loadedTools.filter(
+          (tool) => tool.enabled && tool.name !== ASK_USER_TOOL_NAME,
+        )
+      : [];
+
+    return toolsSettings.enabled && toolsSettings.askUserEnabled
+      ? [ASK_USER_TOOL, ...enabledCommandTools]
+      : enabledCommandTools;
   }
 
   function formatJsonLikeCodeBlock(value: string) {
@@ -1862,6 +2363,180 @@ ${value}
     return value.trim() ? JSON.parse(value) : {};
   }
 
+  function readTrimmedString(
+    source: Record<string, unknown>,
+    key: string,
+  ) {
+    const value = source[key];
+    return typeof value === "string" && value.trim() ? value.trim() : undefined;
+  }
+
+  function readLimitedString(
+    source: Record<string, unknown>,
+    key: string,
+    maxLength: number,
+    label: string,
+  ) {
+    const value = readTrimmedString(source, key);
+    if (value && value.length > maxLength) {
+      throw new Error(`${label} must be ${maxLength} characters or less.`);
+    }
+    return value;
+  }
+
+  function parseAskUserRequest(args: unknown): AskUserRequest {
+    if (!args || typeof args !== "object" || Array.isArray(args)) {
+      throw new Error("ask_user arguments must be a JSON object.");
+    }
+
+    const source = args as Record<string, unknown>;
+    const rawQuestions = Array.isArray(source.questions)
+      ? source.questions
+      : typeof source.question === "string" && Array.isArray(source.options)
+        ? [
+            {
+              id: readTrimmedString(source, "id") ?? "answer",
+              question: source.question,
+              description: source.description,
+              options: source.options,
+            },
+          ]
+        : undefined;
+
+    if (!rawQuestions?.length) {
+      throw new Error("ask_user requires at least one question.");
+    }
+
+    if (rawQuestions.length > MAX_ASK_USER_QUESTIONS) {
+      throw new Error(
+        `ask_user supports at most ${MAX_ASK_USER_QUESTIONS} questions.`,
+      );
+    }
+
+    const questionIds = new Set<string>();
+    const questions = rawQuestions.map((rawQuestion, questionIndex) => {
+      if (
+        !rawQuestion ||
+        typeof rawQuestion !== "object" ||
+        Array.isArray(rawQuestion)
+      ) {
+        throw new Error("Each ask_user question must be an object.");
+      }
+
+      const questionSource = rawQuestion as Record<string, unknown>;
+      const id =
+        readTrimmedString(questionSource, "id") ??
+        `question_${questionIndex + 1}`;
+      const question = readLimitedString(
+        questionSource,
+        "question",
+        MAX_ASK_USER_QUESTION_LENGTH,
+        `ask_user question ${id}`,
+      );
+
+      if (!question) {
+        throw new Error(`ask_user question ${id} is missing text.`);
+      }
+
+      if (questionIds.has(id)) {
+        throw new Error(`Duplicate ask_user question id: ${id}.`);
+      }
+      questionIds.add(id);
+
+      const rawOptions = questionSource.options;
+      if (!Array.isArray(rawOptions) || rawOptions.length < 2) {
+        throw new Error(
+          `ask_user question ${id} requires at least two options.`,
+        );
+      }
+
+      if (rawOptions.length > MAX_ASK_USER_OPTIONS) {
+        throw new Error(
+          `ask_user question ${id} supports at most ${MAX_ASK_USER_OPTIONS} options.`,
+        );
+      }
+
+      const optionIds = new Set<string>();
+      const options = rawOptions.map((rawOption, optionIndex) => {
+        if (!rawOption || typeof rawOption !== "object" || Array.isArray(rawOption)) {
+          throw new Error(`ask_user option ${optionIndex + 1} must be an object.`);
+        }
+
+        const optionSource = rawOption as Record<string, unknown>;
+        const optionId =
+          readTrimmedString(optionSource, "id") ?? `option_${optionIndex + 1}`;
+        const label = readLimitedString(
+          optionSource,
+          "label",
+          MAX_ASK_USER_OPTION_LABEL_LENGTH,
+          `ask_user option ${optionId} label`,
+        );
+
+        if (!label) {
+          throw new Error(`ask_user option ${optionId} is missing a label.`);
+        }
+
+        if (optionId === ASK_USER_CUSTOM_ANSWER_ID) {
+          throw new Error(
+            `ask_user option id ${ASK_USER_CUSTOM_ANSWER_ID} is reserved for custom answers.`,
+          );
+        }
+
+        if (optionIds.has(optionId)) {
+          throw new Error(
+            `Duplicate ask_user option id ${optionId} in question ${id}.`,
+          );
+        }
+        optionIds.add(optionId);
+
+        return {
+          id: optionId,
+          label,
+          description: readLimitedString(
+            optionSource,
+            "description",
+            MAX_ASK_USER_OPTION_DESCRIPTION_LENGTH,
+            `ask_user option ${optionId} description`,
+          ),
+        };
+      });
+
+      return {
+        id,
+        question,
+        description: readLimitedString(
+          questionSource,
+          "description",
+          MAX_ASK_USER_DESCRIPTION_LENGTH,
+          `ask_user question ${id} description`,
+        ),
+        options,
+      };
+    });
+
+    return {
+      title: readLimitedString(
+        source,
+        "title",
+        MAX_ASK_USER_TITLE_LENGTH,
+        "ask_user title",
+      ),
+      description: readLimitedString(
+        source,
+        "description",
+        MAX_ASK_USER_DESCRIPTION_LENGTH,
+        "ask_user description",
+      ),
+      questions,
+    };
+  }
+
+  function parseAskUserRequestFromToolCall(toolCall: ChatToolCall) {
+    return parseAskUserRequest(
+      parseToolArgumentsText(toolCall.function.arguments || "{}"),
+    );
+  }
+
   function buildToolExecutionPreviewForCall(
     toolCall: ChatToolCall,
     result?: ChatToolResult,
@@ -1883,6 +2558,125 @@ ${value}
     }
   }
 
+  function createAskUserToolResult(
+    toolCall: ChatToolCall,
+    request: AskUserRequest,
+    response: AskUserResponse,
+  ): ChatToolResult {
+    const answers = Object.fromEntries(
+      request.questions.map((question) => {
+        const selectedOptionId = response.answers[question.id] ?? "";
+        const selectedOption = question.options.find(
+          (option) => option.id === selectedOptionId,
+        );
+        const customAnswer =
+          selectedOptionId === ASK_USER_CUSTOM_ANSWER_ID
+            ? response.customAnswers?.[question.id]?.trim()
+            : undefined;
+
+        return [
+          question.id,
+          {
+            question: question.question,
+            answer_type: customAnswer ? "custom" : "option",
+            selected_option_id: selectedOptionId,
+            selected_option_label:
+              response.answerLabels?.[question.id] ??
+              customAnswer ??
+              selectedOption?.label ??
+              selectedOptionId,
+            ...(customAnswer ? { custom_answer: customAnswer } : {}),
+          },
+        ];
+      }),
+    );
+
+    return {
+      toolCallId: toolCall.id,
+      toolName: ASK_USER_TOOL_NAME,
+      content: JSON.stringify(
+        {
+          answered_at: response.answeredAt,
+          answers,
+        },
+        null,
+        2,
+      ),
+    };
+  }
+
+  async function executeAskUserToolCall(
+    toolCall: ChatToolCall,
+    options: {
+      chatId: string;
+      assistantMessageId: string;
+      variantId: string;
+      stepId: string;
+      signal?: AbortSignal;
+    },
+  ): Promise<ChatToolResult> {
+    parseAskUserRequestFromToolCall(toolCall);
+
+    return new Promise<ChatToolResult>((resolve, reject) => {
+      let settled = false;
+
+      const cleanup = () => {
+        delete pendingAskUserRequestsRef.current[toolCall.id];
+        options.signal?.removeEventListener("abort", abortHandler);
+      };
+
+      const settleResolve = (result: ChatToolResult) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve(result);
+      };
+
+      const settleReject = (error: unknown) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        reject(error);
+      };
+
+      const abortHandler = () => {
+        updateAssistantUserInputStepStatus(
+          options.chatId,
+          options.assistantMessageId,
+          options.variantId,
+          options.stepId,
+          "cancelled",
+        );
+        settleReject(new DOMException("Generation was cancelled.", "AbortError"));
+      };
+
+      pendingAskUserRequestsRef.current[toolCall.id] = {
+        chatId: options.chatId,
+        assistantMessageId: options.assistantMessageId,
+        variantId: options.variantId,
+        stepId: options.stepId,
+        resolve: settleResolve,
+        reject: settleReject,
+        cleanup,
+      };
+
+      updateAssistantUserInputStepStatus(
+        options.chatId,
+        options.assistantMessageId,
+        options.variantId,
+        options.stepId,
+        "waiting",
+      );
+
+      if (options.signal?.aborted) {
+        abortHandler();
+        return;
+      }
+
+      options.signal?.addEventListener("abort", abortHandler, { once: true });
+    });
+  }
+
   async function executeToolCall(
     toolCall: ChatToolCall,
     options: {
@@ -1890,12 +2684,17 @@ ${value}
       assistantMessageId: string;
       variantId: string;
       stepId: string;
+      signal?: AbortSignal;
     },
   ): Promise<ChatToolResult> {
     const toolName = toolCall.function.name;
     const tool = loadedTools.find((candidate) => candidate.name === toolName);
 
     try {
+      if (toolName === ASK_USER_TOOL_NAME) {
+        return await executeAskUserToolCall(toolCall, options);
+      }
+
       const argsText = toolCall.function.arguments.trim() || "{}";
       const args = JSON.parse(argsText);
       const result = await runQueuedTool(
@@ -1920,6 +2719,10 @@ ${value}
         execution: result.execution,
       };
     } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        throw error;
+      }
+
       return {
         toolCallId: toolCall.id,
         toolName,
@@ -1960,18 +2763,28 @@ ${value}
     updateChatMessages(activeChatId, updater, options);
   }
 
-  function updateActiveComposerDraft(draft: string) {
-    if (!activeChatId) return;
+  const updateActiveComposerDraft = useCallback(
+    (draft: string) => {
+      if (!activeChatId) return;
 
-    setComposerDraftsByChatId((currentDrafts) => {
-      const nextDrafts = { ...currentDrafts };
+      const nextDrafts = { ...composerDraftsRef.current };
 
       if (draft.length === 0) delete nextDrafts[activeChatId];
       else nextDrafts[activeChatId] = draft;
 
-      return nextDrafts;
-    });
-  }
+      composerDraftsRef.current = nextDrafts;
+
+      if (composerDraftSaveTimeoutRef.current !== null) {
+        window.clearTimeout(composerDraftSaveTimeoutRef.current);
+      }
+
+      composerDraftSaveTimeoutRef.current = window.setTimeout(() => {
+        composerDraftSaveTimeoutRef.current = null;
+        saveComposerDrafts(composerDraftsRef.current);
+      }, 250);
+    },
+    [activeChatId],
+  );
 
   function appendToAssistantVariant(
     chatId: string,
@@ -2195,6 +3008,109 @@ ${value}
         ),
       }),
       { touch: false },
+    );
+  }
+
+  function updateAssistantUserInputStepStatus(
+    chatId: string,
+    assistantMessageId: string,
+    variantId: string,
+    stepId: string,
+    status: UserInputStatus,
+  ) {
+    updateAssistantVariant(
+      chatId,
+      assistantMessageId,
+      variantId,
+      (variant) => ({
+        ...variant,
+        processSteps: (variant.processSteps ?? []).map((step) =>
+          step.id === stepId && step.type === "user_input"
+            ? { ...step, status }
+            : step,
+        ),
+      }),
+      { touch: false },
+    );
+  }
+
+  function completeAssistantUserInputStep(
+    chatId: string,
+    assistantMessageId: string,
+    variantId: string,
+    stepId: string,
+    response: AskUserResponse,
+    toolResult: ChatToolResult,
+  ) {
+    updateAssistantVariant(
+      chatId,
+      assistantMessageId,
+      variantId,
+      (variant) => ({
+        ...variant,
+        processSteps: (variant.processSteps ?? []).map((step) =>
+          step.id === stepId && step.type === "user_input"
+            ? {
+                ...step,
+                status: "complete",
+                response,
+                toolResult,
+              }
+            : step,
+        ),
+      }),
+      { touch: false },
+    );
+  }
+
+  function submitAskUserResponse(
+    toolCall: ChatToolCall,
+    request: AskUserRequest,
+    response: AskUserResponse,
+  ) {
+    const pendingRequest = pendingAskUserRequestsRef.current[toolCall.id];
+    if (!pendingRequest) {
+      showError("This input request is no longer active.");
+      return;
+    }
+
+    const toolResult = createAskUserToolResult(toolCall, request, response);
+    completeAssistantUserInputStep(
+      pendingRequest.chatId,
+      pendingRequest.assistantMessageId,
+      pendingRequest.variantId,
+      pendingRequest.stepId,
+      response,
+      toolResult,
+    );
+    pendingRequest.resolve(toolResult);
+
+    if (pendingRequest.chatId === activeChatId) {
+      scheduleStickyScrollToBottom({
+        force: true,
+        settleFrames: STICKY_SCROLL_SETTLE_FRAMES,
+      });
+    }
+  }
+
+  function cancelAskUserRequest(toolCallId: string) {
+    const pendingRequest = pendingAskUserRequestsRef.current[toolCallId];
+    if (!pendingRequest) {
+      showError("This input request is no longer active.");
+      return;
+    }
+
+    updateAssistantUserInputStepStatus(
+      pendingRequest.chatId,
+      pendingRequest.assistantMessageId,
+      pendingRequest.variantId,
+      pendingRequest.stepId,
+      "cancelled",
+    );
+
+    generationRefs.current[pendingRequest.chatId]?.controller.abort();
+    pendingRequest.reject(
+      new DOMException("Generation was cancelled.", "AbortError"),
     );
   }
 
@@ -2686,12 +3602,29 @@ ${value}
 
     const appendToolCallsToVariant = (toolCalls: ChatToolCall[]) => {
       toolCallsForContext = [...toolCallsForContext, ...toolCalls];
-      const toolSteps = toolCalls.map((toolCall) => ({
-        id: createId(),
-        type: "tool_execution" as const,
-        status: "pending" as const,
-        toolCall,
-      }));
+      const toolSteps: ChatAssistantProcessStep[] = toolCalls.map((toolCall) => {
+        if (toolCall.function.name === ASK_USER_TOOL_NAME) {
+          try {
+            return {
+              id: createId(),
+              type: "user_input" as const,
+              status: "waiting" as const,
+              toolCall,
+              request: parseAskUserRequestFromToolCall(toolCall),
+            };
+          } catch {
+            // Keep invalid ask_user calls visible as failed tool executions once
+            // executeToolCall returns the validation error.
+          }
+        }
+
+        return {
+          id: createId(),
+          type: "tool_execution" as const,
+          status: "pending" as const,
+          toolCall,
+        };
+      });
 
       updateAssistantVariant(
         chatId,
@@ -2706,7 +3639,10 @@ ${value}
       );
 
       return new Map(
-        toolSteps.map((step) => [step.toolCall.id, step.id] as const),
+        toolCalls.map((toolCall, index) => [
+          toolCall.id,
+          toolSteps[index]?.id ?? toolCall.id,
+        ] as const),
       );
     };
 
@@ -2724,7 +3660,7 @@ ${value}
             ...variant,
             toolResults: [...existingResults, ...toolResults],
             processSteps: (variant.processSteps ?? []).map((step) => {
-              if (step.type !== "tool_execution") {
+              if (step.type !== "tool_execution" && step.type !== "user_input") {
                 return step;
               }
 
@@ -2732,13 +3668,21 @@ ${value}
                 (item) => item.toolCallId === step.toolCall.id,
               );
 
-              return toolResult
-                ? {
-                    ...step,
-                    status: toolResult.isError ? "failed" : "complete",
-                    toolResult,
-                  }
-                : step;
+              if (!toolResult) return step;
+
+              if (step.type === "user_input") {
+                return {
+                  ...step,
+                  status: toolResult.isError ? "failed" : "complete",
+                  toolResult,
+                };
+              }
+
+              return {
+                ...step,
+                status: toolResult.isError ? "failed" : "complete",
+                toolResult,
+              };
             }),
           };
         },
@@ -2902,6 +3846,7 @@ ${value}
               assistantMessageId,
               variantId,
               stepId: toolStepIdsByToolCallId.get(toolCall.id) ?? toolCall.id,
+              signal: controller.signal,
             }),
           ),
         );
@@ -4073,6 +5018,44 @@ ${value}
                               );
                             }
 
+                            if (step.type === "user_input") {
+                              const manualCollapsed = collapsedToolStepIds[step.id];
+                              const isCollapsed =
+                                manualCollapsed ?? step.status !== "waiting";
+
+                              return (
+                                <AskUserBlock
+                                  key={step.id}
+                                  id={step.id}
+                                  request={step.request}
+                                  response={step.response}
+                                  status={step.status}
+                                  canSubmit={Boolean(
+                                    pendingAskUserRequestsRef.current[
+                                      step.toolCall.id
+                                    ],
+                                  )}
+                                  isCollapsed={isCollapsed}
+                                  onToggleCollapsed={() =>
+                                    toggleToolExecutionCollapsed(
+                                      step.id,
+                                      !isCollapsed,
+                                    )
+                                  }
+                                  onSubmit={(response) =>
+                                    submitAskUserResponse(
+                                      step.toolCall,
+                                      step.request,
+                                      response,
+                                    )
+                                  }
+                                  onCancel={() =>
+                                    cancelAskUserRequest(step.toolCall.id)
+                                  }
+                                />
+                              );
+                            }
+
                             return renderToolExecutionBlock({
                               id: step.id,
                               toolCall: step.toolCall,
@@ -4557,6 +5540,7 @@ ${value}
           ref={chatComposerRef}
           disabled={!activeChat}
           isSending={isSending}
+          draftKey={activeChatId ?? ""}
           draft={activeComposerDraft}
           onDraftChange={updateActiveComposerDraft}
           onSend={sendMessage}
