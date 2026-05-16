@@ -86,11 +86,17 @@ export type AskUserOption = {
   description?: string;
 };
 
+export type AskUserQuestionType = "single_choice" | "multi_select" | "text";
+
 export type AskUserQuestion = {
   id: string;
+  type?: AskUserQuestionType;
   question: string;
   description?: string;
   options: AskUserOption[];
+  input?: {
+    multiline?: boolean;
+  };
 };
 
 export type AskUserRequest = {
@@ -100,9 +106,11 @@ export type AskUserRequest = {
 };
 
 export type AskUserResponse = {
-  /** Selected option id per question, or "__custom__" when a custom answer was used. */
+  /** Selected option id per single-choice question, or text answer for text questions. */
   answers: Record<string, string>;
-  answerLabels?: Record<string, string>;
+  /** Selected option ids per multi-select question. */
+  multiAnswers?: Record<string, string[]>;
+  answerLabels?: Record<string, string | string[]>;
   customAnswers?: Record<string, string>;
   answeredAt: string;
 };

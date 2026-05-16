@@ -44,7 +44,7 @@ const TOOL_TEST_STATE_SAVE_DELAY_MS = 350;
 const BUILTIN_ASK_USER_TOOL_NAME = "ask_user";
 const BUILTIN_ASK_USER_TOOL_ID = "builtin-ask-user";
 const BUILTIN_ASK_USER_TOOL_DESCRIPTION =
-  "Pauses the assistant so it can ask focused clarification questions with concise options, strongly encouraged helper descriptions, and a custom answer option, then resumes the same response.";
+  "Pauses the assistant so it can ask focused clarification questions, including single-choice, multi-select, and text answers, then resumes the same response.";
 const BUILTIN_ASK_USER_TOOL_PARAMETERS = {
   type: "object",
   properties: {
@@ -56,12 +56,24 @@ const BUILTIN_ASK_USER_TOOL_PARAMETERS = {
         type: "object",
         properties: {
           id: { type: "string" },
+          type: {
+            type: "string",
+            enum: ["single_choice", "multi_select", "text"],
+            description:
+              "single_choice chooses one option, multi_select chooses several options, text asks for a custom-only answer. Defaults to single_choice.",
+          },
           question: { type: "string" },
           description: { type: "string" },
+          input: {
+            type: "object",
+            properties: {
+              multiline: { type: "boolean" },
+            },
+          },
           options: {
             type: "array",
             description:
-              "Model-provided options. Use concise labels and strongly prefer one-sentence descriptions. Do not include Other/custom; Chat Forge adds a custom typed answer option automatically.",
+              "Required for single_choice and multi_select. Use concise labels and strongly prefer one-sentence descriptions. Do not include Other/custom; Chat Forge adds a custom typed answer option automatically for choice questions.",
             items: {
               type: "object",
               properties: {
@@ -79,7 +91,7 @@ const BUILTIN_ASK_USER_TOOL_PARAMETERS = {
             },
           },
         },
-        required: ["id", "question", "options"],
+        required: ["id", "question"],
       },
     },
   },
@@ -1047,10 +1059,11 @@ export const ToolsDialog = memo(function ToolsDialog({
                       form, and resumes after you submit the answers.
                     </p>
                     <p>
-                      It supports up to 5 single-choice questions per form and
-                      up to 8 model-provided options per question. Each option
+                      It supports up to 5 questions per form. Questions can be
+                      single-choice, multi-select, or text-only. Choice questions
+                      support up to 8 model-provided options, and each option
                       should include a short label plus a gray helper description when useful.
-                      Chat Forge always adds a custom “Type your answer” option.
+                      Chat Forge always adds a custom “Type your answer” option to choice questions.
                     </p>
                   </div>
                 </div>
