@@ -11,7 +11,6 @@ import {
   Eye,
   EyeOff,
   Info,
-  Search,
   ListTodo,
   MessageSquareText,
   Moon,
@@ -22,20 +21,21 @@ import {
   Plus,
   RefreshCcw,
   Save as SaveIcon,
+  Search,
   Send,
   Settings,
   Square,
-  Wrench,
   Sun,
   Trash2,
+  Wrench,
   X,
 } from "lucide-react";
 import type {
   ComponentProps,
   FormEvent,
+  KeyboardEvent as ReactKeyboardEvent,
   MouseEvent as ReactMouseEvent,
   ReactNode,
-  KeyboardEvent as ReactKeyboardEvent,
   PointerEvent as ReactPointerEvent,
   WheelEvent as ReactWheelEvent,
 } from "react";
@@ -105,10 +105,8 @@ import {
   createId,
   createNewProvider,
   createProviderId,
-  formatChatActivityDate,
   formatOptionalNumber,
   getActiveVariant,
-  getChatActivityDate,
   getProviderFallbackModel,
   groupChatsByActivityDate,
   labelForError,
@@ -131,7 +129,6 @@ import {
   defaultProvider,
   providerPresets,
 } from "@/lib/ai-chat/provider-presets";
-import { runQueuedTool } from "@/lib/ai-chat/tool-execution-queue";
 import {
   createEmptyChat,
   deleteChat,
@@ -148,6 +145,7 @@ import {
   saveSystemPrompt,
   saveToolsSettings,
 } from "@/lib/ai-chat/storage";
+import { runQueuedTool } from "@/lib/ai-chat/tool-execution-queue";
 import type {
   AskUserOption,
   AskUserQuestion,
@@ -157,19 +155,19 @@ import type {
   ChatAssistantProcessStep,
   ChatAssistantVariant,
   ChatMessage,
+  ChatSession,
   ChatToolCall,
   ChatToolResult,
-  LoadedToolInfo,
-  ToolExecutionStatus,
-  ToolExecutionPreview,
   ChecklistItem,
   ChecklistWriteRequest,
-  UserInputStatus,
-  ChatSession,
+  LoadedToolInfo,
   ProviderConfig,
   ProviderGenerationSettings,
   ProvidersState,
+  ToolExecutionPreview,
+  ToolExecutionStatus,
   ToolsSettings,
+  UserInputStatus,
 } from "@/lib/ai-chat/types";
 import { useTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
@@ -331,7 +329,7 @@ const CHECKLIST_WRITE_TOOL: LoadedToolInfo = {
   timeoutMs: 0,
 };
 const MAX_TOOL_ROUNDS = 20;
-const TOOL_DESCRIPTION_PREVIEW_MAX_LENGTH = 240;
+const TOOL_DESCRIPTION_PREVIEW_MAX_LENGTH = 95;
 
 function loadComposerDrafts(): Record<string, string> {
   if (typeof window === "undefined") return {};
@@ -1515,7 +1513,7 @@ const ChecklistBlock = memo(function ChecklistBlock({
         </button>
 
         {!isCollapsed && (
-          <ul className="mt-3 grid gap-2 text-xs normal-case leading-5 tracking-normal">
+          <ul className="mt-3 grid gap-0 text-xs normal-case leading-5 tracking-normal">
             {request.items.map((item, index) => (
               <li
                 key={`${index}-${item.content}`}
