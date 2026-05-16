@@ -5876,10 +5876,6 @@ ${value}
                     );
                   const hasInlineAssistantMessageSteps =
                     assistantMessageProcessSteps.length > 0;
-                  const lastInlineAssistantMessageStepId =
-                    assistantMessageProcessSteps[
-                      assistantMessageProcessSteps.length - 1
-                    ]?.id;
                   const status = activeVariant?.status;
                   const metrics = activeVariant?.metrics;
                   const generatedModelName = metrics?.model?.trim() ?? "";
@@ -5971,10 +5967,6 @@ ${value}
 
                                 const isAssistantBlockStreaming =
                                   status === "streaming" && isLatestProcessStep;
-                                const blockCopyId = `${message.id}:${step.id}`;
-                                const isLastAssistantMessageStep =
-                                  step.id === lastInlineAssistantMessageStepId;
-
                                 return (
                                   <div key={step.id} className="grid gap-1">
                                     <article
@@ -6006,33 +5998,6 @@ ${value}
                                         />
                                       </div>
                                     </article>
-                                    {!isLastAssistantMessageStep && (
-                                      <div className="flex justify-end">
-                                        <TooltipIconButton
-                                          type="button"
-                                          variant="ghost"
-                                          size="icon-sm"
-                                          label={
-                                            copiedMessageId === blockCopyId
-                                              ? "Copied"
-                                              : "Copy block"
-                                          }
-                                          onClick={() =>
-                                            copyMessageContent(
-                                              blockCopyId,
-                                              step.content,
-                                            )
-                                          }
-                                          disabled={!step.content.trim()}
-                                        >
-                                          {copiedMessageId === blockCopyId ? (
-                                            <Check className="size-3" />
-                                          ) : (
-                                            <Copy className="size-3" />
-                                          )}
-                                        </TooltipIconButton>
-                                      </div>
-                                    )}
                                   </div>
                                 );
                               }
