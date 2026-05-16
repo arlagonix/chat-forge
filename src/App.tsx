@@ -147,7 +147,9 @@ import {
   saveToolsSettings,
 } from "@/lib/ai-chat/storage";
 import type {
+  AskUserOption,
   AskUserQuestion,
+  AskUserQuestionType,
   AskUserRequest,
   AskUserResponse,
   ChatAssistantProcessStep,
@@ -198,7 +200,7 @@ const ASK_USER_TOOL: LoadedToolInfo = {
   name: ASK_USER_TOOL_NAME,
   enabled: true,
   description:
-    "Pause and ask the user focused single-choice clarification questions, always allowing a custom typed answer for each question, then continue the same response. Use concise option labels and strongly prefer one-sentence option descriptions. Use only when the answer materially changes the next step.",
+    "Pause and ask the user focused clarification questions, then continue the same response. Supports single_choice, multi_select, and text questions. Use text when the user must provide a custom value such as a number, name, or range. For choice questions, use concise option labels and strongly prefer one-sentence option descriptions. Use only when the answer materially changes the next step.",
   parameters: {
     type: "object",
     additionalProperties: false,
@@ -213,7 +215,8 @@ const ASK_USER_TOOL: LoadedToolInfo = {
       },
       questions: {
         type: "array",
-        description: "One to five single-choice questions to ask together.",
+        description:
+          "One to five questions. Each question defaults to single_choice when type is omitted.",
         minItems: 1,
         maxItems: MAX_ASK_USER_QUESTIONS,
         items: {
@@ -224,12 +227,27 @@ const ASK_USER_TOOL: LoadedToolInfo = {
               type: "string",
               description: "Stable snake_case answer key.",
             },
+            type: {
+              type: "string",
+              enum: ["single_choice", "multi_select", "text"],
+              description:
+                "Use single_choice for one option, multi_select for several options, and text for custom-only user input. Defaults to single_choice.",
+            },
             question: { type: "string" },
             description: { type: "string" },
+            input: {
+              type: "object",
+              additionalProperties: false,
+              description:
+                "Only for text questions. Set multiline to true for longer free-form answers.",
+              properties: {
+                multiline: { type: "boolean" },
+              },
+            },
             options: {
               type: "array",
               description:
-                "Model-provided options. Use concise labels and strongly prefer one-sentence gray-helper descriptions. Do not include Other/custom; Chat Forge adds a custom typed answer option automatically.",
+                "Required for single_choice and multi_select. Use concise labels and strongly prefer one-sentence gray-helper descriptions. Do not include Other/custom; Chat Forge adds a custom typed answer option automatically for choice questions.",
               minItems: 2,
               maxItems: MAX_ASK_USER_OPTIONS,
               items: {
@@ -251,7 +269,7 @@ const ASK_USER_TOOL: LoadedToolInfo = {
               },
             },
           },
-          required: ["id", "question", "options"],
+          required: ["id", "question"],
         },
       },
     },
@@ -432,12 +450,36 @@ const UserMessageEditor = memo(function UserMessageEditor({
   );
 });
 
+function getAskUserQuestionType(
+  question: AskUserQuestion,
+): AskUserQuestionType {
+  if (
+    question.type === "multi_select" ||
+    question.type === "text" ||
+    question.type === "single_choice"
+  ) {
+    return question.type;
+  }
+
+  return "single_choice";
+}
+
 function createDefaultAskUserAnswers(request: AskUserRequest) {
   return Object.fromEntries(
-    request.questions.map((question) => [
-      question.id,
-      question.options[0]?.id ?? "",
-    ]),
+    request.questions.map((question) => {
+      const questionType = getAskUserQuestionType(question);
+      if (questionType === "text" || questionType === "multi_select") {
+        return [question.id, ""];
+      }
+
+      return [question.id, question.options[0]?.id ?? ""];
+    }),
+  );
+}
+
+function createDefaultAskUserMultiAnswers(request: AskUserRequest) {
+  return Object.fromEntries(
+    request.questions.map((question) => [question.id, [] as string[]]),
   );
 }
 
@@ -478,6 +520,9 @@ const AskUserBlock = memo(function AskUserBlock({
   const [answers, setAnswers] = useState<Record<string, string>>(() =>
     createDefaultAskUserAnswers(request),
   );
+  const [multiAnswers, setMultiAnswers] = useState<Record<string, string[]>>(
+    () => createDefaultAskUserMultiAnswers(request),
+  );
   const [customAnswers, setCustomAnswers] = useState<Record<string, string>>(
     () => createEmptyAskUserCustomAnswers(request),
   );
@@ -490,43 +535,14 @@ const AskUserBlock = memo(function AskUserBlock({
 
   useEffect(() => {
     setAnswers(response?.answers ?? createDefaultAskUserAnswers(request));
+    setMultiAnswers(
+      response?.multiAnswers ?? createDefaultAskUserMultiAnswers(request),
+    );
     setCustomAnswers(
       response?.customAnswers ?? createEmptyAskUserCustomAnswers(request),
     );
     setActiveQuestionIndex(0);
   }, [request, response]);
-
-  const allQuestionsAnswered = request.questions.every((question) => {
-    const selectedAnswer = answers[question.id];
-    if (selectedAnswer === ASK_USER_CUSTOM_ANSWER_ID) {
-      return Boolean(customAnswers[question.id]?.trim());
-    }
-
-    return question.options.some((option) => option.id === selectedAnswer);
-  });
-  const canSendAnswers = isWaiting && canSubmit && allQuestionsAnswered;
-
-  function isQuestionAnswered(question: AskUserQuestion | undefined) {
-    if (!question) return false;
-
-    const selectedAnswer = answers[question.id];
-    if (selectedAnswer === ASK_USER_CUSTOM_ANSWER_ID) {
-      return Boolean(customAnswers[question.id]?.trim());
-    }
-
-    return question.options.some((option) => option.id === selectedAnswer);
-  }
-
-  function goToPreviousQuestion() {
-    setActiveQuestionIndex((current) => Math.max(0, current - 1));
-  }
-
-  function goToNextQuestion() {
-    if (!isQuestionAnswered(activeQuestion)) return;
-    setActiveQuestionIndex((current) =>
-      Math.min(activeQuestionCount - 1, current + 1),
-    );
-  }
 
   function getSelectedOptionLabel(questionId: string, optionId?: string) {
     const question = request.questions.find((item) => item.id === questionId);
@@ -545,8 +561,39 @@ const AskUserBlock = memo(function AskUserBlock({
     );
   }
 
-  function getAnswerSummary(question: AskUserQuestion, answerId?: string) {
-    if (answerId === ASK_USER_CUSTOM_ANSWER_ID) {
+  function getMultiAnswerLabels(
+    question: AskUserQuestion,
+    optionIds: string[],
+  ) {
+    return optionIds
+      .map((optionId) => getSelectedOptionLabel(question.id, optionId))
+      .filter(Boolean);
+  }
+
+  function getAnswerSummary(question: AskUserQuestion) {
+    const questionType = getAskUserQuestionType(question);
+    const responseLabel = response?.answerLabels?.[question.id];
+
+    if (Array.isArray(responseLabel)) {
+      return responseLabel.join(", ");
+    }
+
+    if (typeof responseLabel === "string" && responseLabel.trim()) {
+      return responseLabel.trim();
+    }
+
+    if (questionType === "multi_select") {
+      const selectedIds = response?.multiAnswers?.[question.id] ?? [];
+      return getMultiAnswerLabels(question, selectedIds).join(", ");
+    }
+
+    if (questionType === "text") {
+      return response?.answers[question.id] ?? answers[question.id] ?? "";
+    }
+
+    const selectedOptionId =
+      response?.answers[question.id] ?? answers[question.id];
+    if (selectedOptionId === ASK_USER_CUSTOM_ANSWER_ID) {
       return (
         response?.customAnswers?.[question.id] ??
         customAnswers[question.id] ??
@@ -554,7 +601,47 @@ const AskUserBlock = memo(function AskUserBlock({
       );
     }
 
-    return getSelectedOptionLabel(question.id, answerId);
+    return getSelectedOptionLabel(question.id, selectedOptionId);
+  }
+
+  function isQuestionAnswered(question: AskUserQuestion | undefined) {
+    if (!question) return false;
+
+    const questionType = getAskUserQuestionType(question);
+    if (questionType === "text") {
+      return Boolean(answers[question.id]?.trim());
+    }
+
+    if (questionType === "multi_select") {
+      const selectedIds = multiAnswers[question.id] ?? [];
+      return selectedIds.some((optionId) => {
+        if (optionId !== ASK_USER_CUSTOM_ANSWER_ID) return true;
+        return Boolean(customAnswers[question.id]?.trim());
+      });
+    }
+
+    const selectedAnswer = answers[question.id];
+    if (selectedAnswer === ASK_USER_CUSTOM_ANSWER_ID) {
+      return Boolean(customAnswers[question.id]?.trim());
+    }
+
+    return question.options.some((option) => option.id === selectedAnswer);
+  }
+
+  const allQuestionsAnswered = request.questions.every((question) =>
+    isQuestionAnswered(question),
+  );
+  const canSendAnswers = isWaiting && canSubmit && allQuestionsAnswered;
+
+  function goToPreviousQuestion() {
+    setActiveQuestionIndex((current) => Math.max(0, current - 1));
+  }
+
+  function goToNextQuestion() {
+    if (!isQuestionAnswered(activeQuestion)) return;
+    setActiveQuestionIndex((current) =>
+      Math.min(activeQuestionCount - 1, current + 1),
+    );
   }
 
   function renderCompletedAnswerList() {
@@ -564,10 +651,10 @@ const AskUserBlock = memo(function AskUserBlock({
       <ul className="mt-2 grid list-disc gap-2 pl-4 text-xs normal-case leading-5 tracking-normal">
         {request.questions.map((question) => (
           <li key={question.id} className="pl-1">
-            <div className="grid gap-1">
+            <div className="grid gap-0">
               <span className="text-muted-foreground">{question.question}</span>
               <span className="font-medium text-foreground/85">
-                {getAnswerSummary(question, response.answers[question.id])}
+                {getAnswerSummary(question)}
               </span>
             </div>
           </li>
@@ -576,12 +663,305 @@ const AskUserBlock = memo(function AskUserBlock({
     );
   }
 
+  function renderTextAnswer(question: AskUserQuestion, readOnly = false) {
+    const value = readOnly
+      ? (response?.answers[question.id] ?? "")
+      : (answers[question.id] ?? "");
+    const updateAnswer = (nextValue: string) => {
+      setAnswers((current) => ({
+        ...current,
+        [question.id]: nextValue.slice(0, MAX_ASK_USER_CUSTOM_ANSWER_LENGTH),
+      }));
+    };
+
+    if (question.input?.multiline) {
+      return (
+        <Textarea
+          value={value}
+          disabled={readOnly || !canSubmit}
+          readOnly={readOnly}
+          maxLength={MAX_ASK_USER_CUSTOM_ANSWER_LENGTH}
+          onChange={(event) => updateAnswer(event.target.value)}
+          className="min-h-24 rounded-lg text-xs"
+        />
+      );
+    }
+
+    return (
+      <Input
+        value={value}
+        disabled={readOnly || !canSubmit}
+        readOnly={readOnly}
+        maxLength={MAX_ASK_USER_CUSTOM_ANSWER_LENGTH}
+        onChange={(event) => updateAnswer(event.target.value)}
+        className="h-8 rounded-lg text-xs"
+      />
+    );
+  }
+
+  function renderChoiceOption({
+    question,
+    option,
+    checked,
+    inputType,
+    inputId,
+    inputName,
+    readOnly = false,
+    onChange,
+  }: {
+    question: AskUserQuestion;
+    option: AskUserOption;
+    checked: boolean;
+    inputType: "radio" | "checkbox";
+    inputId?: string;
+    inputName?: string;
+    readOnly?: boolean;
+    onChange?: () => void;
+  }) {
+    return (
+      <label
+        key={option.id}
+        htmlFor={inputId}
+        className={cn(
+          "flex items-start gap-2 rounded-lg border px-3 py-2 text-left transition-colors",
+          checked
+            ? "border-primary/50 bg-primary/10 text-foreground"
+            : "border-border/70 bg-background/60",
+          !readOnly && canSubmit && "cursor-pointer hover:bg-muted/60",
+          (!canSubmit || readOnly) && "cursor-default opacity-90",
+        )}
+      >
+        <input
+          id={inputId}
+          type={inputType}
+          name={inputName}
+          value={option.id}
+          checked={checked}
+          readOnly={readOnly}
+          disabled={readOnly || !canSubmit}
+          onChange={onChange}
+          className="mt-1 size-3.5 shrink-0 accent-primary"
+        />
+        <span className="grid gap-0.5">
+          <span className="text-xs font-medium leading-5 text-foreground">
+            {option.label}
+          </span>
+          {option.description?.trim() && (
+            <span className="text-xs leading-5 text-muted-foreground">
+              {option.description.trim()}
+            </span>
+          )}
+        </span>
+      </label>
+    );
+  }
+
+  function renderCustomChoiceOption({
+    question,
+    checked,
+    inputType,
+    inputName,
+    readOnly = false,
+    onSelect,
+  }: {
+    question: AskUserQuestion;
+    checked: boolean;
+    inputType: "radio" | "checkbox";
+    inputName?: string;
+    readOnly?: boolean;
+    onSelect?: () => void;
+  }) {
+    const customInputId = `${id}-${question.id}-custom-text`;
+    const customAnswer = readOnly
+      ? (response?.customAnswers?.[question.id] ?? "")
+      : (customAnswers[question.id] ?? "");
+
+    return (
+      <label
+        htmlFor={customInputId}
+        className={cn(
+          "grid gap-2 rounded-lg border px-3 py-2 text-left transition-colors",
+          checked
+            ? "border-primary/50 bg-primary/10 text-foreground"
+            : "border-border/70 bg-background/60",
+          !readOnly && canSubmit && "cursor-pointer hover:bg-muted/60",
+          (!canSubmit || readOnly) && "cursor-default opacity-90",
+        )}
+      >
+        <span className="flex items-start gap-2">
+          <input
+            type={inputType}
+            name={inputName}
+            value={ASK_USER_CUSTOM_ANSWER_ID}
+            checked={checked}
+            readOnly={readOnly}
+            disabled={readOnly || !canSubmit}
+            onChange={onSelect}
+            className="mt-1 size-3.5 shrink-0 accent-primary"
+          />
+          <span className="grid gap-0.5">
+            <span className="text-xs font-medium leading-5 text-foreground">
+              Type your answer
+            </span>
+            <span className="text-xs leading-5 text-muted-foreground">
+              Enter a custom answer instead of choosing one of the suggested
+              options.
+            </span>
+          </span>
+        </span>
+        {!readOnly ? (
+          <Input
+            id={customInputId}
+            value={customAnswer}
+            onChange={(event) => {
+              const nextValue = event.target.value.slice(
+                0,
+                MAX_ASK_USER_CUSTOM_ANSWER_LENGTH,
+              );
+              setCustomAnswers((current) => ({
+                ...current,
+                [question.id]: nextValue,
+              }));
+
+              if (inputType === "radio") {
+                setAnswers((current) => ({
+                  ...current,
+                  [question.id]: ASK_USER_CUSTOM_ANSWER_ID,
+                }));
+                return;
+              }
+
+              setMultiAnswers((current) => {
+                const selectedIds = current[question.id] ?? [];
+                if (nextValue.trim()) {
+                  return selectedIds.includes(ASK_USER_CUSTOM_ANSWER_ID)
+                    ? current
+                    : {
+                        ...current,
+                        [question.id]: [
+                          ...selectedIds,
+                          ASK_USER_CUSTOM_ANSWER_ID,
+                        ],
+                      };
+                }
+
+                return {
+                  ...current,
+                  [question.id]: selectedIds.filter(
+                    (optionId) => optionId !== ASK_USER_CUSTOM_ANSWER_ID,
+                  ),
+                };
+              });
+            }}
+            disabled={!canSubmit}
+            maxLength={MAX_ASK_USER_CUSTOM_ANSWER_LENGTH}
+            className="h-8 rounded-lg text-xs"
+          />
+        ) : checked ? (
+          <span className="text-xs leading-5 text-muted-foreground">
+            {customAnswer || "No custom answer provided."}
+          </span>
+        ) : null}
+      </label>
+    );
+  }
+
+  function renderQuestionInput(question: AskUserQuestion) {
+    const questionType = getAskUserQuestionType(question);
+
+    if (questionType === "text") {
+      return renderTextAnswer(question);
+    }
+
+    if (questionType === "multi_select") {
+      const selectedIds = multiAnswers[question.id] ?? [];
+      return (
+        <div className="grid gap-1.5">
+          {question.options.map((option) => {
+            const inputId = `${id}-${question.id}-${option.id}`;
+            const checked = selectedIds.includes(option.id);
+
+            return renderChoiceOption({
+              question,
+              option,
+              checked,
+              inputType: "checkbox",
+              inputId,
+              onChange: () => {
+                setMultiAnswers((current) => {
+                  const currentIds = current[question.id] ?? [];
+                  return {
+                    ...current,
+                    [question.id]: currentIds.includes(option.id)
+                      ? currentIds.filter((item) => item !== option.id)
+                      : [...currentIds, option.id],
+                  };
+                });
+              },
+            });
+          })}
+          {renderCustomChoiceOption({
+            question,
+            checked: selectedIds.includes(ASK_USER_CUSTOM_ANSWER_ID),
+            inputType: "checkbox",
+            onSelect: () => {
+              setMultiAnswers((current) => {
+                const currentIds = current[question.id] ?? [];
+                return {
+                  ...current,
+                  [question.id]: currentIds.includes(ASK_USER_CUSTOM_ANSWER_ID)
+                    ? currentIds.filter(
+                        (item) => item !== ASK_USER_CUSTOM_ANSWER_ID,
+                      )
+                    : [...currentIds, ASK_USER_CUSTOM_ANSWER_ID],
+                };
+              });
+            },
+          })}
+        </div>
+      );
+    }
+
+    const selectedOptionId = answers[question.id] ?? "";
+    return (
+      <div className="grid gap-1.5">
+        {question.options.map((option) => {
+          const inputId = `${id}-${question.id}-${option.id}`;
+          const checked = selectedOptionId === option.id;
+
+          return renderChoiceOption({
+            question,
+            option,
+            checked,
+            inputType: "radio",
+            inputId,
+            inputName: `${id}-${question.id}`,
+            onChange: () =>
+              setAnswers((current) => ({
+                ...current,
+                [question.id]: option.id,
+              })),
+          });
+        })}
+        {renderCustomChoiceOption({
+          question,
+          checked: selectedOptionId === ASK_USER_CUSTOM_ANSWER_ID,
+          inputType: "radio",
+          inputName: `${id}-${question.id}`,
+          onSelect: () =>
+            setAnswers((current) => ({
+              ...current,
+              [question.id]: ASK_USER_CUSTOM_ANSWER_ID,
+            })),
+        })}
+      </div>
+    );
+  }
+
   function renderReadOnlyQuestion(question: AskUserQuestion) {
     if (!response) return null;
 
-    const selectedOptionId = response.answers[question.id];
-    const customAnswer = response.customAnswers?.[question.id]?.trim();
-    const customSelected = selectedOptionId === ASK_USER_CUSTOM_ANSWER_ID;
+    const questionType = getAskUserQuestionType(question);
 
     return (
       <div key={question.id} className="grid gap-3">
@@ -596,75 +976,51 @@ const AskUserBlock = memo(function AskUserBlock({
           )}
         </div>
 
-        <div className="grid gap-1.5">
-          {question.options.map((option) => {
-            const checked = selectedOptionId === option.id;
-
-            return (
-              <div
-                key={option.id}
-                className={cn(
-                  "flex items-start gap-2 rounded-lg border px-3 py-2 text-left transition-colors",
-                  checked
-                    ? "border-primary/50 bg-primary/10 text-foreground"
-                    : "border-border/70 bg-background/60",
-                )}
-              >
-                <input
-                  type="radio"
-                  checked={checked}
-                  readOnly
-                  disabled
-                  className="mt-1 size-3.5 shrink-0 accent-primary"
-                />
-                <span className="grid gap-0.5">
-                  <span className="text-xs font-medium leading-5 text-foreground">
-                    {option.label}
-                  </span>
-                  {option.description?.trim() && (
-                    <span className="text-xs leading-5 text-muted-foreground">
-                      {option.description.trim()}
-                    </span>
-                  )}
-                </span>
-              </div>
-            );
-          })}
-
-          <div
-            className={cn(
-              "grid gap-1.5 rounded-lg border px-3 py-2 text-left transition-colors",
-              customSelected
-                ? "border-primary/50 bg-primary/10 text-foreground"
-                : "border-border/70 bg-background/60",
-            )}
-          >
-            <span className="flex items-start gap-2">
-              <input
-                type="radio"
-                checked={customSelected}
-                readOnly
-                disabled
-                className="mt-1 size-3.5 shrink-0 accent-primary"
-              />
-              <span className="grid gap-0.5">
-                <span className="text-xs font-medium leading-5 text-foreground">
-                  Type your answer
-                </span>
-                {customSelected ? (
-                  <span className="text-xs leading-5 text-muted-foreground">
-                    {customAnswer || "No custom answer provided."}
-                  </span>
-                ) : (
-                  <span className="text-xs leading-5 text-muted-foreground">
-                    Enter a custom answer instead of choosing one of the
-                    suggested options.
-                  </span>
-                )}
-              </span>
-            </span>
+        {questionType === "text" ? (
+          renderTextAnswer(question, true)
+        ) : questionType === "multi_select" ? (
+          <div className="grid gap-1.5">
+            {question.options.map((option) => {
+              const selectedIds = response.multiAnswers?.[question.id] ?? [];
+              return renderChoiceOption({
+                question,
+                option,
+                checked: selectedIds.includes(option.id),
+                inputType: "checkbox",
+                readOnly: true,
+              });
+            })}
+            {renderCustomChoiceOption({
+              question,
+              checked: Boolean(
+                response.multiAnswers?.[question.id]?.includes(
+                  ASK_USER_CUSTOM_ANSWER_ID,
+                ),
+              ),
+              inputType: "checkbox",
+              readOnly: true,
+            })}
           </div>
-        </div>
+        ) : (
+          <div className="grid gap-1.5">
+            {question.options.map((option) =>
+              renderChoiceOption({
+                question,
+                option,
+                checked: response.answers[question.id] === option.id,
+                inputType: "radio",
+                readOnly: true,
+              }),
+            )}
+            {renderCustomChoiceOption({
+              question,
+              checked:
+                response.answers[question.id] === ASK_USER_CUSTOM_ANSWER_ID,
+              inputType: "radio",
+              readOnly: true,
+            })}
+          </div>
+        )}
       </div>
     );
   }
@@ -673,26 +1029,69 @@ const AskUserBlock = memo(function AskUserBlock({
     if (!canSendAnswers) return;
 
     const normalizedAnswers = Object.fromEntries(
-      request.questions.map((question) => [question.id, answers[question.id]]),
+      request.questions.map((question) => {
+        const questionType = getAskUserQuestionType(question);
+        if (questionType === "multi_select") return [question.id, ""];
+        return [question.id, answers[question.id] ?? ""];
+      }),
+    );
+    const normalizedMultiAnswers = Object.fromEntries(
+      request.questions
+        .filter(
+          (question) => getAskUserQuestionType(question) === "multi_select",
+        )
+        .map((question) => [
+          question.id,
+          (multiAnswers[question.id] ?? []).filter((optionId) => {
+            if (optionId !== ASK_USER_CUSTOM_ANSWER_ID) return true;
+            return Boolean(customAnswers[question.id]?.trim());
+          }),
+        ]),
     );
     const normalizedCustomAnswers = Object.fromEntries(
       request.questions
-        .filter(
-          (question) => answers[question.id] === ASK_USER_CUSTOM_ANSWER_ID,
-        )
+        .filter((question) => {
+          const questionType = getAskUserQuestionType(question);
+          if (questionType === "single_choice") {
+            return answers[question.id] === ASK_USER_CUSTOM_ANSWER_ID;
+          }
+          if (questionType === "multi_select") {
+            return (multiAnswers[question.id] ?? []).includes(
+              ASK_USER_CUSTOM_ANSWER_ID,
+            );
+          }
+          return false;
+        })
         .map((question) => [question.id, customAnswers[question.id].trim()]),
     );
     const answerLabels = Object.fromEntries(
-      request.questions.map((question) => [
-        question.id,
-        answers[question.id] === ASK_USER_CUSTOM_ANSWER_ID
-          ? customAnswers[question.id].trim()
-          : getSelectedOptionLabel(question.id, answers[question.id]),
-      ]),
+      request.questions.map((question) => {
+        const questionType = getAskUserQuestionType(question);
+        if (questionType === "text") {
+          const value = answers[question.id]?.trim() ?? "";
+          return [question.id, value];
+        }
+        if (questionType === "multi_select") {
+          const selectedIds = normalizedMultiAnswers[question.id] ?? [];
+          return [question.id, getMultiAnswerLabels(question, selectedIds)];
+        }
+
+        const selectedAnswer = answers[question.id];
+        return [
+          question.id,
+          selectedAnswer === ASK_USER_CUSTOM_ANSWER_ID
+            ? customAnswers[question.id].trim()
+            : getSelectedOptionLabel(question.id, selectedAnswer),
+        ];
+      }),
     );
 
     onSubmit({
       answers: normalizedAnswers,
+      multiAnswers:
+        Object.keys(normalizedMultiAnswers).length > 0
+          ? normalizedMultiAnswers
+          : undefined,
       answerLabels,
       customAnswers:
         Object.keys(normalizedCustomAnswers).length > 0
@@ -773,8 +1172,6 @@ const AskUserBlock = memo(function AskUserBlock({
               activeQuestion &&
               (() => {
                 const question = activeQuestion;
-                const selectedOptionId = answers[question.id] ?? "";
-                const customInputId = `${id}-${question.id}-custom-text`;
                 const currentQuestionAnswered = isQuestionAnswered(question);
                 const isFirstQuestion = activeQuestionIndex === 0;
                 const isLastQuestion =
@@ -800,113 +1197,7 @@ const AskUserBlock = memo(function AskUserBlock({
                       )}
                     </div>
 
-                    <div className="grid gap-1.5">
-                      {question.options.map((option) => {
-                        const inputId = `${id}-${question.id}-${option.id}`;
-                        const checked = selectedOptionId === option.id;
-
-                        return (
-                          <label
-                            key={option.id}
-                            htmlFor={inputId}
-                            className={cn(
-                              "flex cursor-pointer items-start gap-2 rounded-lg border px-3 py-2 text-left transition-colors",
-                              checked
-                                ? "border-primary/50 bg-primary/10 text-foreground"
-                                : "border-border/70 bg-background/60 hover:bg-muted/60",
-                              !canSubmit && "cursor-default opacity-90",
-                            )}
-                          >
-                            <input
-                              id={inputId}
-                              type="radio"
-                              name={`${id}-${question.id}`}
-                              value={option.id}
-                              checked={checked}
-                              disabled={!canSubmit}
-                              onChange={() =>
-                                setAnswers((current) => ({
-                                  ...current,
-                                  [question.id]: option.id,
-                                }))
-                              }
-                              className="mt-1 size-3.5 shrink-0 accent-primary"
-                            />
-                            <span className="grid gap-0.5">
-                              <span className="text-xs font-medium leading-5 text-foreground">
-                                {option.label}
-                              </span>
-                              {option.description?.trim() && (
-                                <span className="text-xs leading-5 text-muted-foreground">
-                                  {option.description.trim()}
-                                </span>
-                              )}
-                            </span>
-                          </label>
-                        );
-                      })}
-
-                      <label
-                        htmlFor={customInputId}
-                        className={cn(
-                          "grid cursor-pointer gap-2 rounded-lg border px-3 py-2 text-left transition-colors",
-                          selectedOptionId === ASK_USER_CUSTOM_ANSWER_ID
-                            ? "border-primary/50 bg-primary/10 text-foreground"
-                            : "border-border/70 bg-background/60 hover:bg-muted/60",
-                          !canSubmit && "cursor-default opacity-90",
-                        )}
-                      >
-                        <span className="flex items-start gap-2">
-                          <input
-                            type="radio"
-                            name={`${id}-${question.id}`}
-                            value={ASK_USER_CUSTOM_ANSWER_ID}
-                            checked={
-                              selectedOptionId === ASK_USER_CUSTOM_ANSWER_ID
-                            }
-                            disabled={!canSubmit}
-                            onChange={() =>
-                              setAnswers((current) => ({
-                                ...current,
-                                [question.id]: ASK_USER_CUSTOM_ANSWER_ID,
-                              }))
-                            }
-                            className="mt-1 size-3.5 shrink-0 accent-primary"
-                          />
-                          <span className="grid gap-0.5">
-                            <span className="text-xs font-medium leading-5 text-foreground">
-                              Type your answer
-                            </span>
-                            <span className="text-xs leading-5 text-muted-foreground">
-                              Enter a custom answer instead of choosing one of
-                              the suggested options.
-                            </span>
-                          </span>
-                        </span>
-                        <Input
-                          id={customInputId}
-                          value={customAnswers[question.id] ?? ""}
-                          onChange={(event) => {
-                            const nextValue = event.target.value.slice(
-                              0,
-                              MAX_ASK_USER_CUSTOM_ANSWER_LENGTH,
-                            );
-                            setCustomAnswers((current) => ({
-                              ...current,
-                              [question.id]: nextValue,
-                            }));
-                            setAnswers((current) => ({
-                              ...current,
-                              [question.id]: ASK_USER_CUSTOM_ANSWER_ID,
-                            }));
-                          }}
-                          disabled={!canSubmit}
-                          maxLength={MAX_ASK_USER_CUSTOM_ANSWER_LENGTH}
-                          placeholder="Type your answer..."
-                          className="h-8 rounded-lg text-xs"
-                        />
-                      </label>
-                    </div>
+                    {renderQuestionInput(question)}
 
                     {canSubmit && (
                       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -2580,6 +2871,33 @@ ${value}
     return value;
   }
 
+  function readAskUserQuestionType(
+    source: Record<string, unknown>,
+  ): AskUserQuestionType {
+    const value = readTrimmedString(source, "type");
+    if (
+      value === "single_choice" ||
+      value === "multi_select" ||
+      value === "text"
+    ) {
+      return value;
+    }
+
+    return "single_choice";
+  }
+
+  function readAskUserInputConfig(source: Record<string, unknown>) {
+    const rawInput = source.input;
+    if (!rawInput || typeof rawInput !== "object" || Array.isArray(rawInput)) {
+      return undefined;
+    }
+
+    const inputSource = rawInput as Record<string, unknown>;
+    return {
+      multiline: inputSource.multiline === true,
+    };
+  }
+
   function parseAskUserRequest(args: unknown): AskUserRequest {
     if (!args || typeof args !== "object" || Array.isArray(args)) {
       throw new Error("ask_user arguments must be a JSON object.");
@@ -2639,72 +2957,79 @@ ${value}
       }
       questionIds.add(id);
 
+      const type = readAskUserQuestionType(questionSource);
       const rawOptions = questionSource.options;
-      if (!Array.isArray(rawOptions) || rawOptions.length < 2) {
-        throw new Error(
-          `ask_user question ${id} requires at least two options.`,
-        );
-      }
+      const options = (() => {
+        if (type === "text") return [];
 
-      if (rawOptions.length > MAX_ASK_USER_OPTIONS) {
-        throw new Error(
-          `ask_user question ${id} supports at most ${MAX_ASK_USER_OPTIONS} options.`,
-        );
-      }
-
-      const optionIds = new Set<string>();
-      const options = rawOptions.map((rawOption, optionIndex) => {
-        if (
-          !rawOption ||
-          typeof rawOption !== "object" ||
-          Array.isArray(rawOption)
-        ) {
+        if (!Array.isArray(rawOptions) || rawOptions.length < 2) {
           throw new Error(
-            `ask_user option ${optionIndex + 1} must be an object.`,
+            `ask_user ${type} question ${id} requires at least two options.`,
           );
         }
 
-        const optionSource = rawOption as Record<string, unknown>;
-        const optionId =
-          readTrimmedString(optionSource, "id") ?? `option_${optionIndex + 1}`;
-        const label = readLimitedString(
-          optionSource,
-          "label",
-          MAX_ASK_USER_OPTION_LABEL_LENGTH,
-          `ask_user option ${optionId} label`,
-        );
-
-        if (!label) {
-          throw new Error(`ask_user option ${optionId} is missing a label.`);
-        }
-
-        if (optionId === ASK_USER_CUSTOM_ANSWER_ID) {
+        if (rawOptions.length > MAX_ASK_USER_OPTIONS) {
           throw new Error(
-            `ask_user option id ${ASK_USER_CUSTOM_ANSWER_ID} is reserved for custom answers.`,
+            `ask_user question ${id} supports at most ${MAX_ASK_USER_OPTIONS} options.`,
           );
         }
 
-        if (optionIds.has(optionId)) {
-          throw new Error(
-            `Duplicate ask_user option id ${optionId} in question ${id}.`,
-          );
-        }
-        optionIds.add(optionId);
+        const optionIds = new Set<string>();
+        return rawOptions.map((rawOption, optionIndex) => {
+          if (
+            !rawOption ||
+            typeof rawOption !== "object" ||
+            Array.isArray(rawOption)
+          ) {
+            throw new Error(
+              `ask_user option ${optionIndex + 1} must be an object.`,
+            );
+          }
 
-        return {
-          id: optionId,
-          label,
-          description: readLimitedString(
+          const optionSource = rawOption as Record<string, unknown>;
+          const optionId =
+            readTrimmedString(optionSource, "id") ??
+            `option_${optionIndex + 1}`;
+          const label = readLimitedString(
             optionSource,
-            "description",
-            MAX_ASK_USER_OPTION_DESCRIPTION_LENGTH,
-            `ask_user option ${optionId} description`,
-          ),
-        };
-      });
+            "label",
+            MAX_ASK_USER_OPTION_LABEL_LENGTH,
+            `ask_user option ${optionId} label`,
+          );
+
+          if (!label) {
+            throw new Error(`ask_user option ${optionId} is missing a label.`);
+          }
+
+          if (optionId === ASK_USER_CUSTOM_ANSWER_ID) {
+            throw new Error(
+              `ask_user option id ${ASK_USER_CUSTOM_ANSWER_ID} is reserved for custom answers.`,
+            );
+          }
+
+          if (optionIds.has(optionId)) {
+            throw new Error(
+              `Duplicate ask_user option id ${optionId} in question ${id}.`,
+            );
+          }
+          optionIds.add(optionId);
+
+          return {
+            id: optionId,
+            label,
+            description: readLimitedString(
+              optionSource,
+              "description",
+              MAX_ASK_USER_OPTION_DESCRIPTION_LENGTH,
+              `ask_user option ${optionId} description`,
+            ),
+          };
+        });
+      })();
 
       return {
         id,
+        type,
         question,
         description: readLimitedString(
           questionSource,
@@ -2713,6 +3038,7 @@ ${value}
           `ask_user question ${id} description`,
         ),
         options,
+        input: readAskUserInputConfig(questionSource),
       };
     });
 
@@ -2767,6 +3093,50 @@ ${value}
   ): ChatToolResult {
     const answers = Object.fromEntries(
       request.questions.map((question) => {
+        const questionType = getAskUserQuestionType(question);
+
+        if (questionType === "text") {
+          const answer = response.answers[question.id] ?? "";
+          return [
+            question.id,
+            {
+              question: question.question,
+              answer_type: "text",
+              answer,
+            },
+          ];
+        }
+
+        if (questionType === "multi_select") {
+          const selectedOptionIds = response.multiAnswers?.[question.id] ?? [];
+          const selectedOptionLabels = selectedOptionIds.map((optionId) => {
+            if (optionId === ASK_USER_CUSTOM_ANSWER_ID) {
+              return response.customAnswers?.[question.id]?.trim() ?? "";
+            }
+
+            return (
+              question.options.find((option) => option.id === optionId)
+                ?.label ?? optionId
+            );
+          });
+          const customAnswer = selectedOptionIds.includes(
+            ASK_USER_CUSTOM_ANSWER_ID,
+          )
+            ? response.customAnswers?.[question.id]?.trim()
+            : undefined;
+
+          return [
+            question.id,
+            {
+              question: question.question,
+              answer_type: "multi_select",
+              selected_option_ids: selectedOptionIds,
+              selected_option_labels: selectedOptionLabels,
+              ...(customAnswer ? { custom_answer: customAnswer } : {}),
+            },
+          ];
+        }
+
         const selectedOptionId = response.answers[question.id] ?? "";
         const selectedOption = question.options.find(
           (option) => option.id === selectedOptionId,
