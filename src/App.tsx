@@ -198,7 +198,7 @@ const ASK_USER_TOOL: LoadedToolInfo = {
   name: ASK_USER_TOOL_NAME,
   enabled: true,
   description:
-    "Pause and ask the user focused single-choice clarification questions, always allowing a custom typed answer for each question, then continue the same response. Use only when the answer materially changes the next step.",
+    "Pause and ask the user focused single-choice clarification questions, always allowing a custom typed answer for each question, then continue the same response. Use concise option labels and strongly prefer one-sentence option descriptions. Use only when the answer materially changes the next step.",
   parameters: {
     type: "object",
     additionalProperties: false,
@@ -229,7 +229,7 @@ const ASK_USER_TOOL: LoadedToolInfo = {
             options: {
               type: "array",
               description:
-                "Model-provided options. Do not include Other/custom; Chat Forge adds a custom typed answer option automatically.",
+                "Model-provided options. Use concise labels and strongly prefer one-sentence gray-helper descriptions. Do not include Other/custom; Chat Forge adds a custom typed answer option automatically.",
               minItems: 2,
               maxItems: MAX_ASK_USER_OPTIONS,
               items: {
@@ -237,8 +237,15 @@ const ASK_USER_TOOL: LoadedToolInfo = {
                 additionalProperties: false,
                 properties: {
                   id: { type: "string" },
-                  label: { type: "string" },
-                  description: { type: "string" },
+                  label: {
+                    type: "string",
+                    description: "Short option label, usually 1-5 words.",
+                  },
+                  description: {
+                    type: "string",
+                    description:
+                      "Strongly recommended one-sentence explanation shown below the label.",
+                  },
                 },
                 required: ["id", "label"],
               },
@@ -425,15 +432,19 @@ const UserMessageEditor = memo(function UserMessageEditor({
   );
 });
 
-
 function createDefaultAskUserAnswers(request: AskUserRequest) {
   return Object.fromEntries(
-    request.questions.map((question) => [question.id, question.options[0]?.id ?? ""]),
+    request.questions.map((question) => [
+      question.id,
+      question.options[0]?.id ?? "",
+    ]),
   );
 }
 
 function createEmptyAskUserCustomAnswers(request: AskUserRequest) {
-  return Object.fromEntries(request.questions.map((question) => [question.id, ""]));
+  return Object.fromEntries(
+    request.questions.map((question) => [question.id, ""]),
+  );
 }
 
 function formatUserInputStatus(status: UserInputStatus | undefined) {
@@ -472,12 +483,17 @@ const AskUserBlock = memo(function AskUserBlock({
   );
   const effectiveStatus = status ?? "waiting";
   const isWaiting = effectiveStatus === "waiting";
+  const [activeQuestionIndex, setActiveQuestionIndex] = useState(0);
+  const activeQuestionCount = request.questions.length;
+  const activeQuestion =
+    request.questions[activeQuestionIndex] ?? request.questions[0];
 
   useEffect(() => {
     setAnswers(response?.answers ?? createDefaultAskUserAnswers(request));
     setCustomAnswers(
       response?.customAnswers ?? createEmptyAskUserCustomAnswers(request),
     );
+    setActiveQuestionIndex(0);
   }, [request, response]);
 
   const allQuestionsAnswered = request.questions.every((question) => {
@@ -490,12 +506,36 @@ const AskUserBlock = memo(function AskUserBlock({
   });
   const canSendAnswers = isWaiting && canSubmit && allQuestionsAnswered;
 
+  function isQuestionAnswered(question: AskUserQuestion | undefined) {
+    if (!question) return false;
+
+    const selectedAnswer = answers[question.id];
+    if (selectedAnswer === ASK_USER_CUSTOM_ANSWER_ID) {
+      return Boolean(customAnswers[question.id]?.trim());
+    }
+
+    return question.options.some((option) => option.id === selectedAnswer);
+  }
+
+  function goToPreviousQuestion() {
+    setActiveQuestionIndex((current) => Math.max(0, current - 1));
+  }
+
+  function goToNextQuestion() {
+    if (!isQuestionAnswered(activeQuestion)) return;
+    setActiveQuestionIndex((current) =>
+      Math.min(activeQuestionCount - 1, current + 1),
+    );
+  }
+
   function getSelectedOptionLabel(questionId: string, optionId?: string) {
     const question = request.questions.find((item) => item.id === questionId);
     if (optionId === ASK_USER_CUSTOM_ANSWER_ID) {
-      return customAnswers[questionId]?.trim() ||
+      return (
+        customAnswers[questionId]?.trim() ||
         response?.customAnswers?.[questionId]?.trim() ||
-        "Type your answer";
+        "Type your answer"
+      );
     }
 
     return (
@@ -517,6 +557,118 @@ const AskUserBlock = memo(function AskUserBlock({
     return getSelectedOptionLabel(question.id, answerId);
   }
 
+  function renderCompletedAnswerList() {
+    if (!response) return null;
+
+    return (
+      <ul className="mt-2 grid list-disc gap-2 pl-4 text-xs normal-case leading-5 tracking-normal">
+        {request.questions.map((question) => (
+          <li key={question.id} className="pl-1">
+            <div className="grid gap-1">
+              <span className="text-muted-foreground">{question.question}</span>
+              <span className="font-medium text-foreground/85">
+                {getAnswerSummary(question, response.answers[question.id])}
+              </span>
+            </div>
+          </li>
+        ))}
+      </ul>
+    );
+  }
+
+  function renderReadOnlyQuestion(question: AskUserQuestion) {
+    if (!response) return null;
+
+    const selectedOptionId = response.answers[question.id];
+    const customAnswer = response.customAnswers?.[question.id]?.trim();
+    const customSelected = selectedOptionId === ASK_USER_CUSTOM_ANSWER_ID;
+
+    return (
+      <div key={question.id} className="grid gap-3">
+        <div className="grid gap-1">
+          <div className="text-sm font-medium leading-5 text-foreground">
+            {question.question}
+          </div>
+          {question.description?.trim() && (
+            <div className="text-xs leading-5 text-muted-foreground">
+              {question.description.trim()}
+            </div>
+          )}
+        </div>
+
+        <div className="grid gap-1.5">
+          {question.options.map((option) => {
+            const checked = selectedOptionId === option.id;
+
+            return (
+              <div
+                key={option.id}
+                className={cn(
+                  "flex items-start gap-2 rounded-lg border px-3 py-2 text-left transition-colors",
+                  checked
+                    ? "border-primary/50 bg-primary/10 text-foreground"
+                    : "border-border/70 bg-background/60",
+                )}
+              >
+                <input
+                  type="radio"
+                  checked={checked}
+                  readOnly
+                  disabled
+                  className="mt-1 size-3.5 shrink-0 accent-primary"
+                />
+                <span className="grid gap-0.5">
+                  <span className="text-xs font-medium leading-5 text-foreground">
+                    {option.label}
+                  </span>
+                  {option.description?.trim() && (
+                    <span className="text-xs leading-5 text-muted-foreground">
+                      {option.description.trim()}
+                    </span>
+                  )}
+                </span>
+              </div>
+            );
+          })}
+
+          <div
+            className={cn(
+              "grid gap-1.5 rounded-lg border px-3 py-2 text-left transition-colors",
+              customSelected
+                ? "border-primary/50 bg-primary/10 text-foreground"
+                : "border-border/70 bg-background/60",
+            )}
+          >
+            <span className="flex items-start gap-2">
+              <input
+                type="radio"
+                checked={customSelected}
+                readOnly
+                disabled
+                className="mt-1 size-3.5 shrink-0 accent-primary"
+              />
+              <span className="grid gap-0.5">
+                <span className="text-xs font-medium leading-5 text-foreground">
+                  Type your answer
+                </span>
+                {customSelected ? (
+                  <span className="text-xs leading-5 text-muted-foreground">
+                    {customAnswer || "No custom answer provided."}
+                  </span>
+                ) : (
+                  <span className="text-xs leading-5 text-muted-foreground">
+                    Enter a custom answer instead of choosing one of the
+                    suggested options.
+                  </span>
+                )}
+              </span>
+            </span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   function handleSubmit() {
     if (!canSendAnswers) return;
 
@@ -525,7 +677,9 @@ const AskUserBlock = memo(function AskUserBlock({
     );
     const normalizedCustomAnswers = Object.fromEntries(
       request.questions
-        .filter((question) => answers[question.id] === ASK_USER_CUSTOM_ANSWER_ID)
+        .filter(
+          (question) => answers[question.id] === ASK_USER_CUSTOM_ANSWER_ID,
+        )
         .map((question) => [question.id, customAnswers[question.id].trim()]),
     );
     const answerLabels = Object.fromEntries(
@@ -560,7 +714,7 @@ const AskUserBlock = memo(function AskUserBlock({
           <div className="flex min-w-0 items-center justify-between gap-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">
             <div className="flex min-w-0 items-center gap-2">
               <MessageSquareText className="size-3.5 shrink-0" />
-              <span className="truncate">Input needed</span>
+              <span className="truncate">Ask user</span>
               <span className="text-muted-foreground/60">•</span>
               <span
                 className={cn(
@@ -569,7 +723,8 @@ const AskUserBlock = memo(function AskUserBlock({
                     "text-green-600 dark:text-green-400",
                   effectiveStatus === "waiting" &&
                     "text-amber-600 dark:text-amber-400",
-                  (effectiveStatus === "cancelled" || effectiveStatus === "failed") &&
+                  (effectiveStatus === "cancelled" ||
+                    effectiveStatus === "failed") &&
                     "text-red-600 dark:text-red-400",
                 )}
               >
@@ -600,195 +755,227 @@ const AskUserBlock = memo(function AskUserBlock({
                   {request.title.trim()}
                 </div>
               )}
-              {request.description?.trim() && <div>{request.description.trim()}</div>}
+              {request.description?.trim() && (
+                <div>{request.description.trim()}</div>
+              )}
             </div>
           )}
 
-          {isCollapsed && response && effectiveStatus !== "waiting" && (
-            <div className="mt-2 grid gap-1 rounded-lg border bg-background/40 p-2 text-xs normal-case leading-5 tracking-normal">
-              {request.questions.map((question) => (
-                <div key={question.id} className="grid gap-0.5 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)] sm:gap-3">
-                  <span className="truncate text-muted-foreground">
-                    {question.question}
-                  </span>
-                  <span className="truncate font-medium text-foreground/85">
-                    {getAnswerSummary(question, response.answers[question.id])}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
+          {isCollapsed &&
+            response &&
+            effectiveStatus !== "waiting" &&
+            renderCompletedAnswerList()}
         </button>
 
         {!isCollapsed && (
           <div className="mt-3 grid gap-3">
-            {request.questions.map((question, questionIndex) => {
-              const selectedOptionId = answers[question.id] ?? "";
-              const customInputId = `${id}-${question.id}-custom-text`;
-              return (
-                <div key={question.id} className="grid gap-2 rounded-lg border bg-background/40 p-3">
-                  <div className="grid gap-1">
-                    <div className="text-sm font-medium leading-5 text-foreground">
-                      {request.questions.length > 1 ? `${questionIndex + 1}. ` : ""}
-                      {question.question}
-                    </div>
-                    {question.description?.trim() && (
-                      <div className="text-xs leading-5 text-muted-foreground">
-                        {question.description.trim()}
+            {isWaiting &&
+              activeQuestion &&
+              (() => {
+                const question = activeQuestion;
+                const selectedOptionId = answers[question.id] ?? "";
+                const customInputId = `${id}-${question.id}-custom-text`;
+                const currentQuestionAnswered = isQuestionAnswered(question);
+                const isFirstQuestion = activeQuestionIndex === 0;
+                const isLastQuestion =
+                  activeQuestionIndex === activeQuestionCount - 1;
+
+                return (
+                  <div className="grid gap-3">
+                    {activeQuestionCount > 1 && (
+                      <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground/80">
+                        Question {activeQuestionIndex + 1} of{" "}
+                        {activeQuestionCount}
                       </div>
                     )}
-                  </div>
 
-                  <div className="grid gap-1.5">
-                    {question.options.map((option) => {
-                      const inputId = `${id}-${question.id}-${option.id}`;
-                      const checked = selectedOptionId === option.id;
+                    <div className="grid gap-1">
+                      <div className="text-sm font-medium leading-5 text-foreground">
+                        {question.question}
+                      </div>
+                      {question.description?.trim() && (
+                        <div className="text-xs leading-5 text-muted-foreground">
+                          {question.description.trim()}
+                        </div>
+                      )}
+                    </div>
 
-                      return (
-                        <label
-                          key={option.id}
-                          htmlFor={inputId}
-                          className={cn(
-                            "flex cursor-pointer items-start gap-2 rounded-lg border px-3 py-2 text-left transition-colors",
-                            checked
-                              ? "border-primary/50 bg-primary/10 text-foreground"
-                              : "border-border/70 bg-background/60 hover:bg-muted/60",
-                            (!isWaiting || !canSubmit) && "cursor-default opacity-90",
-                          )}
-                        >
+                    <div className="grid gap-1.5">
+                      {question.options.map((option) => {
+                        const inputId = `${id}-${question.id}-${option.id}`;
+                        const checked = selectedOptionId === option.id;
+
+                        return (
+                          <label
+                            key={option.id}
+                            htmlFor={inputId}
+                            className={cn(
+                              "flex cursor-pointer items-start gap-2 rounded-lg border px-3 py-2 text-left transition-colors",
+                              checked
+                                ? "border-primary/50 bg-primary/10 text-foreground"
+                                : "border-border/70 bg-background/60 hover:bg-muted/60",
+                              !canSubmit && "cursor-default opacity-90",
+                            )}
+                          >
+                            <input
+                              id={inputId}
+                              type="radio"
+                              name={`${id}-${question.id}`}
+                              value={option.id}
+                              checked={checked}
+                              disabled={!canSubmit}
+                              onChange={() =>
+                                setAnswers((current) => ({
+                                  ...current,
+                                  [question.id]: option.id,
+                                }))
+                              }
+                              className="mt-1 size-3.5 shrink-0 accent-primary"
+                            />
+                            <span className="grid gap-0.5">
+                              <span className="text-xs font-medium leading-5 text-foreground">
+                                {option.label}
+                              </span>
+                              {option.description?.trim() && (
+                                <span className="text-xs leading-5 text-muted-foreground">
+                                  {option.description.trim()}
+                                </span>
+                              )}
+                            </span>
+                          </label>
+                        );
+                      })}
+
+                      <label
+                        htmlFor={customInputId}
+                        className={cn(
+                          "grid cursor-pointer gap-2 rounded-lg border px-3 py-2 text-left transition-colors",
+                          selectedOptionId === ASK_USER_CUSTOM_ANSWER_ID
+                            ? "border-primary/50 bg-primary/10 text-foreground"
+                            : "border-border/70 bg-background/60 hover:bg-muted/60",
+                          !canSubmit && "cursor-default opacity-90",
+                        )}
+                      >
+                        <span className="flex items-start gap-2">
                           <input
-                            id={inputId}
                             type="radio"
                             name={`${id}-${question.id}`}
-                            value={option.id}
-                            checked={checked}
-                            disabled={!isWaiting || !canSubmit}
+                            value={ASK_USER_CUSTOM_ANSWER_ID}
+                            checked={
+                              selectedOptionId === ASK_USER_CUSTOM_ANSWER_ID
+                            }
+                            disabled={!canSubmit}
                             onChange={() =>
                               setAnswers((current) => ({
                                 ...current,
-                                [question.id]: option.id,
+                                [question.id]: ASK_USER_CUSTOM_ANSWER_ID,
                               }))
                             }
                             className="mt-1 size-3.5 shrink-0 accent-primary"
                           />
                           <span className="grid gap-0.5">
                             <span className="text-xs font-medium leading-5 text-foreground">
-                              {option.label}
+                              Type your answer
                             </span>
-                            {option.description?.trim() && (
-                              <span className="text-xs leading-5 text-muted-foreground">
-                                {option.description.trim()}
-                              </span>
-                            )}
+                            <span className="text-xs leading-5 text-muted-foreground">
+                              Enter a custom answer instead of choosing one of
+                              the suggested options.
+                            </span>
                           </span>
-                        </label>
-                      );
-                    })}
-
-                    <label
-                      htmlFor={customInputId}
-                      className={cn(
-                        "grid cursor-pointer gap-2 rounded-lg border px-3 py-2 text-left transition-colors",
-                        selectedOptionId === ASK_USER_CUSTOM_ANSWER_ID
-                          ? "border-primary/50 bg-primary/10 text-foreground"
-                          : "border-border/70 bg-background/60 hover:bg-muted/60",
-                        (!isWaiting || !canSubmit) && "cursor-default opacity-90",
-                      )}
-                    >
-                      <span className="flex items-start gap-2">
-                        <input
-                          type="radio"
-                          name={`${id}-${question.id}`}
-                          value={ASK_USER_CUSTOM_ANSWER_ID}
-                          checked={selectedOptionId === ASK_USER_CUSTOM_ANSWER_ID}
-                          disabled={!isWaiting || !canSubmit}
-                          onChange={() =>
+                        </span>
+                        <Input
+                          id={customInputId}
+                          value={customAnswers[question.id] ?? ""}
+                          onChange={(event) => {
+                            const nextValue = event.target.value.slice(
+                              0,
+                              MAX_ASK_USER_CUSTOM_ANSWER_LENGTH,
+                            );
+                            setCustomAnswers((current) => ({
+                              ...current,
+                              [question.id]: nextValue,
+                            }));
                             setAnswers((current) => ({
                               ...current,
                               [question.id]: ASK_USER_CUSTOM_ANSWER_ID,
-                            }))
-                          }
-                          className="mt-1 size-3.5 shrink-0 accent-primary"
+                            }));
+                          }}
+                          disabled={!canSubmit}
+                          maxLength={MAX_ASK_USER_CUSTOM_ANSWER_LENGTH}
+                          placeholder="Type your answer..."
+                          className="h-8 rounded-lg text-xs"
                         />
-                        <span className="text-xs font-medium leading-5 text-foreground">
-                          Type your answer
-                        </span>
-                      </span>
-                      <Input
-                        id={customInputId}
-                        value={customAnswers[question.id] ?? ""}
-                        onChange={(event) => {
-                          const nextValue = event.target.value.slice(
-                            0,
-                            MAX_ASK_USER_CUSTOM_ANSWER_LENGTH,
-                          );
-                          setCustomAnswers((current) => ({
-                            ...current,
-                            [question.id]: nextValue,
-                          }));
-                          setAnswers((current) => ({
-                            ...current,
-                            [question.id]: ASK_USER_CUSTOM_ANSWER_ID,
-                          }));
-                        }}
-                        disabled={!isWaiting || !canSubmit}
-                        maxLength={MAX_ASK_USER_CUSTOM_ANSWER_LENGTH}
-                        placeholder="Type your answer..."
-                        className="h-8 rounded-lg text-xs"
-                      />
-                    </label>
+                      </label>
+                    </div>
+
+                    {canSubmit && (
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="rounded-lg"
+                          onClick={onCancel}
+                        >
+                          Cancel
+                        </Button>
+                        <div className="flex flex-wrap justify-end gap-2">
+                          {activeQuestionCount > 1 && !isFirstQuestion && (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="rounded-lg"
+                              onClick={goToPreviousQuestion}
+                            >
+                              Back
+                            </Button>
+                          )}
+                          {activeQuestionCount > 1 && !isLastQuestion ? (
+                            <Button
+                              type="button"
+                              size="sm"
+                              className="rounded-lg"
+                              onClick={goToNextQuestion}
+                              disabled={!currentQuestionAnswered}
+                            >
+                              Next
+                            </Button>
+                          ) : (
+                            <Button
+                              type="button"
+                              size="sm"
+                              className="rounded-lg"
+                              onClick={handleSubmit}
+                              disabled={!canSendAnswers}
+                            >
+                              Submit answers
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    )}
                   </div>
-                </div>
-              );
-            })}
+                );
+              })()}
 
             {isWaiting && !canSubmit && (
               <div className="rounded-lg border border-dashed bg-muted/30 px-3 py-2 text-xs leading-5 text-muted-foreground">
-                This input request is no longer connected to an active generation. Regenerate the response to ask again.
+                This input request is no longer connected to an active
+                generation. Regenerate the response to ask again.
               </div>
             )}
 
             {response && effectiveStatus !== "waiting" && (
-              <div className="grid gap-1.5">
+              <div className="grid gap-3">
                 <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground/80">
                   Selected answers
                 </div>
-                <div className="grid gap-1 rounded-lg border bg-background/40 p-3 text-xs leading-5">
-                  {request.questions.map((question) => (
-                    <div key={question.id} className="grid gap-0.5">
-                      <div className="font-medium text-foreground">
-                        {question.question}
-                      </div>
-                      <div className="text-muted-foreground">
-                        {getAnswerSummary(question, response.answers[question.id])}
-                      </div>
-                    </div>
-                  ))}
+                <div className="grid gap-6 text-xs leading-5">
+                  {request.questions.map((question) =>
+                    renderReadOnlyQuestion(question),
+                  )}
                 </div>
-              </div>
-            )}
-
-            {isWaiting && (
-              <div className="flex flex-wrap justify-end gap-2">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="rounded-lg"
-                  onClick={onCancel}
-                  disabled={!canSubmit}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  className="rounded-lg"
-                  onClick={handleSubmit}
-                  disabled={!canSendAnswers}
-                >
-                  Submit answers
-                </Button>
               </div>
             )}
           </div>
@@ -1059,7 +1246,9 @@ export default function Home() {
   const [initialComposerDrafts] = useState<Record<string, string>>(() =>
     loadComposerDrafts(),
   );
-  const composerDraftsRef = useRef<Record<string, string>>(initialComposerDrafts);
+  const composerDraftsRef = useRef<Record<string, string>>(
+    initialComposerDrafts,
+  );
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [generatingChatIds, setGeneratingChatIds] = useState<string[]>([]);
   const [streamingAssistantByChatId, setStreamingAssistantByChatId] = useState<
@@ -1102,7 +1291,9 @@ export default function Home() {
     );
   });
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
-  const [collapsedToolStepIds, setCollapsedToolStepIds] = useState<Record<string, boolean>>({});
+  const [collapsedToolStepIds, setCollapsedToolStepIds] = useState<
+    Record<string, boolean>
+  >({});
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
   const chatContentRef = useRef<HTMLDivElement | null>(null);
   const chatBottomRef = useRef<HTMLDivElement | null>(null);
@@ -1111,7 +1302,9 @@ export default function Home() {
   const chatComposerRef = useRef<ChatComposerHandle | null>(null);
   const findInputRef = useRef<HTMLInputElement | null>(null);
   const generationRefs = useRef<Record<string, ActiveGeneration>>({});
-  const pendingAskUserRequestsRef = useRef<Record<string, PendingAskUserRequest>>({});
+  const pendingAskUserRequestsRef = useRef<
+    Record<string, PendingAskUserRequest>
+  >({});
   const modelLoadStatusTimerRef = useRef<number | null>(null);
   const scrollFrameRef = useRef<number | null>(null);
   const stickyScrollFrameRef = useRef<number | null>(null);
@@ -1126,7 +1319,9 @@ export default function Home() {
   const isResizingChatRef = useRef(false);
   const isChatScrollableRef = useRef(false);
   const streamBuffersRef = useRef<Record<string, StreamBuffer>>({});
-  const streamActiveProcessStepRefs = useRef<Record<string, ActiveProcessStepRef>>({});
+  const streamActiveProcessStepRefs = useRef<
+    Record<string, ActiveProcessStepRef>
+  >({});
   const streamFlushTimeoutRefs = useRef<Record<string, number>>({});
   const didHydrateRef = useRef(false);
   const composerDraftSaveTimeoutRef = useRef<number | null>(null);
@@ -2129,7 +2324,8 @@ ${value}
   }
 
   function formatToolDescriptionPreview(description?: string) {
-    const normalizedDescription = description?.replace(/\s+/g, " ").trim() || "";
+    const normalizedDescription =
+      description?.replace(/\s+/g, " ").trim() || "";
     if (!normalizedDescription) return "";
 
     if (normalizedDescription.length <= TOOL_DESCRIPTION_PREVIEW_MAX_LENGTH) {
@@ -2157,7 +2353,10 @@ ${value}
     return true;
   }
 
-  function toggleToolExecutionCollapsed(stepId: string, nextCollapsed: boolean) {
+  function toggleToolExecutionCollapsed(
+    stepId: string,
+    nextCollapsed: boolean,
+  ) {
     setCollapsedToolStepIds((current) => ({
       ...current,
       [stepId]: nextCollapsed,
@@ -2363,10 +2562,7 @@ ${value}
     return value.trim() ? JSON.parse(value) : {};
   }
 
-  function readTrimmedString(
-    source: Record<string, unknown>,
-    key: string,
-  ) {
+  function readTrimmedString(source: Record<string, unknown>, key: string) {
     const value = source[key];
     return typeof value === "string" && value.trim() ? value.trim() : undefined;
   }
@@ -2458,8 +2654,14 @@ ${value}
 
       const optionIds = new Set<string>();
       const options = rawOptions.map((rawOption, optionIndex) => {
-        if (!rawOption || typeof rawOption !== "object" || Array.isArray(rawOption)) {
-          throw new Error(`ask_user option ${optionIndex + 1} must be an object.`);
+        if (
+          !rawOption ||
+          typeof rawOption !== "object" ||
+          Array.isArray(rawOption)
+        ) {
+          throw new Error(
+            `ask_user option ${optionIndex + 1} must be an object.`,
+          );
         }
 
         const optionSource = rawOption as Record<string, unknown>;
@@ -2647,7 +2849,9 @@ ${value}
           options.stepId,
           "cancelled",
         );
-        settleReject(new DOMException("Generation was cancelled.", "AbortError"));
+        settleReject(
+          new DOMException("Generation was cancelled.", "AbortError"),
+        );
       };
 
       pendingAskUserRequestsRef.current[toolCall.id] = {
@@ -2834,12 +3038,16 @@ ${value}
               const processSteps = (variant.processSteps ?? []).map((step) => {
                 if (step.type === "assistant_message") {
                   const delta = contentDeltasByStepId.get(step.id);
-                  return delta ? { ...step, content: step.content + delta } : step;
+                  return delta
+                    ? { ...step, content: step.content + delta }
+                    : step;
                 }
 
                 if (step.type === "thinking") {
                   const delta = reasoningDeltasByStepId.get(step.id);
-                  return delta ? { ...step, content: step.content + delta } : step;
+                  return delta
+                    ? { ...step, content: step.content + delta }
+                    : step;
                 }
 
                 return step;
@@ -3602,29 +3810,31 @@ ${value}
 
     const appendToolCallsToVariant = (toolCalls: ChatToolCall[]) => {
       toolCallsForContext = [...toolCallsForContext, ...toolCalls];
-      const toolSteps: ChatAssistantProcessStep[] = toolCalls.map((toolCall) => {
-        if (toolCall.function.name === ASK_USER_TOOL_NAME) {
-          try {
-            return {
-              id: createId(),
-              type: "user_input" as const,
-              status: "waiting" as const,
-              toolCall,
-              request: parseAskUserRequestFromToolCall(toolCall),
-            };
-          } catch {
-            // Keep invalid ask_user calls visible as failed tool executions once
-            // executeToolCall returns the validation error.
+      const toolSteps: ChatAssistantProcessStep[] = toolCalls.map(
+        (toolCall) => {
+          if (toolCall.function.name === ASK_USER_TOOL_NAME) {
+            try {
+              return {
+                id: createId(),
+                type: "user_input" as const,
+                status: "waiting" as const,
+                toolCall,
+                request: parseAskUserRequestFromToolCall(toolCall),
+              };
+            } catch {
+              // Keep invalid ask_user calls visible as failed tool executions once
+              // executeToolCall returns the validation error.
+            }
           }
-        }
 
-        return {
-          id: createId(),
-          type: "tool_execution" as const,
-          status: "pending" as const,
-          toolCall,
-        };
-      });
+          return {
+            id: createId(),
+            type: "tool_execution" as const,
+            status: "pending" as const,
+            toolCall,
+          };
+        },
+      );
 
       updateAssistantVariant(
         chatId,
@@ -3639,10 +3849,10 @@ ${value}
       );
 
       return new Map(
-        toolCalls.map((toolCall, index) => [
-          toolCall.id,
-          toolSteps[index]?.id ?? toolCall.id,
-        ] as const),
+        toolCalls.map(
+          (toolCall, index) =>
+            [toolCall.id, toolSteps[index]?.id ?? toolCall.id] as const,
+        ),
       );
     };
 
@@ -3660,7 +3870,10 @@ ${value}
             ...variant,
             toolResults: [...existingResults, ...toolResults],
             processSteps: (variant.processSteps ?? []).map((step) => {
-              if (step.type !== "tool_execution" && step.type !== "user_input") {
+              if (
+                step.type !== "tool_execution" &&
+                step.type !== "user_input"
+              ) {
                 return step;
               }
 
@@ -3690,11 +3903,7 @@ ${value}
       );
     };
 
-    const bufferKey = getStreamBufferKey(
-      chatId,
-      assistantMessageId,
-      variantId,
-    );
+    const bufferKey = getStreamBufferKey(chatId, assistantMessageId, variantId);
 
     const buildContinuationMessages = (): ChatMessage[] => [
       ...contextMessages,
@@ -3786,10 +3995,7 @@ ${value}
             // deltas in the middle of normal content streaming. Those invisible
             // reasoning chunks should not split one visible assistant answer into
             // multiple message blocks.
-            if (
-              isWhitespaceOnlyReasoning &&
-              activeStep?.type !== "thinking"
-            ) {
+            if (isWhitespaceOnlyReasoning && activeStep?.type !== "thinking") {
               return;
             }
 
@@ -4853,9 +5059,10 @@ ${value}
                   const hasVisibleProcessSteps = visibleProcessSteps.length > 0;
                   const latestProcessStepId =
                     processSteps[processSteps.length - 1]?.id;
-                  const assistantMessageProcessSteps = visibleProcessSteps.filter(
-                    (step) => step.type === "assistant_message",
-                  );
+                  const assistantMessageProcessSteps =
+                    visibleProcessSteps.filter(
+                      (step) => step.type === "assistant_message",
+                    );
                   const hasInlineAssistantMessageSteps =
                     assistantMessageProcessSteps.length > 0;
                   const lastInlineAssistantMessageStepId =
@@ -4886,185 +5093,187 @@ ${value}
                       data-message-id={message.id}
                       className="grid min-w-0 max-w-full gap-2"
                     >
-                      {message.role === "assistant" && hasVisibleProcessSteps && (
-                        <div className="grid gap-2">
-                          {visibleProcessSteps.map((step) => {
-                            const isLatestProcessStep =
-                              step.sourceStepIds.includes(
-                                latestProcessStepId ?? "",
-                              );
-                            const stepFlushVersion = step.sourceStepIds.reduce(
-                              (total, sourceStepId) =>
-                                total +
-                                (visualFlushRequests[
-                                  `${message.id}:${sourceStepId}`
-                                ] ?? 0),
-                              0,
-                            );
+                      {message.role === "assistant" &&
+                        hasVisibleProcessSteps && (
+                          <div className="grid gap-2">
+                            {visibleProcessSteps.map((step) => {
+                              const isLatestProcessStep =
+                                step.sourceStepIds.includes(
+                                  latestProcessStepId ?? "",
+                                );
+                              const stepFlushVersion =
+                                step.sourceStepIds.reduce(
+                                  (total, sourceStepId) =>
+                                    total +
+                                    (visualFlushRequests[
+                                      `${message.id}:${sourceStepId}`
+                                    ] ?? 0),
+                                  0,
+                                );
 
-                            if (step.type === "thinking") {
-                              if (!step.content.trim()) return null;
+                              if (step.type === "thinking") {
+                                if (!step.content.trim()) return null;
 
-                              const isThinkingStreaming =
-                                status === "streaming" && isLatestProcessStep;
+                                const isThinkingStreaming =
+                                  status === "streaming" && isLatestProcessStep;
 
-                              return (
-                                <article
-                                  key={step.id}
-                                  className="flex min-w-0 max-w-full justify-start"
-                                >
-                                  <div className="w-full min-w-0 max-w-full overflow-hidden rounded-lg border border-dashed bg-muted/40 px-4 py-3 text-sm leading-6 text-muted-foreground shadow-xs [overflow-wrap:anywhere]">
-                                    <div className="mb-2 flex items-center gap-2 text-xs font-medium uppercase tracking-wide">
-                                      <Brain className="size-3.5" />
-                                      Thinking{isThinkingStreaming ? "..." : ""}
-                                    </div>
-                                    <div className="min-w-0 overflow-visible text-xs leading-5">
-                                      <SmoothAssistantMessageContent
-                                        content={step.content}
-                                        className="chat-markdown-compact shrink-0"
-                                        isApiStreaming={isThinkingStreaming}
-                                        flushVersion={
-                                          stepFlushVersion
-                                        }
-                                        forceInstant={!isThinkingStreaming}
-                                        onVisualProgress={() =>
-                                          handleAssistantVisualProgress(
-                                            activeChat?.id ?? "",
-                                          )
-                                        }
-                                        onVisualStreamingChange={(
-                                          isStreaming,
-                                        ) =>
-                                          handleAssistantVisualStreamingChange(
-                                            `${message.id}:${step.id}`,
-                                            isStreaming,
-                                          )
-                                        }
-                                      />
-                                    </div>
-                                  </div>
-                                </article>
-                              );
-                            }
-
-                            if (step.type === "assistant_message") {
-                              if (!step.content.trim()) return null;
-
-                              const isAssistantBlockStreaming =
-                                status === "streaming" && isLatestProcessStep;
-                              const blockCopyId = `${message.id}:${step.id}`;
-                              const isLastAssistantMessageStep =
-                                step.id === lastInlineAssistantMessageStepId;
-
-                              return (
-                                <div key={step.id} className="grid gap-1">
+                                return (
                                   <article
+                                    key={step.id}
                                     className="flex min-w-0 max-w-full justify-start"
-                                    onContextMenu={(event) =>
-                                      captureMessageContext(event, message.id)
-                                    }
                                   >
-                                    <div className="min-w-0 max-w-full overflow-visible rounded-lg px-0 py-1 text-sm leading-6 text-card-foreground shadow-xs [overflow-wrap:anywhere]">
-                                      <SmoothAssistantMessageContent
-                                        content={step.content}
-                                        isApiStreaming={isAssistantBlockStreaming}
-                                        flushVersion={
-                                          stepFlushVersion
-                                        }
-                                        onVisualProgress={() =>
-                                          handleAssistantVisualProgress(
-                                            activeChat?.id ?? "",
-                                          )
-                                        }
-                                        onVisualStreamingChange={(
-                                          isStreaming,
-                                        ) =>
-                                          handleAssistantVisualStreamingChange(
-                                            `${message.id}:${step.id}`,
+                                    <div className="w-full min-w-0 max-w-full overflow-hidden rounded-lg border border-dashed bg-muted/40 px-4 py-3 text-sm leading-6 text-muted-foreground shadow-xs [overflow-wrap:anywhere]">
+                                      <div className="mb-2 flex items-center gap-2 text-xs font-medium uppercase tracking-wide">
+                                        <Brain className="size-3.5" />
+                                        Thinking
+                                        {isThinkingStreaming ? "..." : ""}
+                                      </div>
+                                      <div className="min-w-0 overflow-visible text-xs leading-5">
+                                        <SmoothAssistantMessageContent
+                                          content={step.content}
+                                          className="chat-markdown-compact shrink-0"
+                                          isApiStreaming={isThinkingStreaming}
+                                          flushVersion={stepFlushVersion}
+                                          forceInstant={!isThinkingStreaming}
+                                          onVisualProgress={() =>
+                                            handleAssistantVisualProgress(
+                                              activeChat?.id ?? "",
+                                            )
+                                          }
+                                          onVisualStreamingChange={(
                                             isStreaming,
-                                          )
-                                        }
-                                      />
+                                          ) =>
+                                            handleAssistantVisualStreamingChange(
+                                              `${message.id}:${step.id}`,
+                                              isStreaming,
+                                            )
+                                          }
+                                        />
+                                      </div>
                                     </div>
                                   </article>
-                                  {!isLastAssistantMessageStep && (
-                                    <div className="flex justify-end">
-                                      <TooltipIconButton
-                                        type="button"
-                                        variant="ghost"
-                                        size="icon-sm"
-                                        label={
-                                          copiedMessageId === blockCopyId
-                                            ? "Copied"
-                                            : "Copy block"
-                                        }
-                                        onClick={() =>
-                                          copyMessageContent(
-                                            blockCopyId,
-                                            step.content,
-                                          )
-                                        }
-                                        disabled={!step.content.trim()}
-                                      >
-                                        {copiedMessageId === blockCopyId ? (
-                                          <Check className="size-3" />
-                                        ) : (
-                                          <Copy className="size-3" />
-                                        )}
-                                      </TooltipIconButton>
-                                    </div>
-                                  )}
-                                </div>
-                              );
-                            }
+                                );
+                              }
 
-                            if (step.type === "user_input") {
-                              const manualCollapsed = collapsedToolStepIds[step.id];
-                              const isCollapsed =
-                                manualCollapsed ?? step.status !== "waiting";
+                              if (step.type === "assistant_message") {
+                                if (!step.content.trim()) return null;
 
-                              return (
-                                <AskUserBlock
-                                  key={step.id}
-                                  id={step.id}
-                                  request={step.request}
-                                  response={step.response}
-                                  status={step.status}
-                                  canSubmit={Boolean(
-                                    pendingAskUserRequestsRef.current[
-                                      step.toolCall.id
-                                    ],
-                                  )}
-                                  isCollapsed={isCollapsed}
-                                  onToggleCollapsed={() =>
-                                    toggleToolExecutionCollapsed(
-                                      step.id,
-                                      !isCollapsed,
-                                    )
-                                  }
-                                  onSubmit={(response) =>
-                                    submitAskUserResponse(
-                                      step.toolCall,
-                                      step.request,
-                                      response,
-                                    )
-                                  }
-                                  onCancel={() =>
-                                    cancelAskUserRequest(step.toolCall.id)
-                                  }
-                                />
-                              );
-                            }
+                                const isAssistantBlockStreaming =
+                                  status === "streaming" && isLatestProcessStep;
+                                const blockCopyId = `${message.id}:${step.id}`;
+                                const isLastAssistantMessageStep =
+                                  step.id === lastInlineAssistantMessageStepId;
 
-                            return renderToolExecutionBlock({
-                              id: step.id,
-                              toolCall: step.toolCall,
-                              toolResult: step.toolResult,
-                              status: step.status,
-                            });
-                          })}
-                        </div>
-                      )}
+                                return (
+                                  <div key={step.id} className="grid gap-1">
+                                    <article
+                                      className="flex min-w-0 max-w-full justify-start"
+                                      onContextMenu={(event) =>
+                                        captureMessageContext(event, message.id)
+                                      }
+                                    >
+                                      <div className="min-w-0 max-w-full overflow-visible rounded-lg px-0 py-1 text-sm leading-6 text-card-foreground shadow-xs [overflow-wrap:anywhere]">
+                                        <SmoothAssistantMessageContent
+                                          content={step.content}
+                                          isApiStreaming={
+                                            isAssistantBlockStreaming
+                                          }
+                                          flushVersion={stepFlushVersion}
+                                          onVisualProgress={() =>
+                                            handleAssistantVisualProgress(
+                                              activeChat?.id ?? "",
+                                            )
+                                          }
+                                          onVisualStreamingChange={(
+                                            isStreaming,
+                                          ) =>
+                                            handleAssistantVisualStreamingChange(
+                                              `${message.id}:${step.id}`,
+                                              isStreaming,
+                                            )
+                                          }
+                                        />
+                                      </div>
+                                    </article>
+                                    {!isLastAssistantMessageStep && (
+                                      <div className="flex justify-end">
+                                        <TooltipIconButton
+                                          type="button"
+                                          variant="ghost"
+                                          size="icon-sm"
+                                          label={
+                                            copiedMessageId === blockCopyId
+                                              ? "Copied"
+                                              : "Copy block"
+                                          }
+                                          onClick={() =>
+                                            copyMessageContent(
+                                              blockCopyId,
+                                              step.content,
+                                            )
+                                          }
+                                          disabled={!step.content.trim()}
+                                        >
+                                          {copiedMessageId === blockCopyId ? (
+                                            <Check className="size-3" />
+                                          ) : (
+                                            <Copy className="size-3" />
+                                          )}
+                                        </TooltipIconButton>
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              }
+
+                              if (step.type === "user_input") {
+                                const manualCollapsed =
+                                  collapsedToolStepIds[step.id];
+                                const isCollapsed =
+                                  manualCollapsed ?? step.status !== "waiting";
+
+                                return (
+                                  <AskUserBlock
+                                    key={step.id}
+                                    id={step.id}
+                                    request={step.request}
+                                    response={step.response}
+                                    status={step.status}
+                                    canSubmit={Boolean(
+                                      pendingAskUserRequestsRef.current[
+                                        step.toolCall.id
+                                      ],
+                                    )}
+                                    isCollapsed={isCollapsed}
+                                    onToggleCollapsed={() =>
+                                      toggleToolExecutionCollapsed(
+                                        step.id,
+                                        !isCollapsed,
+                                      )
+                                    }
+                                    onSubmit={(response) =>
+                                      submitAskUserResponse(
+                                        step.toolCall,
+                                        step.request,
+                                        response,
+                                      )
+                                    }
+                                    onCancel={() =>
+                                      cancelAskUserRequest(step.toolCall.id)
+                                    }
+                                  />
+                                );
+                              }
+
+                              return renderToolExecutionBlock({
+                                id: step.id,
+                                toolCall: step.toolCall,
+                                toolResult: step.toolResult,
+                                status: step.status,
+                              });
+                            })}
+                          </div>
+                        )}
 
                       {message.role === "assistant" &&
                         !hasVisibleProcessSteps &&
@@ -5425,7 +5634,9 @@ ${value}
                                         variant="ghost"
                                         size="icon-sm"
                                         className="h-6 w-6 rounded-lg text-muted-foreground"
-                                        disabled={metrics?.durationMs === undefined}
+                                        disabled={
+                                          metrics?.durationMs === undefined
+                                        }
                                         title="Generation info"
                                         aria-label="Generation info"
                                       >
@@ -5433,7 +5644,9 @@ ${value}
                                       </Button>
                                     </PopoverTrigger>
                                   </TooltipTrigger>
-                                  <TooltipContent>Generation info</TooltipContent>
+                                  <TooltipContent>
+                                    Generation info
+                                  </TooltipContent>
                                 </Tooltip>
                                 <PopoverContent
                                   align="end"

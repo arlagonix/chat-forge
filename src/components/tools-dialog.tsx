@@ -44,7 +44,7 @@ const TOOL_TEST_STATE_SAVE_DELAY_MS = 350;
 const BUILTIN_ASK_USER_TOOL_NAME = "ask_user";
 const BUILTIN_ASK_USER_TOOL_ID = "builtin-ask-user";
 const BUILTIN_ASK_USER_TOOL_DESCRIPTION =
-  "Pauses the assistant so it can ask you focused clarification questions, always with a custom answer option, then resumes the same response.";
+  "Pauses the assistant so it can ask focused clarification questions with concise options, strongly encouraged helper descriptions, and a custom answer option, then resumes the same response.";
 const BUILTIN_ASK_USER_TOOL_PARAMETERS = {
   type: "object",
   properties: {
@@ -61,13 +61,19 @@ const BUILTIN_ASK_USER_TOOL_PARAMETERS = {
           options: {
             type: "array",
             description:
-              "Model-provided options. Do not include Other/custom; Chat Forge adds a custom typed answer option automatically.",
+              "Model-provided options. Use concise labels and strongly prefer one-sentence descriptions. Do not include Other/custom; Chat Forge adds a custom typed answer option automatically.",
             items: {
               type: "object",
               properties: {
                 id: { type: "string" },
-                label: { type: "string" },
-                description: { type: "string" },
+                label: {
+                  type: "string",
+                  description: "Short option label, usually 1-5 words.",
+                },
+                description: {
+                  type: "string",
+                  description: "Strongly recommended one-sentence explanation shown below the label.",
+                },
               },
               required: ["id", "label"],
             },
@@ -1042,8 +1048,9 @@ export const ToolsDialog = memo(function ToolsDialog({
                     </p>
                     <p>
                       It supports up to 5 single-choice questions per form and
-                      up to 8 model-provided options per question. Chat Forge
-                      always adds a custom “Type your answer” option.
+                      up to 8 model-provided options per question. Each option
+                      should include a short label plus a gray helper description when useful.
+                      Chat Forge always adds a custom “Type your answer” option.
                     </p>
                   </div>
                 </div>
