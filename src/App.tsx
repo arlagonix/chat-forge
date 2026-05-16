@@ -4653,6 +4653,37 @@ ${value}
       );
     };
 
+    const applyToolResultToVisibleStep = (toolResult: ChatToolResult) => {
+      updateAssistantVariant(
+        chatId,
+        assistantMessageId,
+        variantId,
+        (variant) => ({
+          ...variant,
+          processSteps: keepOnlyLatestChecklistListStep(
+            (variant.processSteps ?? []).map((step) => {
+              if (
+                step.type !== "tool_execution" &&
+                step.type !== "user_input" &&
+                step.type !== "checklist"
+              ) {
+                return step;
+              }
+
+              if (step.toolCall.id !== toolResult.toolCallId) return step;
+
+              return {
+                ...step,
+                status: toolResult.isError ? "failed" : "complete",
+                toolResult,
+              };
+            }),
+          ),
+        }),
+        { touch: false },
+      );
+    };
+
     const applyToolResultsToVariant = (toolResults: ChatToolResult[]) => {
       toolResultsForContext = [...toolResultsForContext, ...toolResults];
 
@@ -4662,49 +4693,16 @@ ${value}
         variantId,
         (variant) => {
           const existingResults = variant.toolResults ?? [];
+          const existingResultIds = new Set(
+            existingResults.map((result) => result.toolCallId),
+          );
+          const newResults = toolResults.filter(
+            (toolResult) => !existingResultIds.has(toolResult.toolCallId),
+          );
 
           return {
             ...variant,
-            toolResults: [...existingResults, ...toolResults],
-            processSteps: keepOnlyLatestChecklistListStep(
-              (variant.processSteps ?? []).map((step) => {
-                if (
-                  step.type !== "tool_execution" &&
-                  step.type !== "user_input" &&
-                  step.type !== "checklist"
-                ) {
-                  return step;
-                }
-
-                const toolResult = toolResults.find(
-                  (item) => item.toolCallId === step.toolCall.id,
-                );
-
-                if (!toolResult) return step;
-
-                if (step.type === "user_input") {
-                  return {
-                    ...step,
-                    status: toolResult.isError ? "failed" : "complete",
-                    toolResult,
-                  };
-                }
-
-                if (step.type === "checklist") {
-                  return {
-                    ...step,
-                    status: toolResult.isError ? "failed" : "complete",
-                    toolResult,
-                  };
-                }
-
-                return {
-                  ...step,
-                  status: toolResult.isError ? "failed" : "complete",
-                  toolResult,
-                };
-              }),
-            ),
+            toolResults: [...existingResults, ...newResults],
           };
         },
         { touch: false },
@@ -4854,15 +4852,26 @@ ${value}
         }
 
         const toolResults = await Promise.all(
-          toolCalls.map((toolCall) =>
-            executeToolCall(toolCall, {
+          toolCalls.map(async (toolCall) => {
+            const toolResult = await executeToolCall(toolCall, {
               chatId,
               assistantMessageId,
               variantId,
               stepId: toolStepIdsByToolCallId.get(toolCall.id) ?? toolCall.id,
               signal: controller.signal,
-            }),
-          ),
+            });
+
+            applyToolResultToVisibleStep(toolResult);
+
+            if (chatId === activeChatId) {
+              scheduleStickyScrollToBottom({
+                force: true,
+                settleFrames: STICKY_SCROLL_SETTLE_FRAMES,
+              });
+            }
+
+            return toolResult;
+          }),
         );
         applyToolResultsToVariant(toolResults);
 
