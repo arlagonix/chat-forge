@@ -362,14 +362,14 @@ function renderToolExecutionPreview(execution?: ToolExecutionPreview) {
   return (
     <>
       <div className="grid gap-1.5">
-        <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground/80">
+        <div className="text-sm font-medium uppercase tracking-wide text-muted-foreground/80">
           Command
         </div>
         {renderCommandCodeBlock(execution.displayCommand)}
       </div>
       {execution.cwd?.trim() && (
         <div className="grid gap-1.5">
-          <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground/80">
+          <div className="text-sm font-medium uppercase tracking-wide text-muted-foreground/80">
             Working directory
           </div>
           {renderCodeBlock(execution.cwd, "text")}
@@ -841,18 +841,18 @@ export const ToolsDialog = memo(function ToolsDialog({
         <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden md:grid-cols-[320px_minmax(0,1fr)]">
           <aside className="min-h-0 overflow-y-auto border-b bg-card/70 p-3 md:border-b-0 md:border-r">
             <div className="mb-3 flex items-center justify-between gap-2">
-              <Label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              <Label className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
                 Tools
               </Label>
-              <span className="text-xs text-muted-foreground">
+              <span className="text-sm text-muted-foreground">
                 {enabledToolsCount}/{totalToolsCount} enabled
               </span>
             </div>
 
-            <label className="mb-3 flex cursor-pointer items-center justify-between gap-3 rounded-lg border bg-background px-3 py-2 text-sm">
+            <label className="mb-3 flex cursor-pointer items-center justify-between gap-3 rounded-lg border bg-background px-3 py-2 text-base">
               <span className="min-w-0">
                 <span className="block font-medium">Enable tools globally</span>
-                <span className="block text-xs leading-5 text-muted-foreground">
+                <span className="block text-sm leading-5 text-muted-foreground">
                   Disabled globally means no tool schemas are sent to the model.
                 </span>
               </span>
@@ -920,11 +920,11 @@ export const ToolsDialog = memo(function ToolsDialog({
               >
                 <MessageSquareText className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
                 <div className="min-w-0 flex-1">
-                  <div className="flex min-w-0 items-center gap-1.5 truncate text-sm leading-5">
+                  <div className="flex min-w-0 items-center gap-1.5 truncate text-base leading-6">
                     <span className="truncate">{BUILTIN_ASK_USER_TOOL_NAME}</span>
                     <Lock className="size-3 shrink-0 text-muted-foreground" />
                   </div>
-                  <div className="truncate text-[11px] leading-4 text-muted-foreground">
+                  <div className="truncate text-sm leading-5 text-muted-foreground">
                     {toolsSettings.askUserEnabled
                       ? toolsSettings.enabled
                         ? "Enabled · Built-in interactive"
@@ -971,11 +971,11 @@ export const ToolsDialog = memo(function ToolsDialog({
               >
                 <ListTodo className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
                 <div className="min-w-0 flex-1">
-                  <div className="flex min-w-0 items-center gap-1.5 truncate text-sm leading-5">
+                  <div className="flex min-w-0 items-center gap-1.5 truncate text-base leading-6">
                     <span className="truncate">{BUILTIN_CHECKLIST_WRITE_TOOL_NAME}</span>
                     <Lock className="size-3 shrink-0 text-muted-foreground" />
                   </div>
-                  <div className="truncate text-[11px] leading-4 text-muted-foreground">
+                  <div className="truncate text-sm leading-5 text-muted-foreground">
                     {toolsSettings.checklistWriteEnabled
                       ? toolsSettings.enabled
                         ? "Enabled · Built-in checklist"
@@ -1023,8 +1023,8 @@ export const ToolsDialog = memo(function ToolsDialog({
                 >
                   <Wrench className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
                   <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm leading-5">{tool.name}</div>
-                    <div className="truncate text-[11px] leading-4 text-muted-foreground">
+                    <div className="truncate text-base leading-6">{tool.name}</div>
+                    <div className="truncate text-sm leading-5 text-muted-foreground">
                       {tool.enabled ? "Enabled" : "Disabled"} · {tool.command}
                     </div>
                   </div>
@@ -1061,7 +1061,7 @@ export const ToolsDialog = memo(function ToolsDialog({
               ))}
 
               {loadedTools.length === 0 && (
-                <div className="rounded-lg border border-dashed px-3 py-4 text-center text-sm text-muted-foreground">
+                <div className="rounded-lg border border-dashed px-3 py-4 text-center text-base text-muted-foreground">
                   No custom command tools configured.
                 </div>
               )}
@@ -1069,13 +1069,13 @@ export const ToolsDialog = memo(function ToolsDialog({
 
             {toolLoadErrors.length > 0 && (
               <div className="mt-4 grid gap-2">
-                <Label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                <Label className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
                   Load errors
                 </Label>
                 {toolLoadErrors.map((error) => (
                   <div
                     key={`${error.source}:${error.message}`}
-                    className="rounded-lg border border-destructive/40 bg-destructive/5 px-2 py-1.5 text-xs leading-5"
+                    className="rounded-lg border border-destructive/40 bg-destructive/5 px-2 py-1.5 text-sm leading-5"
                   >
                     <div
                       className="truncate font-medium text-destructive"
@@ -1095,27 +1095,27 @@ export const ToolsDialog = memo(function ToolsDialog({
               <div className="grid gap-5 pb-1">
                 <div className="flex items-start justify-between gap-4">
                   <div>
-                    <Label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    <Label className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
                       Built-in tool
                     </Label>
                     <h3 className="mt-1 flex items-center gap-2 text-lg font-semibold text-foreground">
                       <MessageSquareText className="size-5 text-muted-foreground" />
                       {BUILTIN_ASK_USER_TOOL_NAME}
                     </h3>
-                    <p className="mt-1 max-w-2xl text-sm leading-6 text-muted-foreground">
+                    <p className="mt-1 max-w-2xl text-base leading-6 text-muted-foreground">
                       {BUILTIN_ASK_USER_TOOL_DESCRIPTION}
                     </p>
                   </div>
-                  <span className="inline-flex shrink-0 items-center gap-1 rounded-lg border bg-muted/40 px-2 py-1 text-xs text-muted-foreground">
+                  <span className="inline-flex shrink-0 items-center gap-1 rounded-lg border bg-muted/40 px-2 py-1 text-sm text-muted-foreground">
                     <Lock className="size-3.5" />
                     Locked
                   </span>
                 </div>
 
-                <label className="flex cursor-pointer items-center justify-between gap-3 rounded-lg border bg-background px-3 py-2 text-sm">
+                <label className="flex cursor-pointer items-center justify-between gap-3 rounded-lg border bg-background px-3 py-2 text-base">
                   <span className="min-w-0">
                     <span className="block font-medium">Enable ask_user</span>
-                    <span className="block text-xs leading-5 text-muted-foreground">
+                    <span className="block text-sm leading-5 text-muted-foreground">
                       When enabled globally, this sends the built-in interactive
                       question tool schema to the model.
                     </span>
@@ -1134,7 +1134,7 @@ export const ToolsDialog = memo(function ToolsDialog({
                 </label>
 
                 {!toolsSettings.enabled && toolsSettings.askUserEnabled && (
-                  <div className="rounded-lg border border-dashed bg-muted/30 px-3 py-2 text-xs leading-5 text-muted-foreground">
+                  <div className="rounded-lg border border-dashed bg-muted/30 px-3 py-2 text-sm leading-5 text-muted-foreground">
                     Global tools are disabled, so ask_user is currently not sent
                     to the model even though this built-in tool is enabled.
                   </div>
@@ -1142,7 +1142,7 @@ export const ToolsDialog = memo(function ToolsDialog({
 
                 <div className="grid gap-2 rounded-lg border bg-muted/20 p-3">
                   <Label>Behavior</Label>
-                  <div className="grid gap-2 text-sm leading-6 text-muted-foreground">
+                  <div className="grid gap-2 text-base leading-6 text-muted-foreground">
                     <p>
                       The assistant can call this tool when it needs a decision
                       before continuing. The response pauses, shows one compact
@@ -1171,27 +1171,27 @@ export const ToolsDialog = memo(function ToolsDialog({
               <div className="grid gap-5 pb-1">
                 <div className="flex items-start justify-between gap-4">
                   <div>
-                    <Label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    <Label className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
                       Built-in tool
                     </Label>
                     <h3 className="mt-1 flex items-center gap-2 text-lg font-semibold text-foreground">
                       <ListTodo className="size-5 text-muted-foreground" />
                       {BUILTIN_CHECKLIST_WRITE_TOOL_NAME}
                     </h3>
-                    <p className="mt-1 max-w-2xl text-sm leading-6 text-muted-foreground">
+                    <p className="mt-1 max-w-2xl text-base leading-6 text-muted-foreground">
                       {BUILTIN_CHECKLIST_WRITE_TOOL_DESCRIPTION}
                     </p>
                   </div>
-                  <span className="inline-flex shrink-0 items-center gap-1 rounded-lg border bg-muted/40 px-2 py-1 text-xs text-muted-foreground">
+                  <span className="inline-flex shrink-0 items-center gap-1 rounded-lg border bg-muted/40 px-2 py-1 text-sm text-muted-foreground">
                     <Lock className="size-3.5" />
                     Locked
                   </span>
                 </div>
 
-                <label className="flex cursor-pointer items-center justify-between gap-3 rounded-lg border bg-background px-3 py-2 text-sm">
+                <label className="flex cursor-pointer items-center justify-between gap-3 rounded-lg border bg-background px-3 py-2 text-base">
                   <span className="min-w-0">
                     <span className="block font-medium">Enable checklist_write</span>
-                    <span className="block text-xs leading-5 text-muted-foreground">
+                    <span className="block text-sm leading-5 text-muted-foreground">
                       When enabled globally, this sends the built-in
                       checklist tool schema to the model.
                     </span>
@@ -1210,7 +1210,7 @@ export const ToolsDialog = memo(function ToolsDialog({
                 </label>
 
                 {!toolsSettings.enabled && toolsSettings.checklistWriteEnabled && (
-                  <div className="rounded-lg border border-dashed bg-muted/30 px-3 py-2 text-xs leading-5 text-muted-foreground">
+                  <div className="rounded-lg border border-dashed bg-muted/30 px-3 py-2 text-sm leading-5 text-muted-foreground">
                     Global tools are disabled, so checklist_write is currently not
                     sent to the model even though this built-in tool is enabled.
                   </div>
@@ -1218,7 +1218,7 @@ export const ToolsDialog = memo(function ToolsDialog({
 
                 <div className="grid gap-2 rounded-lg border bg-muted/20 p-3">
                   <Label>Behavior</Label>
-                  <div className="grid gap-2 text-sm leading-6 text-muted-foreground">
+                  <div className="grid gap-2 text-base leading-6 text-muted-foreground">
                     <p>
                       The assistant can call this tool during complex work to
                       show a concise progress checklist in the chat. It completes
@@ -1243,7 +1243,7 @@ export const ToolsDialog = memo(function ToolsDialog({
             ) : toolDraft ? (
               <div className="grid gap-5 pb-1">
                 <div>
-                  <Label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  <Label className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
                     {selectedTool ? "Edit tool" : "Create tool"}
                   </Label>
                 </div>
@@ -1293,7 +1293,7 @@ export const ToolsDialog = memo(function ToolsDialog({
                     onChange={(event) =>
                       updateToolDraft({ parametersText: event.target.value })
                     }
-                    className="min-h-64 resize-y font-mono text-xs"
+                    className="min-h-64 resize-y font-mono text-sm"
                     spellCheck={false}
                   />
                 </div>
@@ -1309,10 +1309,10 @@ export const ToolsDialog = memo(function ToolsDialog({
                     placeholder={
                       "C:/Prime/Tools/math-tool/dist/index.js\n--query\n{{query}}"
                     }
-                    className="min-h-32 resize-y font-mono text-xs"
+                    className="min-h-32 resize-y font-mono text-sm"
                     spellCheck={false}
                   />
-                  <p className="text-xs leading-5 text-muted-foreground">
+                  <p className="text-sm leading-5 text-muted-foreground">
                     Use <code>{"{{fieldName}}"}</code> placeholders for existing
                     CLIs. Every placeholder must exist in schema.properties and
                     schema.required.
@@ -1338,7 +1338,7 @@ export const ToolsDialog = memo(function ToolsDialog({
                         <SelectItem value="none">None</SelectItem>
                       </SelectContent>
                     </Select>
-                    <p className="text-xs leading-5 text-muted-foreground">
+                    <p className="text-sm leading-5 text-muted-foreground">
                       JSON stdin is best for scripts you write. None is best for
                       existing CLI flags/placeholders.
                     </p>
@@ -1359,7 +1359,7 @@ export const ToolsDialog = memo(function ToolsDialog({
                 <div className="grid gap-3 rounded-lg border bg-muted/20 p-3">
                   <div>
                     <Label>Execution limits</Label>
-                    <p className="text-xs leading-5 text-muted-foreground">
+                    <p className="text-sm leading-5 text-muted-foreground">
                       Leave concurrency empty for the current parallel behavior.
                       Use 1 plus a delay for rate-limited tools.
                     </p>
@@ -1418,7 +1418,7 @@ export const ToolsDialog = memo(function ToolsDialog({
                   <div className="flex items-center justify-between gap-3">
                     <div>
                       <Label>Test tool</Label>
-                      <p className="text-xs leading-5 text-muted-foreground">
+                      <p className="text-sm leading-5 text-muted-foreground">
                         Run this manifest locally with sample model arguments.
                       </p>
                     </div>
@@ -1453,13 +1453,13 @@ export const ToolsDialog = memo(function ToolsDialog({
                       updateCurrentToolTestArgsText(event.target.value)
                     }
                     disabled={isTestingCurrentTool}
-                    className="min-h-24 resize-y font-mono text-xs"
+                    className="min-h-24 resize-y font-mono text-sm"
                     spellCheck={false}
                     placeholder='{ "value": 144 }'
                   />
                   {(currentToolTestResult || currentToolTestExecutionPreview) && (
                     <div className="grid gap-3 rounded-lg border bg-card p-3">
-                      <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+                      <div className="flex items-center justify-between gap-3 text-sm text-muted-foreground">
                         {currentToolTestResult ? (
                           <span>
                             Exit: {currentToolTestResult.exitCode ?? "null"} ·{" "}
@@ -1499,7 +1499,7 @@ export const ToolsDialog = memo(function ToolsDialog({
                       {renderToolExecutionPreview(currentToolTestExecutionPreview)}
                       {currentToolTestResult && (
                         <div className="grid gap-1.5">
-                          <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground/80">
+                          <div className="text-sm font-medium uppercase tracking-wide text-muted-foreground/80">
                             Output
                           </div>
                           {renderJsonCodeBlock(currentToolTestResult.content)}
@@ -1510,7 +1510,7 @@ export const ToolsDialog = memo(function ToolsDialog({
                 </div>
               </div>
             ) : (
-              <div className="flex h-full items-center justify-center rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
+              <div className="flex h-full items-center justify-center rounded-lg border border-dashed p-8 text-center text-base text-muted-foreground">
                 Select a tool or add a new one.
               </div>
             )}
