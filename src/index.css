@@ -3,10 +3,20 @@
 @import "@fontsource/jetbrains-mono/600.css";
 @import "@fontsource/jetbrains-mono/700.css";
 
+@import "@fontsource/ibm-plex-mono/400.css";
+@import "@fontsource/ibm-plex-mono/500.css";
+@import "@fontsource/ibm-plex-mono/600.css";
+@import "@fontsource/ibm-plex-mono/700.css";
+
 @import "@fontsource/open-sans/400.css";
 @import "@fontsource/open-sans/500.css";
 @import "@fontsource/open-sans/600.css";
 @import "@fontsource/open-sans/700.css";
+
+@import "@fontsource/ibm-plex-sans/400.css";
+@import "@fontsource/ibm-plex-sans/500.css";
+@import "@fontsource/ibm-plex-sans/600.css";
+@import "@fontsource/ibm-plex-sans/700.css";
 
 @import "katex/dist/katex.min.css";
 
@@ -17,6 +27,8 @@
 
 :root {
   --font-open-sans: "Open Sans", sans-serif;
+  --font-ibm-plex-sans: "IBM Plex Sans", sans-serif;
+  --font-imp-plex-mono: "IBM Plex Mono", monospace;
   --font-jetbrains-mono:
     "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
     "Liberation Mono", "Courier New", monospace;
@@ -105,8 +117,8 @@
 }
 
 @theme inline {
-  --font-sans: var(--font-jetbrains-mono), ui-sans-serif, system-ui, sans-serif;
-  --font-mono: var(--font-jetbrains-mono);
+  --font-sans: var(--font-ibm-plex-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-imp-plex-mono);
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -240,7 +252,7 @@
   }
 
   .chat-markdown-compact {
-    @apply text-xs;
+    @apply text-sm leading-5;
   }
 
   .chat-markdown > *:first-child {
@@ -391,7 +403,7 @@
   }
 
   .chat-markdown .chat-code-language {
-    @apply min-w-0 truncate font-mono text-[11px] leading-5 text-muted-foreground;
+    @apply min-w-0 truncate font-mono text-sm leading-5 text-muted-foreground;
   }
 
   .chat-markdown .chat-code-toolbar-actions {
@@ -442,7 +454,7 @@
   }
 
   .chat-markdown .chat-code-block code {
-    @apply bg-transparent p-0;
+    @apply bg-transparent p-0 text-sm leading-5;
   }
 
   .chat-markdown .hljs {

@@ -435,7 +435,7 @@ const UserMessageEditor = memo(function UserMessageEditor({
   return (
     <div className="grid min-w-0 max-w-full gap-2">
       <article className="flex justify-end">
-        <div className="min-w-0 w-full overflow-hidden bg-primary rounded-lg px-4 py-3 text-sm leading-6 text-primary-foreground shadow-xs [overflow-wrap:anywhere]">
+        <div className="min-w-0 w-full overflow-hidden bg-primary rounded-lg px-4 py-3 text-base leading-6 text-primary-foreground shadow-xs [overflow-wrap:anywhere]">
           <Textarea
             value={content}
             onChange={(event) => setContent(event.target.value)}
@@ -462,7 +462,7 @@ const UserMessageEditor = memo(function UserMessageEditor({
         </div>
       </article>
 
-      <div className="flex justify-end gap-1.5 text-[11px] leading-4 text-muted-foreground">
+      <div className="flex justify-end gap-1.5 text-sm leading-5 text-muted-foreground">
         <TooltipIconButton
           type="button"
           variant="ghost"
@@ -737,7 +737,7 @@ const AskUserBlock = memo(function AskUserBlock({
     if (!response) return null;
 
     return (
-      <ul className="mt-2 grid list-disc gap-2 pl-4 text-xs normal-case leading-5 tracking-normal">
+      <ul className="mt-2 grid list-disc gap-2 pl-4 text-sm normal-case leading-5 tracking-normal">
         {request.questions.map((question) => (
           <li key={question.id} className="pl-1">
             <div className="grid gap-0">
@@ -772,7 +772,7 @@ const AskUserBlock = memo(function AskUserBlock({
           maxLength={MAX_ASK_USER_CUSTOM_ANSWER_LENGTH}
           onChange={(event) => updateAnswer(event.target.value)}
           onKeyDown={handleMultilineAnswerKeyDown}
-          className="min-h-24 rounded-lg text-xs"
+          className="min-h-24 rounded-lg text-sm"
         />
       );
     }
@@ -785,7 +785,7 @@ const AskUserBlock = memo(function AskUserBlock({
         maxLength={MAX_ASK_USER_CUSTOM_ANSWER_LENGTH}
         onChange={(event) => updateAnswer(event.target.value)}
         onKeyDown={handleSingleLineAnswerKeyDown}
-        className="h-8 rounded-lg text-xs"
+        className="h-8 rounded-lg text-sm"
       />
     );
   }
@@ -887,11 +887,11 @@ const AskUserBlock = memo(function AskUserBlock({
           className="mt-1 size-3.5 shrink-0 accent-primary"
         />
         <span className="grid gap-0.5">
-          <span className="text-xs font-medium leading-5 text-foreground">
+          <span className="text-sm font-medium leading-5 text-foreground">
             {option.label}
           </span>
           {option.description?.trim() && (
-            <span className="text-xs leading-5 text-muted-foreground">
+            <span className="text-sm leading-5 text-muted-foreground">
               {option.description.trim()}
             </span>
           )}
@@ -958,10 +958,10 @@ const AskUserBlock = memo(function AskUserBlock({
             className="mt-1 size-3.5 shrink-0 accent-primary"
           />
           <span className="grid gap-0.5">
-            <span className="text-xs font-medium leading-5 text-foreground">
+            <span className="text-sm font-medium leading-5 text-foreground">
               Type your answer
             </span>
-            <span className="text-xs leading-5 text-muted-foreground">
+            <span className="text-sm leading-5 text-muted-foreground">
               {customDescription}
             </span>
           </span>
@@ -1040,7 +1040,7 @@ const AskUserBlock = memo(function AskUserBlock({
               event.stopPropagation();
               handleSingleLineAnswerKeyDown(event);
             }}
-            className="h-8 rounded-lg text-xs"
+            className="h-8 rounded-lg text-sm"
           />
         )}
       </div>
@@ -1147,11 +1147,11 @@ const AskUserBlock = memo(function AskUserBlock({
     return (
       <div key={question.id} className="grid gap-3">
         <div className="grid gap-1">
-          <div className="text-sm font-medium leading-5 text-foreground">
+          <div className="text-base font-medium leading-6 text-foreground">
             {question.question}
           </div>
           {question.description?.trim() && (
-            <div className="text-xs leading-5 text-muted-foreground">
+            <div className="text-sm leading-5 text-muted-foreground">
               {question.description.trim()}
             </div>
           )}
@@ -1284,14 +1284,14 @@ const AskUserBlock = memo(function AskUserBlock({
 
   return (
     <article key={id} className="flex min-w-0 max-w-full justify-start">
-      <div className="w-full min-w-0 max-w-full overflow-hidden rounded-lg border bg-muted/25 px-4 py-3 text-xs leading-5 text-muted-foreground shadow-xs [overflow-wrap:anywhere]">
+      <div className="w-full min-w-0 max-w-full overflow-hidden rounded-lg border bg-muted/25 px-4 py-3 text-sm leading-5 text-muted-foreground shadow-xs [overflow-wrap:anywhere]">
         <button
           type="button"
           className="w-full rounded-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
           onClick={onToggleCollapsed}
           aria-expanded={!isCollapsed}
         >
-          <div className="flex min-w-0 items-center justify-between gap-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          <div className="flex min-w-0 items-center justify-between gap-3 text-sm font-medium uppercase tracking-wide text-muted-foreground">
             <div className="flex min-w-0 items-center gap-2">
               <MessageSquareText className="size-3.5 shrink-0" />
               <span className="truncate">Ask user</span>
@@ -1329,7 +1329,7 @@ const AskUserBlock = memo(function AskUserBlock({
             )}
           </div>
           {(request.title?.trim() || request.description?.trim()) && (
-            <div className="mt-2 grid gap-1 text-xs normal-case leading-5 tracking-normal text-muted-foreground/85">
+            <div className="mt-2 grid gap-1 text-sm normal-case leading-5 tracking-normal text-muted-foreground/85">
               {request.title?.trim() && (
                 <div className="font-medium text-foreground/80">
                   {request.title.trim()}
@@ -1361,18 +1361,18 @@ const AskUserBlock = memo(function AskUserBlock({
                 return (
                   <div className="grid gap-3">
                     {activeQuestionCount > 1 && (
-                      <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground/80">
+                      <div className="text-sm font-medium uppercase tracking-wide text-muted-foreground/80">
                         Question {activeQuestionIndex + 1} of{" "}
                         {activeQuestionCount}
                       </div>
                     )}
 
                     <div className="grid gap-1">
-                      <div className="text-sm font-medium leading-5 text-foreground">
+                      <div className="text-base font-medium leading-6 text-foreground">
                         {question.question}
                       </div>
                       {question.description?.trim() && (
-                        <div className="text-xs leading-5 text-muted-foreground">
+                        <div className="text-sm leading-5 text-muted-foreground">
                           {question.description.trim()}
                         </div>
                       )}
@@ -1432,7 +1432,7 @@ const AskUserBlock = memo(function AskUserBlock({
               })()}
 
             {isWaiting && !canSubmit && (
-              <div className="rounded-lg border border-dashed bg-muted/30 px-3 py-2 text-xs leading-5 text-muted-foreground">
+              <div className="rounded-lg border border-dashed bg-muted/30 px-3 py-2 text-sm leading-5 text-muted-foreground">
                 This input request is no longer connected to an active
                 generation. Regenerate the response to ask again.
               </div>
@@ -1440,10 +1440,10 @@ const AskUserBlock = memo(function AskUserBlock({
 
             {response && effectiveStatus !== "waiting" && (
               <div className="grid gap-3">
-                <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground/80">
+                <div className="text-sm font-medium uppercase tracking-wide text-muted-foreground/80">
                   Selected answers
                 </div>
-                <div className="grid gap-6 text-xs leading-5">
+                <div className="grid gap-6 text-sm leading-5">
                   {request.questions.map((question) =>
                     renderReadOnlyQuestion(question),
                   )}
@@ -1488,14 +1488,14 @@ const ChecklistBlock = memo(function ChecklistBlock({
 
   return (
     <article key={id} className="flex min-w-0 max-w-full justify-start">
-      <div className="w-full min-w-0 max-w-full overflow-hidden rounded-lg border bg-muted/25 px-4 py-3 text-xs leading-5 text-muted-foreground shadow-xs [overflow-wrap:anywhere]">
+      <div className="w-full min-w-0 max-w-full overflow-hidden rounded-lg border bg-muted/25 px-4 py-3 text-sm leading-5 text-muted-foreground shadow-xs [overflow-wrap:anywhere]">
         <button
           type="button"
           className="w-full rounded-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
           onClick={onToggleCollapsed}
           aria-expanded={!isCollapsed}
         >
-          <div className="flex min-w-0 items-center justify-between gap-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          <div className="flex min-w-0 items-center justify-between gap-3 text-sm font-medium uppercase tracking-wide text-muted-foreground">
             <div className="flex min-w-0 items-center gap-2">
               <ListTodo className="size-3.5 shrink-0" />
               <span className="truncate">Checklist</span>
@@ -1513,7 +1513,7 @@ const ChecklistBlock = memo(function ChecklistBlock({
         </button>
 
         {!isCollapsed && (
-          <ul className="mt-3 grid gap-0 text-xs normal-case leading-5 tracking-normal">
+          <ul className="mt-3 grid gap-0 text-sm normal-case leading-5 tracking-normal">
             {request.items.map((item, index) => (
               <li
                 key={`${index}-${item.content}`}
@@ -2912,14 +2912,14 @@ ${value}
     return (
       <>
         <div className="grid gap-1.5">
-          <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground/80">
+          <div className="text-sm font-medium uppercase tracking-wide text-muted-foreground/80">
             Command
           </div>
           {renderCommandCodeBlock(execution.displayCommand)}
         </div>
         {execution.cwd?.trim() && (
           <div className="grid gap-1.5">
-            <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground/80">
+            <div className="text-sm font-medium uppercase tracking-wide text-muted-foreground/80">
               Working directory
             </div>
             {renderCodeBlock(execution.cwd, "text")}
@@ -3023,14 +3023,14 @@ ${value}
 
     return (
       <article key={id} className="flex min-w-0 max-w-full justify-start">
-        <div className="w-full min-w-0 max-w-full overflow-hidden rounded-lg border bg-muted/25 px-4 py-3 text-xs leading-5 text-muted-foreground shadow-xs [overflow-wrap:anywhere]">
+        <div className="w-full min-w-0 max-w-full overflow-hidden rounded-lg border bg-muted/25 px-4 py-3 text-sm leading-5 text-muted-foreground shadow-xs [overflow-wrap:anywhere]">
           <button
             type="button"
             className="w-full rounded-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
             onClick={() => toggleToolExecutionCollapsed(id, !isCollapsed)}
             aria-expanded={!isCollapsed}
           >
-            <div className="flex min-w-0 items-center justify-between gap-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            <div className="flex min-w-0 items-center justify-between gap-3 text-sm font-medium uppercase tracking-wide text-muted-foreground">
               <div className="flex min-w-0 items-center gap-2">
                 <Wrench className="size-3.5 shrink-0" />
                 <span className="truncate">{toolCall.function.name}</span>
@@ -3044,7 +3044,7 @@ ${value}
               )}
             </div>
             {toolDescription && (
-              <div className="mt-2 text-xs normal-case leading-5 tracking-normal text-muted-foreground/85">
+              <div className="mt-2 text-sm normal-case leading-5 tracking-normal text-muted-foreground/85">
                 {toolDescription}
               </div>
             )}
@@ -3055,7 +3055,7 @@ ${value}
               {renderToolExecutionPreview(executionPreview)}
               {showToolInput && (
                 <div className="grid gap-1.5">
-                  <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground/80">
+                  <div className="text-sm font-medium uppercase tracking-wide text-muted-foreground/80">
                     Input
                   </div>
                   {renderJsonCodeBlock(toolCall.function.arguments || "{}")}
@@ -3063,7 +3063,7 @@ ${value}
               )}
               {toolResult?.content.trim() && (
                 <div className="grid gap-1.5">
-                  <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground/80">
+                  <div className="text-sm font-medium uppercase tracking-wide text-muted-foreground/80">
                     Output
                   </div>
                   {renderJsonCodeBlock(toolResult.content)}
@@ -5645,7 +5645,7 @@ ${value}
             </Button>
 
             <div className="min-w-0 flex-1">
-              <h1 className="flex min-w-0 items-baseline gap-1 truncate text-sm font-semibold leading-5">
+              <h1 className="flex min-w-0 items-baseline gap-1 truncate text-base font-semibold leading-6">
                 <span className="truncate">{APP_NAME}</span>
                 <span className="shrink-0 text-muted-foreground">
                   {APP_VERSION_LABEL}
@@ -5661,7 +5661,7 @@ ${value}
           <div className="grid gap-3">
             {groupedChats.map((group) => (
               <section key={group.label} className="grid gap-1.5">
-                <div className="px-2 pt-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                <div className="px-2 pt-1 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
                   {group.label}
                 </div>
                 <div className="grid gap-[1px]">
@@ -5686,10 +5686,10 @@ ${value}
                       title={chat.title}
                     >
                       <div className="min-w-0 flex-1 text-left">
-                        <div className="truncate text-sm leading-5 ">
+                        <div className="truncate text-base leading-6 ">
                           {chat.title}
                         </div>
-                        {/* <div className="truncate text-[11px] leading-4 text-muted-foreground">
+                        {/* <div className="truncate text-sm leading-5 text-muted-foreground">
                           {chat.messages.length} message
                           {chat.messages.length === 1 ? "" : "s"}
                           {" · "}
@@ -5780,7 +5780,7 @@ ${value}
               placeholder="Find in page"
               aria-label="Find in page"
             />
-            <span className="min-w-14 text-center text-xs tabular-nums text-muted-foreground">
+            <span className="min-w-14 text-center text-sm tabular-nums text-muted-foreground">
               {findQuery.trim()
                 ? `${findResult.activeMatchOrdinal || 0}/${findResult.matches}`
                 : "0/0"}
@@ -5841,10 +5841,10 @@ ${value}
               {!hasMessages ? (
                 <div className="flex h-full items-center justify-center px-3">
                   <div className="max-w-md rounded-lg border bg-card p-6 text-center shadow-xs">
-                    <h2 className="text-sm font-semibold">
+                    <h2 className="text-base font-semibold">
                       Start a conversation
                     </h2>
-                    <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                    <p className="mt-2 text-base leading-6 text-muted-foreground">
                       Configure a provider, choose a model, and send your first
                       message. Chats are stored locally as JSON files.
                     </p>
@@ -5938,13 +5938,13 @@ ${value}
                                     key={step.id}
                                     className="flex min-w-0 max-w-full justify-start"
                                   >
-                                    <div className="w-full min-w-0 max-w-full overflow-hidden rounded-lg border border-dashed bg-muted/40 px-4 py-3 text-sm leading-6 text-muted-foreground shadow-xs [overflow-wrap:anywhere]">
-                                      <div className="mb-2 flex items-center gap-2 text-xs font-medium uppercase tracking-wide">
+                                    <div className="w-full min-w-0 max-w-full overflow-hidden rounded-lg border border-dashed bg-muted/40 px-4 py-3 text-base leading-6 text-muted-foreground shadow-xs [overflow-wrap:anywhere]">
+                                      <div className="mb-2 flex items-center gap-2 text-sm font-medium uppercase tracking-wide">
                                         <Brain className="size-3.5" />
                                         Thinking
                                         {isThinkingStreaming ? "..." : ""}
                                       </div>
-                                      <div className="min-w-0 overflow-visible text-xs leading-5">
+                                      <div className="min-w-0 overflow-visible text-sm leading-5">
                                         <SmoothAssistantMessageContent
                                           content={step.content}
                                           className="chat-markdown-compact shrink-0"
@@ -5984,7 +5984,7 @@ ${value}
                                         captureMessageContext(event, message.id)
                                       }
                                     >
-                                      <div className="min-w-0 max-w-full overflow-visible rounded-lg px-0 py-1 text-sm leading-6 text-card-foreground shadow-xs [overflow-wrap:anywhere]">
+                                      <div className="min-w-0 max-w-full overflow-visible rounded-lg px-0 py-1 text-base leading-6 text-card-foreground shadow-xs [overflow-wrap:anywhere]">
                                         <SmoothAssistantMessageContent
                                           content={step.content}
                                           isApiStreaming={
@@ -6090,12 +6090,12 @@ ${value}
                         (() => {
                           return (
                             <article className="flex min-w-0 max-w-full justify-start">
-                              <div className="w-full min-w-0 max-w-full overflow-hidden rounded-lg border border-dashed bg-muted/40 px-4 py-3 text-sm leading-6 text-muted-foreground shadow-xs [overflow-wrap:anywhere]">
-                                <div className="mb-2 flex items-center gap-2 text-xs font-medium uppercase tracking-wide">
+                              <div className="w-full min-w-0 max-w-full overflow-hidden rounded-lg border border-dashed bg-muted/40 px-4 py-3 text-base leading-6 text-muted-foreground shadow-xs [overflow-wrap:anywhere]">
+                                <div className="mb-2 flex items-center gap-2 text-sm font-medium uppercase tracking-wide">
                                   <Brain className="size-3.5" />
                                   Thinking{isMessageStreaming ? "..." : ""}
                                 </div>
-                                <div className="min-w-0 overflow-visible text-xs leading-5">
+                                <div className="min-w-0 overflow-visible text-sm leading-5">
                                   <SmoothAssistantMessageContent
                                     content={reasoning}
                                     className="chat-markdown-compact shrink-0"
@@ -6178,7 +6178,7 @@ ${value}
                             >
                               <div
                                 className={cn(
-                                  "min-w-0 text-sm leading-6 [overflow-wrap:anywhere] w-full rounded-lg",
+                                  "min-w-0 text-base leading-6 [overflow-wrap:anywhere] w-full rounded-lg",
                                   message.role === "user"
                                     ? "max-h-[32rem] overflow-y-auto overflow-x-hidden chat-message-scrollbar bg-primary px-4 py-3 text-primary-foreground shadow-xs"
                                     : "min-w-0 max-w-full overflow-visible px-0 py-1 text-card-foreground shadow-xs",
@@ -6217,7 +6217,7 @@ ${value}
                             {messageContextMenu?.messageId === message.id && (
                               <div
                                 data-message-context-menu
-                                className="fixed z-50 min-w-55 rounded-lg border bg-popover p-1 text-sm text-popover-foreground shadow-md"
+                                className="fixed z-50 min-w-55 rounded-lg border bg-popover p-1 text-base text-popover-foreground shadow-md"
                                 style={{
                                   left: messageContextMenu.x,
                                   top: messageContextMenu.y,
@@ -6320,7 +6320,7 @@ ${value}
 
                       {message.role === "user" &&
                         editingMessageId !== message.id && (
-                          <div className="flex justify-end gap-1.5 text-[11px] leading-4 text-muted-foreground">
+                          <div className="flex justify-end gap-1.5 text-sm leading-5 text-muted-foreground">
                             <TooltipIconButton
                               type="button"
                               variant="ghost"
@@ -6370,7 +6370,7 @@ ${value}
                         )}
 
                       {message.role === "assistant" && (
-                        <div className="grid gap-2 text-[11px] leading-4 text-muted-foreground">
+                        <div className="grid gap-2 text-sm leading-5 text-muted-foreground">
                           <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
                             <div className="min-h-6 min-w-0 flex-1 text-left">
                               {isMessageStreaming ? (
@@ -6461,12 +6461,12 @@ ${value}
                                   align="end"
                                   className="w-[min(26rem,calc(100vw-2rem))] rounded-lg p-3"
                                 >
-                                  <div className="mb-2 text-xs font-medium text-popover-foreground">
+                                  <div className="mb-2 text-sm font-medium text-popover-foreground">
                                     Generation info
                                   </div>
                                   {renderJsonCodeBlock(
                                     formatGenerationInfoJson(metrics),
-                                    "chat-markdown-compact max-h-120 overflow-auto text-xs",
+                                    "chat-markdown-compact max-h-120 overflow-auto text-sm",
                                   )}
                                 </PopoverContent>
                               </Popover>
@@ -6584,14 +6584,14 @@ ${value}
           <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden md:grid-cols-[260px_minmax(0,1fr)]">
             <aside className="min-h-0 overflow-y-auto border-b bg-card/70 p-3 md:border-b-0 md:border-r">
               <div className="mb-3 flex items-center justify-between gap-2">
-                <Label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                <Label className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
                   Providers
                 </Label>
                 <Button
                   type="button"
                   variant="secondary"
                   size="sm"
-                  className="h-7 rounded-lg px-2 text-xs"
+                  className="h-7 rounded-lg px-2 text-sm"
                   onClick={addProvider}
                 >
                   <Plus className="size-3.5" />
@@ -6628,10 +6628,10 @@ ${value}
                     }}
                   >
                     <div className="min-w-0 flex-1">
-                      <div className="truncate text-sm leading-5">
+                      <div className="truncate text-base leading-6">
                         {providerDisplayName(item)}
                       </div>
-                      <div className="truncate text-[11px] leading-4 text-muted-foreground">
+                      <div className="truncate text-sm leading-5 text-muted-foreground">
                         {(item.enabledModelIds ?? []).length} visible ·{" "}
                         {item.baseUrl || "No base URL"}
                       </div>
@@ -6763,7 +6763,7 @@ ${value}
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
                       <Label>Visible models</Label>
-                      <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                      <p className="mt-1 text-sm leading-5 text-muted-foreground">
                         Only checked models appear in the sidebar model
                         selector.
                       </p>
@@ -6834,7 +6834,7 @@ ${value}
                           return (
                             <label
                               key={model}
-                              className="flex min-w-0 cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground"
+                              className="flex min-w-0 cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-base hover:bg-accent hover:text-accent-foreground"
                             >
                               <input
                                 type="checkbox"
@@ -6855,7 +6855,7 @@ ${value}
                         })}
                       </div>
                     ) : (
-                      <p className="px-2 py-4 text-sm text-muted-foreground">
+                      <p className="px-2 py-4 text-base text-muted-foreground">
                         Load models to choose which ones should be visible.
                       </p>
                     )}
@@ -6868,7 +6868,7 @@ ${value}
                   <div className="flex items-center justify-between gap-3">
                     <div>
                       <Label>Generation settings</Label>
-                      <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                      <p className="mt-1 text-sm leading-5 text-muted-foreground">
                         Saved per selected provider and used for that provider's
                         visible models.
                       </p>
