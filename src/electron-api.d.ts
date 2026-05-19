@@ -1,4 +1,11 @@
-import type { ChatTokenUsage, LoadedToolInfo, ToolCommandResult, ToolsSettings } from "@/lib/ai-chat/types";
+import type {
+  ChatTokenUsage,
+  LoadedToolInfo,
+  ToolCommandResult,
+  ToolExportResult,
+  ToolImportResult,
+  ToolsSettings,
+} from "@/lib/ai-chat/types";
 
 type AiProviderRequest = {
   baseUrl: string;
@@ -78,6 +85,10 @@ declare global {
       loadTools: () => Promise<LoadedToolInfo[]>;
       saveTool: (tool: LoadedToolInfo) => Promise<LoadedToolInfo>;
       deleteTool: (toolId: string) => Promise<void>;
+      importTools: () => Promise<ToolImportResult>;
+      exportTool: (tool: LoadedToolInfo) => Promise<ToolExportResult>;
+      exportTools: (tools: LoadedToolInfo[]) => Promise<ToolExportResult>;
+      openToolsFolder: () => Promise<void>;
     };
   }
 }

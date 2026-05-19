@@ -255,6 +255,27 @@ export type ToolLoadError = {
   message: string;
 };
 
+export type ToolImportIssue = {
+  source: string;
+  toolName?: string;
+  message: string;
+};
+
+export type ToolImportResult = {
+  cancelled: boolean;
+  imported: number;
+  updated: number;
+  skipped: ToolImportIssue[];
+  invalid: ToolImportIssue[];
+  renamed: ToolImportIssue[];
+};
+
+export type ToolExportResult = {
+  cancelled: boolean;
+  exported: number;
+  path?: string;
+};
+
 export type ToolsSettings = {
   enabled: boolean;
   askUserEnabled: boolean;

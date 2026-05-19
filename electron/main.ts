@@ -112,6 +112,27 @@ type ToolLoadError = {
   message: string;
 };
 
+type ToolImportIssue = {
+  source: string;
+  toolName?: string;
+  message: string;
+};
+
+type ToolImportResult = {
+  cancelled: boolean;
+  imported: number;
+  updated: number;
+  skipped: ToolImportIssue[];
+  invalid: ToolImportIssue[];
+  renamed: ToolImportIssue[];
+};
+
+type ToolExportResult = {
+  cancelled: boolean;
+  exported: number;
+  path?: string;
+};
+
 const blockedUpstreamHeaders = new Set([
   "host",
   "connection",
@@ -851,7 +872,13 @@ function safeStringArray(value: unknown) {
 }
 
 function sanitizeFileNamePart(value: string) {
-  return value.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 120) || "item";
+  const normalized = value
+    .replace(/[<>:"/\\|?*\x00-\x1F]/g, "_")
+    .replace(/[. ]+$/g, "")
+    .slice(0, 120)
+    .trim();
+
+  return normalized || "item";
 }
 
 function getValidDateTime(value?: string) {
@@ -1209,28 +1236,104 @@ async function migrateFromIndexedDbSnapshot(snapshot: StorageSnapshot) {
 }
 
 
-function toolFilePath(toolId: string) {
+type ToolFileRecord = {
+  tool: ToolDefinition;
+  filePath: string;
+  fileName: string;
+};
+
+function legacyToolFilePath(toolId: string) {
   return path.join(getStoragePaths().toolsDir, `${sanitizeFileNamePart(toolId)}.json`);
 }
 
-async function loadJsonTools() {
-  await initializeJsonStorageIfNeeded();
+function readableToolFilePath(tool: Pick<ToolDefinition, "id" | "name">) {
+  const fileNameBase = tool.name || tool.id || "tool";
+  return path.join(getStoragePaths().toolsDir, `${sanitizeFileNamePart(fileNameBase)}.json`);
+}
+
+async function readToolFileRecords() {
   await fs.mkdir(getStoragePaths().toolsDir, { recursive: true });
   const entries = await fs.readdir(getStoragePaths().toolsDir, { withFileTypes: true });
-  const tools: ToolDefinition[] = [];
+  const records: ToolFileRecord[] = [];
 
   for (const entry of entries) {
     if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
-    const raw = await readJsonFile<unknown>(path.join(getStoragePaths().toolsDir, entry.name), undefined);
+
+    const filePath = path.join(getStoragePaths().toolsDir, entry.name);
+    const raw = await readJsonFile<unknown>(filePath, undefined);
     const tool = normalizeToolDefinition(raw);
+
     try {
       validateToolDefinition(tool);
-      tools.push(tool);
+      records.push({ tool, filePath, fileName: entry.name });
     } catch (error) {
       console.error(`Invalid tool manifest ${entry.name}:`, error);
     }
   }
 
+  return records;
+}
+
+async function migrateReadableToolFileNames(records: ToolFileRecord[]) {
+  const usedFileNames = new Set(records.map((record) => record.fileName));
+
+  for (const record of records) {
+    const preferredBase = sanitizeFileNamePart(record.tool.name || record.tool.id || "tool");
+    const preferredFileName = `${preferredBase}.json`;
+
+    if (record.fileName === preferredFileName) continue;
+
+    let candidateFileName = preferredFileName;
+    let index = 1;
+
+    while (usedFileNames.has(candidateFileName)) {
+      candidateFileName = `${preferredBase} (${index}).json`;
+      index += 1;
+    }
+
+    const nextFilePath = path.join(getStoragePaths().toolsDir, candidateFileName);
+
+    try {
+      await fs.rename(record.filePath, nextFilePath);
+      usedFileNames.delete(record.fileName);
+      usedFileNames.add(candidateFileName);
+      record.filePath = nextFilePath;
+      record.fileName = candidateFileName;
+    } catch (error) {
+      console.error(`Failed to rename tool manifest ${record.fileName}:`, error);
+    }
+  }
+}
+
+async function deleteToolFilesById(toolId: string, exceptFilePath?: string) {
+  const normalizedExcept = exceptFilePath ? path.resolve(exceptFilePath) : undefined;
+  const records = await readToolFileRecords();
+  const candidates = new Set<string>();
+
+  for (const record of records) {
+    if (record.tool.id === toolId) candidates.add(record.filePath);
+  }
+
+  candidates.add(legacyToolFilePath(toolId));
+
+  for (const filePath of candidates) {
+    if (normalizedExcept && path.resolve(filePath) === normalizedExcept) continue;
+
+    try {
+      await fs.unlink(filePath);
+    } catch (error) {
+      const code = typeof error === "object" && error && "code" in error ? (error as { code?: string }).code : undefined;
+      if (code !== "ENOENT") throw error;
+    }
+  }
+}
+
+async function loadJsonTools() {
+  await initializeJsonStorageIfNeeded();
+  const records = await readToolFileRecords();
+  await migrateReadableToolFileNames(records);
+
+  const tools = records.map((record) => record.tool);
   tools.sort((left, right) => left.name.localeCompare(right.name));
   return tools.map(toPublicTool);
 }
@@ -1241,11 +1344,13 @@ async function saveJsonTool(value: unknown) {
 
   await queueStorageWrite(async () => {
     await initializeJsonStorageIfNeeded();
-    await fs.mkdir(getStoragePaths().toolsDir, { recursive: true });
     const existingTools = await loadJsonTools();
     const duplicate = existingTools.find((candidate) => candidate.id !== tool.id && candidate.name === tool.name);
     if (duplicate) throw new Error(`Another tool already uses the name: ${tool.name}`);
-    await writeJsonAtomic(toolFilePath(tool.id), tool);
+
+    const targetPath = readableToolFilePath(tool);
+    await writeJsonAtomic(targetPath, tool);
+    await deleteToolFilesById(tool.id, targetPath);
   });
 
   return tool;
@@ -1257,13 +1362,231 @@ async function deleteJsonTool(toolId: unknown) {
 
   await queueStorageWrite(async () => {
     await initializeJsonStorageIfNeeded();
+    await deleteToolFilesById(id);
+  });
+}
+
+function getErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function createEmptyToolImportResult(cancelled: boolean): ToolImportResult {
+  return {
+    cancelled,
+    imported: 0,
+    updated: 0,
+    skipped: [],
+    invalid: [],
+    renamed: [],
+  };
+}
+
+function validateImportedToolDefinition(tool: ToolDefinition) {
+  validateToolDefinition(tool);
+  if (tool.name === "ask_user" || tool.name === "checklist_write") {
+    throw new Error(
+      `${tool.name} is a built-in tool name and cannot be imported as a custom command tool.`,
+    );
+  }
+}
+
+function createUniqueImportedToolName(
+  baseName: string,
+  existingByName: Map<string, PublicToolDefinition>,
+) {
+  let index = 1;
+  let candidate = `${baseName}_${index}`;
+
+  while (existingByName.has(candidate)) {
+    index += 1;
+    candidate = `${baseName}_${index}`;
+  }
+
+  return candidate;
+}
+
+function areToolDefinitionsEquivalent(
+  left: PublicToolDefinition,
+  right: ToolDefinition,
+) {
+  return JSON.stringify({ ...left, id: undefined }) === JSON.stringify({ ...right, id: undefined });
+}
+
+async function importJsonToolsFromFiles(): Promise<ToolImportResult> {
+  await initializeJsonStorageIfNeeded();
+  await fs.mkdir(getStoragePaths().toolsDir, { recursive: true });
+
+  const openOptions = {
+    title: "Import tools",
+    properties: ["openFile", "multiSelections"] as Array<"openFile" | "multiSelections">,
+    filters: [{ name: "JSON files", extensions: ["json"] }],
+  };
+  const result = win
+    ? await dialog.showOpenDialog(win, openOptions)
+    : await dialog.showOpenDialog(openOptions);
+
+  if (result.canceled || result.filePaths.length === 0) {
+    return createEmptyToolImportResult(true);
+  }
+
+  const importResult = createEmptyToolImportResult(false);
+  const parsedTools: Array<{ source: string; tool: ToolDefinition }> = [];
+
+  for (const filePath of result.filePaths) {
+    const source = path.basename(filePath);
     try {
-      await fs.unlink(toolFilePath(id));
+      const raw = JSON.parse(await fs.readFile(filePath, "utf8"));
+      const tool = normalizeToolDefinition(raw);
+      validateImportedToolDefinition(tool);
+      parsedTools.push({ source, tool });
     } catch (error) {
-      const code = typeof error === "object" && error && "code" in error ? (error as { code?: string }).code : undefined;
-      if (code !== "ENOENT") throw error;
+      importResult.invalid.push({ source, message: getErrorMessage(error) });
+    }
+  }
+
+  if (parsedTools.length === 0) return importResult;
+
+  await queueStorageWrite(async () => {
+    await initializeJsonStorageIfNeeded();
+    await fs.mkdir(getStoragePaths().toolsDir, { recursive: true });
+
+    const existingTools = await loadJsonTools();
+    const existingById = new Map(existingTools.map((tool) => [tool.id, tool]));
+    const existingByName = new Map(existingTools.map((tool) => [tool.name, tool]));
+
+    for (const { source, tool } of parsedTools) {
+      const sameIdTool = existingById.get(tool.id);
+      const sameNameTool = existingByName.get(tool.name);
+      let toolToSave = tool;
+
+      if (sameNameTool && sameNameTool.id !== tool.id) {
+        if (areToolDefinitionsEquivalent(sameNameTool, tool)) {
+          importResult.skipped.push({
+            source,
+            toolName: tool.name,
+            message: `A matching tool already exists: ${tool.name}`,
+          });
+          continue;
+        }
+
+        const renamedTool = {
+          ...tool,
+          name: createUniqueImportedToolName(tool.name, existingByName),
+        };
+        toolToSave = renamedTool;
+        importResult.renamed.push({
+          source,
+          toolName: renamedTool.name,
+          message: `Renamed ${tool.name} to ${renamedTool.name} because the original name already exists with different settings.`,
+        });
+      }
+
+      const targetPath = readableToolFilePath(toolToSave);
+      await writeJsonAtomic(targetPath, toolToSave);
+      await deleteToolFilesById(toolToSave.id, targetPath);
+
+      if (sameIdTool) {
+        importResult.updated += 1;
+        existingByName.delete(sameIdTool.name);
+      } else {
+        importResult.imported += 1;
+      }
+
+      existingById.set(toolToSave.id, toolToSave);
+      existingByName.set(toolToSave.name, toolToSave);
     }
   });
+
+  return importResult;
+}
+
+function ensureJsonExtension(filePath: string) {
+  return path.extname(filePath).toLowerCase() === ".json"
+    ? filePath
+    : `${filePath}.json`;
+}
+
+function toolExportFileName(tool: ToolDefinition, usedNames: Set<string>) {
+  const base = sanitizeFileNamePart(tool.name || tool.id || "tool");
+  let candidate = `${base}.json`;
+  let index = 1;
+
+  while (usedNames.has(candidate)) {
+    candidate = `${base} (${index}).json`;
+    index += 1;
+  }
+
+  usedNames.add(candidate);
+  return candidate;
+}
+
+function normalizeExportTools(value: unknown): ToolDefinition[] {
+  const values = Array.isArray(value) ? value : [value];
+  return values.map((item) => {
+    const tool = normalizeToolDefinition(item);
+    validateImportedToolDefinition(tool);
+    return tool;
+  });
+}
+
+async function exportJsonToolToFile(value: unknown): Promise<ToolExportResult> {
+  const tools = normalizeExportTools(value);
+  const tool = tools[0];
+  if (!tool) throw new Error("No tool to export.");
+
+  const saveOptions = {
+    title: "Export tool",
+    defaultPath: `${sanitizeFileNamePart(tool.name || tool.id || "tool")}.json`,
+    filters: [{ name: "JSON files", extensions: ["json"] }],
+  };
+  const result = win
+    ? await dialog.showSaveDialog(win, saveOptions)
+    : await dialog.showSaveDialog(saveOptions);
+
+  if (result.canceled || !result.filePath) {
+    return { cancelled: true, exported: 0 };
+  }
+
+  const filePath = ensureJsonExtension(result.filePath);
+  await writeJsonAtomic(filePath, tool);
+
+  return { cancelled: false, exported: 1, path: filePath };
+}
+
+async function exportJsonToolsToFolder(value: unknown): Promise<ToolExportResult> {
+  const tools = normalizeExportTools(value);
+  if (tools.length === 0) throw new Error("No tools to export.");
+
+  const openOptions = {
+    title: "Export tools to folder",
+    properties: ["openDirectory", "createDirectory"] as Array<"openDirectory" | "createDirectory">,
+  };
+  const result = win
+    ? await dialog.showOpenDialog(win, openOptions)
+    : await dialog.showOpenDialog(openOptions);
+
+  if (result.canceled || result.filePaths.length === 0) {
+    return { cancelled: true, exported: 0 };
+  }
+
+  const folderPath = result.filePaths[0];
+  await fs.mkdir(folderPath, { recursive: true });
+
+  const usedNames = new Set<string>();
+  for (const tool of tools) {
+    const fileName = toolExportFileName(tool, usedNames);
+    await writeJsonAtomic(path.join(folderPath, fileName), tool);
+  }
+
+  return { cancelled: false, exported: tools.length, path: folderPath };
+}
+
+async function openJsonToolsFolder() {
+  await initializeJsonStorageIfNeeded();
+  await fs.mkdir(getStoragePaths().toolsDir, { recursive: true });
+
+  const error = await shell.openPath(getStoragePaths().toolsDir);
+  if (error) throw new Error(error);
 }
 
 function normalizeFindInPageRequest(request: unknown) {
@@ -1383,6 +1706,14 @@ ipcMain.handle("storage:tools:load", async () => loadJsonTools());
 ipcMain.handle("storage:tool:save", async (_event, value: unknown) => saveJsonTool(value));
 
 ipcMain.handle("storage:tool:delete", async (_event, toolId: unknown) => deleteJsonTool(toolId));
+
+ipcMain.handle("storage:tools:import", async () => importJsonToolsFromFiles());
+
+ipcMain.handle("storage:tool:export", async (_event, tool: unknown) => exportJsonToolToFile(tool));
+
+ipcMain.handle("storage:tools:export", async (_event, tools: unknown) => exportJsonToolsToFolder(tools));
+
+ipcMain.handle("storage:tools:open-folder", async () => openJsonToolsFolder());
 
 ipcMain.handle("tools:execute", async (_event, request: unknown) => {
   const value = isPlainObject(request) ? request : {};

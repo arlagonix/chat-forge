@@ -1,11 +1,15 @@
 import {
   Check,
+  Download,
+  FolderOpen,
   ListTodo,
   Lock,
   MessageSquareText,
+  MoreHorizontal,
   Plus,
   RefreshCcw,
   Trash2,
+  Upload,
   Wrench,
   X,
 } from "lucide-react";
@@ -22,6 +26,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -37,7 +48,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { createId, labelForError } from "@/lib/ai-chat/chat-utils";
 import {
   deleteTool as deleteStoredTool,
+  exportTool,
+  exportTools,
+  importTools,
   loadTools,
+  openToolsFolder,
   saveTool,
 } from "@/lib/ai-chat/storage";
 import { runQueuedTool } from "@/lib/ai-chat/tool-execution-queue";
@@ -45,6 +60,7 @@ import type {
   LoadedToolInfo,
   ToolCommandResult,
   ToolExecutionPreview,
+  ToolImportResult,
   ToolsSettings,
 } from "@/lib/ai-chat/types";
 import { cn } from "@/lib/utils";
@@ -593,6 +609,16 @@ function validateToolDraft(tool: LoadedToolInfo) {
   }
 }
 
+function formatToolImportSummary(result: ToolImportResult) {
+  return [
+    `${result.imported} imported`,
+    `${result.updated} updated`,
+    `${result.renamed.length} renamed`,
+    `${result.skipped.length} skipped`,
+    `${result.invalid.length} invalid`,
+  ].join(" · ");
+}
+
 export const ToolsDialog = memo(function ToolsDialog({
   open,
   onOpenChange,
@@ -764,6 +790,70 @@ export const ToolsDialog = memo(function ToolsDialog({
     }
   }
 
+  async function importToolFiles() {
+    setIsLoadingTools(true);
+
+    try {
+      const result = await importTools();
+      if (result.cancelled) return;
+
+      const tools = await loadTools();
+      onLoadedToolsChange(tools);
+      setToolLoadErrors([...result.invalid, ...result.skipped]);
+
+      const summary = formatToolImportSummary(result);
+      if (result.imported + result.updated > 0) {
+        showSuccess("Tools import completed", summary);
+      } else {
+        showError("No tools imported", summary);
+      }
+    } catch (error) {
+      showError("Failed to import tools", labelForError(error));
+    } finally {
+      setIsLoadingTools(false);
+    }
+  }
+
+  async function exportAllTools() {
+    if (loadedTools.length === 0) {
+      showError("No custom tools to export");
+      return;
+    }
+
+    try {
+      const result = await exportTools(loadedTools);
+      if (result.cancelled) return;
+      showSuccess(
+        `Exported ${result.exported} tool${result.exported === 1 ? "" : "s"}.`,
+        result.path,
+      );
+    } catch (error) {
+      showError("Failed to export tools", labelForError(error));
+    }
+  }
+
+  async function exportCurrentTool() {
+    if (!toolDraft) return;
+
+    try {
+      const tool = draftToTool(toolDraft);
+      validateToolDraft(tool);
+      const result = await exportTool(tool);
+      if (result.cancelled) return;
+      showSuccess("Tool exported", result.path);
+    } catch (error) {
+      showError("Failed to export tool", labelForError(error));
+    }
+  }
+
+  async function openToolStorageFolder() {
+    try {
+      await openToolsFolder();
+    } catch (error) {
+      showError("Failed to open tools folder", labelForError(error));
+    }
+  }
+
   function updateCurrentToolTestArgsText(argsText: string) {
     if (!toolDraft) return;
 
@@ -882,7 +972,7 @@ export const ToolsDialog = memo(function ToolsDialog({
             <label className="mb-3 flex cursor-pointer items-center justify-between gap-3 rounded-lg border bg-background px-3 py-2 text-base">
               <span className="min-w-0">
                 <span className="block font-medium">Enable tools globally</span>
-                <span className="block text-sm leading-5 text-muted-foreground">
+                <span className="block select-none text-sm leading-5 text-muted-foreground">
                   Disabled globally means no tool schemas are sent to the model.
                 </span>
               </span>
@@ -895,7 +985,7 @@ export const ToolsDialog = memo(function ToolsDialog({
                     enabled: event.target.checked,
                   }))
                 }
-                className="size-4 shrink-0 accent-primary"
+                className="size-4 shrink-0 cursor-pointer accent-primary"
               />
             </label>
 
@@ -914,19 +1004,51 @@ export const ToolsDialog = memo(function ToolsDialog({
                 <Plus className="size-4" />
                 Add tool
               </Button>
-              <Button
-                type="button"
-                variant="secondary"
-                size="sm"
-                className="rounded-lg"
-                onClick={() => refreshTools(true)}
-                disabled={isLoadingTools}
-                title="Reload tools from app storage"
-              >
-                <RefreshCcw
-                  className={cn("size-4", isLoadingTools && "animate-spin")}
-                />
-              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    className="rounded-lg"
+                    title="Tool actions"
+                  >
+                    <MoreHorizontal className="size-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-60">
+                  <DropdownMenuItem
+                    disabled={isLoadingTools}
+                    onSelect={() => void importToolFiles()}
+                  >
+                    <Download className="size-4" />
+                    Import tools...
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => void exportAllTools()}>
+                    <Upload className="size-4" />
+                    Export all tools...
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onSelect={() => void openToolStorageFolder()}
+                  >
+                    <FolderOpen className="size-4" />
+                    Open tools folder
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    disabled={isLoadingTools}
+                    onSelect={() => void refreshTools(true)}
+                  >
+                    <RefreshCcw
+                      className={cn(
+                        "size-4",
+                        isLoadingTools && "animate-spin",
+                      )}
+                    />
+                    Reload from app storage
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
 
             <div className="grid gap-1.5">
@@ -972,7 +1094,7 @@ export const ToolsDialog = memo(function ToolsDialog({
                       askUserEnabled: event.target.checked,
                     }))
                   }
-                  className="mt-0.5 size-4 shrink-0 accent-primary"
+                  className="mt-0.5 size-4 shrink-0 cursor-pointer accent-primary"
                   title={
                     toolsSettings.askUserEnabled
                       ? "Disable ask_user"
@@ -1025,7 +1147,7 @@ export const ToolsDialog = memo(function ToolsDialog({
                       checklistWriteEnabled: event.target.checked,
                     }))
                   }
-                  className="mt-0.5 size-4 shrink-0 accent-primary"
+                  className="mt-0.5 size-4 shrink-0 cursor-pointer accent-primary"
                   title={
                     toolsSettings.checklistWriteEnabled
                       ? "Disable checklist_write"
@@ -1088,7 +1210,7 @@ export const ToolsDialog = memo(function ToolsDialog({
                         );
                       }
                     }}
-                    className="mt-0.5 size-4 shrink-0 accent-primary"
+                    className="mt-0.5 size-4 shrink-0 cursor-pointer accent-primary"
                     title={tool.enabled ? "Disable tool" : "Enable tool"}
                   />
                 </div>
@@ -1104,7 +1226,7 @@ export const ToolsDialog = memo(function ToolsDialog({
             {toolLoadErrors.length > 0 && (
               <div className="mt-4 grid gap-2">
                 <Label className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
-                  Load errors
+                  Tool file issues
                 </Label>
                 {toolLoadErrors.map((error) => (
                   <div
@@ -1146,27 +1268,6 @@ export const ToolsDialog = memo(function ToolsDialog({
                   </span>
                 </div>
 
-                <label className="flex cursor-pointer items-center justify-between gap-3 rounded-lg border bg-background px-3 py-2 text-base">
-                  <span className="min-w-0">
-                    <span className="block font-medium">Enable ask_user</span>
-                    <span className="block text-sm leading-5 text-muted-foreground">
-                      When enabled globally, this sends the built-in interactive
-                      question tool schema to the model.
-                    </span>
-                  </span>
-                  <input
-                    type="checkbox"
-                    checked={toolsSettings.askUserEnabled}
-                    onChange={(event) =>
-                      onToolsSettingsChange((current) => ({
-                        ...current,
-                        askUserEnabled: event.target.checked,
-                      }))
-                    }
-                    className="size-4 shrink-0 accent-primary"
-                  />
-                </label>
-
                 {!toolsSettings.enabled && toolsSettings.askUserEnabled && (
                   <div className="rounded-lg border border-dashed bg-muted/30 px-3 py-2 text-sm leading-5 text-muted-foreground">
                     Global tools are disabled, so ask_user is currently not sent
@@ -1195,11 +1296,9 @@ export const ToolsDialog = memo(function ToolsDialog({
 
                 <div className="grid gap-2">
                   <Label>Parameters JSON schema</Label>
-                  <div className="rounded-lg border bg-card p-3">
-                    {renderJsonCodeBlock(
-                      JSON.stringify(BUILTIN_ASK_USER_TOOL_PARAMETERS, null, 2),
-                    )}
-                  </div>
+                  {renderJsonCodeBlock(
+                    JSON.stringify(BUILTIN_ASK_USER_TOOL_PARAMETERS, null, 2),
+                  )}
                 </div>
               </div>
             ) : isChecklistWriteToolSelected ? (
@@ -1222,29 +1321,6 @@ export const ToolsDialog = memo(function ToolsDialog({
                     Locked
                   </span>
                 </div>
-
-                <label className="flex cursor-pointer items-center justify-between gap-3 rounded-lg border bg-background px-3 py-2 text-base">
-                  <span className="min-w-0">
-                    <span className="block font-medium">
-                      Enable checklist_write
-                    </span>
-                    <span className="block text-sm leading-5 text-muted-foreground">
-                      When enabled globally, this sends the built-in checklist
-                      tool schema to the model.
-                    </span>
-                  </span>
-                  <input
-                    type="checkbox"
-                    checked={toolsSettings.checklistWriteEnabled}
-                    onChange={(event) =>
-                      onToolsSettingsChange((current) => ({
-                        ...current,
-                        checklistWriteEnabled: event.target.checked,
-                      }))
-                    }
-                    className="size-4 shrink-0 accent-primary"
-                  />
-                </label>
 
                 {!toolsSettings.enabled &&
                   toolsSettings.checklistWriteEnabled && (
@@ -1272,15 +1348,13 @@ export const ToolsDialog = memo(function ToolsDialog({
 
                 <div className="grid gap-2">
                   <Label>Parameters JSON schema</Label>
-                  <div className="rounded-lg border bg-card p-3">
-                    {renderJsonCodeBlock(
-                      JSON.stringify(
-                        BUILTIN_CHECKLIST_WRITE_TOOL_PARAMETERS,
-                        null,
-                        2,
-                      ),
-                    )}
-                  </div>
+                  {renderJsonCodeBlock(
+                    JSON.stringify(
+                      BUILTIN_CHECKLIST_WRITE_TOOL_PARAMETERS,
+                      null,
+                      2,
+                    ),
+                  )}
                 </div>
               </div>
             ) : toolDraft ? (
@@ -1568,16 +1642,27 @@ export const ToolsDialog = memo(function ToolsDialog({
 
         <DialogFooter className="shrink-0 items-center justify-between border-t px-5 py-3">
           <div className="flex gap-2">
-            {toolDraft && (
-              <Button
-                type="button"
-                variant="destructive"
-                className="rounded-lg"
-                onClick={deleteCurrentTool}
-              >
-                <Trash2 className="size-4" />
-                Delete
-              </Button>
+            {toolDraft && !isAskUserToolSelected && !isChecklistWriteToolSelected && (
+              <>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="rounded-lg"
+                  onClick={exportCurrentTool}
+                >
+                  <Upload className="size-4" />
+                  Export
+                </Button>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  className="rounded-lg"
+                  onClick={deleteCurrentTool}
+                >
+                  <Trash2 className="size-4" />
+                  Delete
+                </Button>
+              </>
             )}
           </div>
           <div className="flex gap-2">
@@ -1589,7 +1674,7 @@ export const ToolsDialog = memo(function ToolsDialog({
             >
               Close
             </Button>
-            {!isAskUserToolSelected && (
+            {!isAskUserToolSelected && !isChecklistWriteToolSelected && (
               <Button
                 type="button"
                 className="rounded-lg"

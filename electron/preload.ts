@@ -118,6 +118,22 @@ contextBridge.exposeInMainWorld("chatForgeStorage", {
   deleteTool(toolId: unknown) {
     return ipcRenderer.invoke("storage:tool:delete", toolId);
   },
+
+  importTools() {
+    return ipcRenderer.invoke("storage:tools:import");
+  },
+
+  exportTool(tool: unknown) {
+    return ipcRenderer.invoke("storage:tool:export", tool);
+  },
+
+  exportTools(tools: unknown) {
+    return ipcRenderer.invoke("storage:tools:export", tools);
+  },
+
+  openToolsFolder() {
+    return ipcRenderer.invoke("storage:tools:open-folder");
+  },
 });
 
 

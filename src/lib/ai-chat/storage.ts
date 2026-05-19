@@ -1,6 +1,14 @@
 import { defaultGenerationSettings, defaultProvider } from "./provider-presets";
 import { sortChatsByUpdatedAt } from "./chat-utils";
-import type { ChatSession, LoadedToolInfo, ProviderConfig, ProvidersState, ToolsSettings } from "./types";
+import type {
+  ChatSession,
+  LoadedToolInfo,
+  ProviderConfig,
+  ProvidersState,
+  ToolExportResult,
+  ToolImportResult,
+  ToolsSettings,
+} from "./types";
 
 const DB_NAME = "chat-forge";
 const DB_VERSION = 1;
@@ -43,6 +51,10 @@ type ChatForgeStorageApi = {
   loadTools: () => Promise<LoadedToolInfo[]>;
   saveTool: (tool: LoadedToolInfo) => Promise<LoadedToolInfo>;
   deleteTool: (toolId: string) => Promise<void>;
+  importTools: () => Promise<ToolImportResult>;
+  exportTool: (tool: LoadedToolInfo) => Promise<ToolExportResult>;
+  exportTools: (tools: LoadedToolInfo[]) => Promise<ToolExportResult>;
+  openToolsFolder: () => Promise<void>;
   loadCachedProviderModels: (cacheKey: string) => Promise<string[]>;
   saveCachedProviderModels: (cacheKey: string, models: string[]) => Promise<void>;
   loadChats: () => Promise<ChatSession[]>;
@@ -481,6 +493,47 @@ export async function deleteTool(toolId: string): Promise<void> {
   }
 
   throw new Error("Tool storage requires the Electron app.");
+}
+
+export async function importTools(): Promise<ToolImportResult> {
+  const api = await ensureJsonStorageReady();
+
+  if (api) {
+    return api.importTools();
+  }
+
+  throw new Error("Tool import requires the Electron app.");
+}
+
+export async function exportTool(tool: LoadedToolInfo): Promise<ToolExportResult> {
+  const api = await ensureJsonStorageReady();
+
+  if (api) {
+    return api.exportTool(tool);
+  }
+
+  throw new Error("Tool export requires the Electron app.");
+}
+
+export async function exportTools(tools: LoadedToolInfo[]): Promise<ToolExportResult> {
+  const api = await ensureJsonStorageReady();
+
+  if (api) {
+    return api.exportTools(tools);
+  }
+
+  throw new Error("Tool export requires the Electron app.");
+}
+
+export async function openToolsFolder(): Promise<void> {
+  const api = await ensureJsonStorageReady();
+
+  if (api) {
+    await api.openToolsFolder();
+    return;
+  }
+
+  throw new Error("Opening the tools folder requires the Electron app.");
 }
 
 export async function loadCachedProviderModels(
