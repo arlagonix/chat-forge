@@ -1,27 +1,18 @@
 "use client";
 
 import {
-  Brain,
   Check,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
   ChevronsUpDown,
-  Copy,
-  Eye,
-  EyeOff,
-  Info,
-  ListTodo,
   Lock,
   MessageSquareText,
   Moon,
   MoreVertical,
   PanelLeftClose,
   PanelLeftOpen,
-  Pencil,
   Plus,
-  RefreshCcw,
-  Save as SaveIcon,
   Search,
   Send,
   Settings,
@@ -32,9 +23,7 @@ import {
   X,
 } from "lucide-react";
 import type {
-  ComponentProps,
   FormEvent,
-  KeyboardEvent as ReactKeyboardEvent,
   MouseEvent as ReactMouseEvent,
   ReactNode,
   PointerEvent as ReactPointerEvent,
@@ -53,7 +42,12 @@ import {
 } from "react";
 
 import { MarkdownMessage } from "@/components/ai-chat/markdown-message";
-import { SmoothAssistantMessageContent } from "@/components/ai-chat/smooth-assistant-message";
+import {
+  ChatMessageList,
+  type MessageContextMenuState,
+} from "@/components/ai-chat/chat-message-list";
+import { TooltipIconButton } from "@/components/ai-chat/tooltip-icon-button";
+import { ProviderSettingsDialog } from "@/components/provider-settings-dialog";
 import { ToolsDialog } from "@/components/tools-dialog";
 import { Button } from "@/components/ui/button";
 import {
@@ -80,56 +74,31 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Separator } from "@/components/ui/separator";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import {
   buildTokenMetrics,
   createId,
   createNewProvider,
   createProviderId,
-  formatOptionalNumber,
   getActiveVariant,
   getProviderFallbackModel,
   groupChatsByActivityDate,
   labelForError,
   normalizeProviderForState,
   normalizeProviderModels,
-  parseOptionalNumber,
   providerDisplayName,
   providerLabel,
-  sanitizeGenerationSettings,
   sortChatsByUpdatedAt,
   titleFromMessage,
 } from "@/lib/ai-chat/chat-utils";
-import {
-  getActiveModelSettings,
-  loadProviderModels,
-  streamProviderChat,
-} from "@/lib/ai-chat/direct-provider-client";
-import {
-  defaultGenerationSettings,
-  defaultProvider,
-  providerPresets,
-} from "@/lib/ai-chat/provider-presets";
+import { streamProviderChat } from "@/lib/ai-chat/direct-provider-client";
+import { defaultProvider } from "@/lib/ai-chat/provider-presets";
 import {
   createEmptyChat,
   deleteChat,
@@ -140,7 +109,6 @@ import {
   loadTools,
   loadToolsSettings,
   saveActiveChatId,
-  saveCachedProviderModels,
   saveChat,
   saveProvidersState,
   saveSystemPrompt,
@@ -148,7 +116,6 @@ import {
 } from "@/lib/ai-chat/storage";
 import { runQueuedTool } from "@/lib/ai-chat/tool-execution-queue";
 import type {
-  AskUserOption,
   AskUserQuestion,
   AskUserQuestionType,
   AskUserRequest,
@@ -163,13 +130,13 @@ import type {
   ChecklistWriteRequest,
   LoadedToolInfo,
   ProviderConfig,
-  ProviderGenerationSettings,
   ProvidersState,
   ToolExecutionPreview,
   ToolExecutionStatus,
   ToolsSettings,
   UserInputStatus,
 } from "@/lib/ai-chat/types";
+import { useStableCallback } from "@/hooks/use-stable-callback";
 import { useTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -202,7 +169,6 @@ const MAX_ASK_USER_DESCRIPTION_LENGTH = 500;
 const MAX_ASK_USER_QUESTION_LENGTH = 500;
 const MAX_ASK_USER_OPTION_LABEL_LENGTH = 160;
 const MAX_ASK_USER_OPTION_DESCRIPTION_LENGTH = 300;
-const MAX_ASK_USER_CUSTOM_ANSWER_LENGTH = 2000;
 const MAX_CHECKLIST_ITEMS = 10;
 const MAX_CHECKLIST_CONTENT_LENGTH = 180;
 const ASK_USER_TOOL: LoadedToolInfo = {
@@ -373,42 +339,6 @@ function parseToolMentionNames(content: string) {
   return names;
 }
 
-function UserMessageContent({ content }: { content: string }) {
-  const parts: ReactNode[] = [];
-  const pattern = new RegExp(TOOL_MENTION_PATTERN);
-  let lastIndex = 0;
-  let match: RegExpExecArray | null;
-
-  while ((match = pattern.exec(content)) !== null) {
-    const prefix = match[1] ?? "";
-    const toolName = match[2] ?? "";
-    const token = `@tool:${toolName}`;
-    const tokenStartIndex = match.index + prefix.length;
-
-    if (tokenStartIndex > lastIndex) {
-      parts.push(content.slice(lastIndex, tokenStartIndex));
-    }
-
-    parts.push(
-      <span
-        key={`${tokenStartIndex}-${token}`}
-        className="inline-flex items-center rounded-md border border-primary-foreground/25 bg-primary-foreground/15 px-1.5 py-0.5 font-mono text-[0.875em] font-medium leading-5 text-primary-foreground"
-        title={`One-shot tool for this request: ${toolName}`}
-      >
-        {token}
-      </span>,
-    );
-
-    lastIndex = tokenStartIndex + token.length;
-  }
-
-  if (lastIndex < content.length) {
-    parts.push(content.slice(lastIndex));
-  }
-
-  return <div className="whitespace-pre-wrap">{parts}</div>;
-}
-
 function loadComposerDrafts(): Record<string, string> {
   if (typeof window === "undefined") return {};
 
@@ -450,132 +380,6 @@ function saveComposerDrafts(drafts: Record<string, string>) {
   );
 }
 
-function TooltipIconButton({
-  label,
-  children,
-  className,
-  tooltipSide = "top",
-  ...props
-}: ComponentProps<typeof Button> & {
-  label: string;
-  children: ReactNode;
-  tooltipSide?: "top" | "right" | "bottom" | "left";
-}) {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <Button
-          aria-label={label}
-          title={label}
-          className={cn("h-6 w-6 rounded-lg text-muted-foreground", className)}
-          {...props}
-        >
-          {children}
-        </Button>
-      </TooltipTrigger>
-      <TooltipContent side={tooltipSide}>{label}</TooltipContent>
-    </Tooltip>
-  );
-}
-
-const UserMessageEditor = memo(function UserMessageEditor({
-  initialContent,
-  disabled,
-  onCancel,
-  onSave,
-  onSubmit,
-}: {
-  initialContent: string;
-  disabled: boolean;
-  onCancel: () => void;
-  onSave: (content: string) => void | Promise<void>;
-  onSubmit: (content: string) => void | Promise<void>;
-}) {
-  const [content, setContent] = useState(initialContent);
-  const trimmedContent = content.trim();
-
-  useEffect(() => {
-    setContent(initialContent);
-  }, [initialContent]);
-
-  function handleSave() {
-    if (disabled || !trimmedContent) return;
-
-    void onSave(content);
-  }
-
-  function handleSubmit() {
-    if (disabled || !trimmedContent) return;
-
-    void onSubmit(content);
-  }
-
-  return (
-    <div className="grid min-w-0 max-w-full gap-2">
-      <article className="flex justify-end">
-        <div className="min-w-0 w-full overflow-hidden bg-primary rounded-lg px-4 py-3 text-base leading-6 text-primary-foreground shadow-xs [overflow-wrap:anywhere]">
-          <Textarea
-            value={content}
-            onChange={(event) => setContent(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Escape") {
-                event.preventDefault();
-                onCancel();
-              }
-
-              if ((event.ctrlKey || event.metaKey) && event.key === "s") {
-                event.preventDefault();
-                handleSave();
-              }
-
-              if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
-                event.preventDefault();
-                handleSubmit();
-              }
-            }}
-            autoFocus
-            disabled={disabled}
-            className="min-h-[12rem] max-h-[32rem] w-full resize-y rounded-none border-0 !bg-transparent p-0 text-primary-foreground shadow-none outline-none placeholder:text-primary-foreground/60 focus-visible:ring-0 focus-visible:ring-offset-0 disabled:cursor-not-allowed disabled:opacity-80"
-          />
-        </div>
-      </article>
-
-      <div className="flex justify-end gap-1.5 text-sm leading-5 text-muted-foreground">
-        <TooltipIconButton
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          label="Save edit"
-          onClick={handleSave}
-          disabled={disabled || !trimmedContent}
-        >
-          <SaveIcon className="size-3" />
-        </TooltipIconButton>
-        <TooltipIconButton
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          label="Submit edit and regenerate"
-          onClick={handleSubmit}
-          disabled={disabled || !trimmedContent}
-        >
-          <Send className="size-3" />
-        </TooltipIconButton>
-        <TooltipIconButton
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          label="Cancel edit"
-          onClick={onCancel}
-          disabled={disabled}
-        >
-          <X className="size-3" />
-        </TooltipIconButton>
-      </div>
-    </div>
-  );
-});
-
 function getAskUserQuestionType(
   question: AskUserQuestion,
 ): AskUserQuestionType {
@@ -589,1034 +393,6 @@ function getAskUserQuestionType(
 
   return "single_choice";
 }
-
-function createDefaultAskUserAnswers(request: AskUserRequest) {
-  return Object.fromEntries(
-    request.questions.map((question) => {
-      const questionType = getAskUserQuestionType(question);
-      if (questionType === "text" || questionType === "multi_select") {
-        return [question.id, ""];
-      }
-
-      return [question.id, question.options[0]?.id ?? ""];
-    }),
-  );
-}
-
-function createDefaultAskUserMultiAnswers(request: AskUserRequest) {
-  return Object.fromEntries(
-    request.questions.map((question) => [question.id, [] as string[]]),
-  );
-}
-
-function createEmptyAskUserCustomAnswers(request: AskUserRequest) {
-  return Object.fromEntries(
-    request.questions.map((question) => [question.id, ""]),
-  );
-}
-
-function formatUserInputStatus(status: UserInputStatus | undefined) {
-  if (status === "complete") return "Complete";
-  if (status === "cancelled") return "Cancelled";
-  if (status === "failed") return "Failed";
-  return "Waiting";
-}
-
-const AskUserBlock = memo(function AskUserBlock({
-  id,
-  request,
-  response,
-  status,
-  canSubmit,
-  isCollapsed,
-  onToggleCollapsed,
-  onSubmit,
-  onCancel,
-  onLayoutChange,
-}: {
-  id: string;
-  request: AskUserRequest;
-  response?: AskUserResponse;
-  status?: UserInputStatus;
-  canSubmit: boolean;
-  isCollapsed: boolean;
-  onToggleCollapsed: () => void;
-  onSubmit: (response: AskUserResponse) => void;
-  onCancel: () => void;
-  onLayoutChange?: () => void;
-}) {
-  const [answers, setAnswers] = useState<Record<string, string>>(() =>
-    createDefaultAskUserAnswers(request),
-  );
-  const [multiAnswers, setMultiAnswers] = useState<Record<string, string[]>>(
-    () => createDefaultAskUserMultiAnswers(request),
-  );
-  const [customAnswers, setCustomAnswers] = useState<Record<string, string>>(
-    () => createEmptyAskUserCustomAnswers(request),
-  );
-  const effectiveStatus = status ?? "waiting";
-  const isWaiting = effectiveStatus === "waiting";
-  const [activeQuestionIndex, setActiveQuestionIndex] = useState(0);
-  const activeQuestionCount = request.questions.length;
-  const activeQuestion =
-    request.questions[activeQuestionIndex] ?? request.questions[0];
-
-  useEffect(() => {
-    setAnswers(response?.answers ?? createDefaultAskUserAnswers(request));
-    setMultiAnswers(
-      response?.multiAnswers ?? createDefaultAskUserMultiAnswers(request),
-    );
-    setCustomAnswers(
-      response?.customAnswers ?? createEmptyAskUserCustomAnswers(request),
-    );
-    setActiveQuestionIndex(0);
-  }, [request, response]);
-
-  useLayoutEffect(() => {
-    onLayoutChange?.();
-  }, [
-    activeQuestionIndex,
-    isCollapsed,
-    effectiveStatus,
-    response,
-    onLayoutChange,
-  ]);
-
-  function getSelectedOptionLabel(questionId: string, optionId?: string) {
-    const question = request.questions.find((item) => item.id === questionId);
-    if (optionId === ASK_USER_CUSTOM_ANSWER_ID) {
-      return (
-        customAnswers[questionId]?.trim() ||
-        response?.customAnswers?.[questionId]?.trim() ||
-        "Type your answer"
-      );
-    }
-
-    return (
-      question?.options.find((option) => option.id === optionId)?.label ??
-      optionId ??
-      ""
-    );
-  }
-
-  function getMultiAnswerLabels(
-    question: AskUserQuestion,
-    optionIds: string[],
-  ) {
-    return optionIds
-      .map((optionId) => getSelectedOptionLabel(question.id, optionId))
-      .filter(Boolean);
-  }
-
-  function getAnswerSummary(question: AskUserQuestion) {
-    const questionType = getAskUserQuestionType(question);
-    const responseLabel = response?.answerLabels?.[question.id];
-
-    if (Array.isArray(responseLabel)) {
-      return responseLabel.join(", ");
-    }
-
-    if (typeof responseLabel === "string" && responseLabel.trim()) {
-      return responseLabel.trim();
-    }
-
-    if (questionType === "multi_select") {
-      const selectedIds = response?.multiAnswers?.[question.id] ?? [];
-      return getMultiAnswerLabels(question, selectedIds).join(", ");
-    }
-
-    if (questionType === "text") {
-      return response?.answers[question.id] ?? answers[question.id] ?? "";
-    }
-
-    const selectedOptionId =
-      response?.answers[question.id] ?? answers[question.id];
-    if (selectedOptionId === ASK_USER_CUSTOM_ANSWER_ID) {
-      return (
-        response?.customAnswers?.[question.id] ??
-        customAnswers[question.id] ??
-        "Type your answer"
-      );
-    }
-
-    return getSelectedOptionLabel(question.id, selectedOptionId);
-  }
-
-  function isQuestionAnswered(question: AskUserQuestion | undefined) {
-    if (!question) return false;
-
-    const questionType = getAskUserQuestionType(question);
-    if (questionType === "text") {
-      return Boolean(answers[question.id]?.trim());
-    }
-
-    if (questionType === "multi_select") {
-      const selectedIds = multiAnswers[question.id] ?? [];
-      return selectedIds.some((optionId) => {
-        if (optionId !== ASK_USER_CUSTOM_ANSWER_ID) return true;
-        return Boolean(customAnswers[question.id]?.trim());
-      });
-    }
-
-    const selectedAnswer = answers[question.id];
-    if (selectedAnswer === ASK_USER_CUSTOM_ANSWER_ID) {
-      return Boolean(customAnswers[question.id]?.trim());
-    }
-
-    return question.options.some((option) => option.id === selectedAnswer);
-  }
-
-  const allQuestionsAnswered = request.questions.every((question) =>
-    isQuestionAnswered(question),
-  );
-  const canSendAnswers = isWaiting && canSubmit && allQuestionsAnswered;
-
-  function goToPreviousQuestion() {
-    setActiveQuestionIndex((current) => Math.max(0, current - 1));
-  }
-
-  function goToNextQuestion() {
-    if (!isQuestionAnswered(activeQuestion)) return;
-    setActiveQuestionIndex((current) =>
-      Math.min(activeQuestionCount - 1, current + 1),
-    );
-  }
-
-  function advanceOrSubmitActiveQuestion() {
-    if (!isQuestionAnswered(activeQuestion)) return;
-
-    if (activeQuestionIndex < activeQuestionCount - 1) {
-      goToNextQuestion();
-      return;
-    }
-
-    handleSubmit();
-  }
-
-  function handleSingleLineAnswerKeyDown(
-    event: ReactKeyboardEvent<HTMLInputElement>,
-  ) {
-    if (event.key !== "Enter" || event.shiftKey) return;
-
-    event.preventDefault();
-    advanceOrSubmitActiveQuestion();
-  }
-
-  function handleMultilineAnswerKeyDown(
-    event: ReactKeyboardEvent<HTMLTextAreaElement>,
-  ) {
-    if (event.key !== "Enter" || (!event.ctrlKey && !event.metaKey)) return;
-
-    event.preventDefault();
-    advanceOrSubmitActiveQuestion();
-  }
-
-  function renderCompletedAnswerList() {
-    if (!response) return null;
-
-    return (
-      <ul className="mt-2 grid list-disc gap-2 pl-4 text-sm normal-case leading-5 tracking-normal">
-        {request.questions.map((question) => (
-          <li key={question.id} className="pl-1">
-            <div className="grid gap-0">
-              <span className="text-muted-foreground">{question.question}</span>
-              <span className="font-medium text-foreground/85">
-                {getAnswerSummary(question)}
-              </span>
-            </div>
-          </li>
-        ))}
-      </ul>
-    );
-  }
-
-  function renderTextAnswer(question: AskUserQuestion, readOnly = false) {
-    const value = readOnly
-      ? (response?.answers[question.id] ?? "")
-      : (answers[question.id] ?? "");
-    const updateAnswer = (nextValue: string) => {
-      setAnswers((current) => ({
-        ...current,
-        [question.id]: nextValue.slice(0, MAX_ASK_USER_CUSTOM_ANSWER_LENGTH),
-      }));
-    };
-
-    if (question.input?.multiline) {
-      return (
-        <Textarea
-          value={value}
-          disabled={readOnly || !canSubmit}
-          readOnly={readOnly}
-          maxLength={MAX_ASK_USER_CUSTOM_ANSWER_LENGTH}
-          onChange={(event) => updateAnswer(event.target.value)}
-          onKeyDown={handleMultilineAnswerKeyDown}
-          className="min-h-24 rounded-lg text-sm"
-        />
-      );
-    }
-
-    return (
-      <Input
-        value={value}
-        disabled={readOnly || !canSubmit}
-        readOnly={readOnly}
-        maxLength={MAX_ASK_USER_CUSTOM_ANSWER_LENGTH}
-        onChange={(event) => updateAnswer(event.target.value)}
-        onKeyDown={handleSingleLineAnswerKeyDown}
-        className="h-8 rounded-lg text-sm"
-      />
-    );
-  }
-
-  function focusAdjacentChoiceOption(
-    event: ReactKeyboardEvent<HTMLElement>,
-    direction: -1 | 1,
-  ) {
-    const container = event.currentTarget.parentElement;
-    if (!container) return;
-
-    const optionElements = Array.from(
-      container.querySelectorAll<HTMLElement>("[data-ask-user-option]"),
-    ).filter((element) => element.tabIndex >= 0);
-    const currentIndex = optionElements.indexOf(event.currentTarget);
-    if (currentIndex < 0 || optionElements.length === 0) return;
-
-    event.preventDefault();
-
-    const nextIndex =
-      (currentIndex + direction + optionElements.length) %
-      optionElements.length;
-    optionElements[nextIndex]?.focus();
-  }
-
-  function handleChoiceOptionKeyDown(
-    event: ReactKeyboardEvent<HTMLElement>,
-    onSelect?: () => void,
-  ) {
-    if (event.key === "ArrowDown" || event.key === "ArrowRight") {
-      focusAdjacentChoiceOption(event, 1);
-      return;
-    }
-
-    if (event.key === "ArrowUp" || event.key === "ArrowLeft") {
-      focusAdjacentChoiceOption(event, -1);
-      return;
-    }
-
-    if (event.key !== "Enter" && event.key !== " ") return;
-
-    event.preventDefault();
-    onSelect?.();
-  }
-
-  function renderChoiceOption({
-    question,
-    option,
-    checked,
-    inputType,
-    inputId,
-    inputName,
-    readOnly = false,
-    onChange,
-  }: {
-    question: AskUserQuestion;
-    option: AskUserOption;
-    checked: boolean;
-    inputType: "radio" | "checkbox";
-    inputId?: string;
-    inputName?: string;
-    readOnly?: boolean;
-    onChange?: () => void;
-  }) {
-    const isInteractive = !readOnly && canSubmit;
-
-    return (
-      <div
-        key={option.id}
-        role={inputType}
-        aria-checked={checked}
-        tabIndex={isInteractive ? 0 : -1}
-        data-ask-user-option
-        className={cn(
-          "flex items-start gap-2 rounded-lg border px-3 py-2 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
-          checked
-            ? "border-primary/50 bg-primary/10 text-foreground"
-            : "border-border/70 bg-background/60",
-          isInteractive && "cursor-pointer hover:bg-muted/60",
-          !isInteractive && "cursor-default opacity-90",
-        )}
-        onClick={() => {
-          if (!isInteractive) return;
-          onChange?.();
-        }}
-        onKeyDown={(event) => handleChoiceOptionKeyDown(event, onChange)}
-      >
-        <input
-          id={inputId}
-          type={inputType}
-          name={inputName}
-          value={option.id}
-          checked={checked}
-          readOnly={readOnly}
-          disabled={readOnly || !canSubmit}
-          tabIndex={-1}
-          onClick={(event) => event.stopPropagation()}
-          onChange={onChange}
-          className="mt-1 size-3.5 shrink-0 accent-primary"
-        />
-        <span className="grid gap-0.5">
-          <span className="text-sm font-medium leading-5 text-foreground">
-            {option.label}
-          </span>
-          {option.description?.trim() && (
-            <span className="text-sm leading-5 text-muted-foreground">
-              {option.description.trim()}
-            </span>
-          )}
-        </span>
-      </div>
-    );
-  }
-
-  function renderCustomChoiceOption({
-    question,
-    checked,
-    inputType,
-    inputName,
-    readOnly = false,
-    onSelect,
-  }: {
-    question: AskUserQuestion;
-    checked: boolean;
-    inputType: "radio" | "checkbox";
-    inputName?: string;
-    readOnly?: boolean;
-    onSelect?: () => void;
-  }) {
-    const customInputId = `${id}-${question.id}-custom-text`;
-    const customAnswer = readOnly
-      ? (response?.customAnswers?.[question.id] ?? "")
-      : (customAnswers[question.id] ?? "");
-    const isInteractive = !readOnly && canSubmit;
-    const customDescription =
-      readOnly && checked && customAnswer.trim()
-        ? customAnswer.trim()
-        : "Enter a custom answer instead of choosing one of the suggested options.";
-
-    return (
-      <div
-        role={inputType}
-        aria-checked={checked}
-        tabIndex={isInteractive ? 0 : -1}
-        data-ask-user-option
-        className={cn(
-          "grid gap-2 rounded-lg border px-3 py-2 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
-          checked
-            ? "border-primary/50 bg-primary/10 text-foreground"
-            : "border-border/70 bg-background/60",
-          isInteractive && "cursor-pointer hover:bg-muted/60",
-          !isInteractive && "cursor-default opacity-90",
-        )}
-        onClick={() => {
-          if (!isInteractive) return;
-          onSelect?.();
-        }}
-        onKeyDown={(event) => handleChoiceOptionKeyDown(event, onSelect)}
-      >
-        <span className="flex items-start gap-2">
-          <input
-            type={inputType}
-            name={inputName}
-            value={ASK_USER_CUSTOM_ANSWER_ID}
-            checked={checked}
-            readOnly={readOnly}
-            disabled={readOnly || !canSubmit}
-            onClick={(event) => event.stopPropagation()}
-            onChange={onSelect}
-            className="mt-1 size-3.5 shrink-0 accent-primary"
-          />
-          <span className="grid gap-0.5">
-            <span className="text-sm font-medium leading-5 text-foreground">
-              Type your answer
-            </span>
-            <span className="text-sm leading-5 text-muted-foreground">
-              {customDescription}
-            </span>
-          </span>
-        </span>
-        {!readOnly && (
-          <Input
-            id={customInputId}
-            value={customAnswer}
-            onClick={(event) => event.stopPropagation()}
-            onFocus={() => {
-              if (!isInteractive) return;
-              if (inputType === "radio") {
-                setAnswers((current) => ({
-                  ...current,
-                  [question.id]: ASK_USER_CUSTOM_ANSWER_ID,
-                }));
-                return;
-              }
-
-              setMultiAnswers((current) => {
-                const selectedIds = current[question.id] ?? [];
-                return selectedIds.includes(ASK_USER_CUSTOM_ANSWER_ID)
-                  ? current
-                  : {
-                      ...current,
-                      [question.id]: [
-                        ...selectedIds,
-                        ASK_USER_CUSTOM_ANSWER_ID,
-                      ],
-                    };
-              });
-            }}
-            onChange={(event) => {
-              const nextValue = event.target.value.slice(
-                0,
-                MAX_ASK_USER_CUSTOM_ANSWER_LENGTH,
-              );
-              setCustomAnswers((current) => ({
-                ...current,
-                [question.id]: nextValue,
-              }));
-
-              if (inputType === "radio") {
-                setAnswers((current) => ({
-                  ...current,
-                  [question.id]: ASK_USER_CUSTOM_ANSWER_ID,
-                }));
-                return;
-              }
-
-              setMultiAnswers((current) => {
-                const selectedIds = current[question.id] ?? [];
-                if (nextValue.trim()) {
-                  return selectedIds.includes(ASK_USER_CUSTOM_ANSWER_ID)
-                    ? current
-                    : {
-                        ...current,
-                        [question.id]: [
-                          ...selectedIds,
-                          ASK_USER_CUSTOM_ANSWER_ID,
-                        ],
-                      };
-                }
-
-                return {
-                  ...current,
-                  [question.id]: selectedIds.filter(
-                    (optionId) => optionId !== ASK_USER_CUSTOM_ANSWER_ID,
-                  ),
-                };
-              });
-            }}
-            disabled={!canSubmit}
-            maxLength={MAX_ASK_USER_CUSTOM_ANSWER_LENGTH}
-            onKeyDown={(event) => {
-              event.stopPropagation();
-              handleSingleLineAnswerKeyDown(event);
-            }}
-            className="h-8 rounded-lg text-sm"
-          />
-        )}
-      </div>
-    );
-  }
-
-  function renderQuestionInput(question: AskUserQuestion) {
-    const questionType = getAskUserQuestionType(question);
-
-    if (questionType === "text") {
-      return renderTextAnswer(question);
-    }
-
-    if (questionType === "multi_select") {
-      const selectedIds = multiAnswers[question.id] ?? [];
-      return (
-        <div className="grid gap-1.5">
-          {question.options.map((option) => {
-            const inputId = `${id}-${question.id}-${option.id}`;
-            const checked = selectedIds.includes(option.id);
-
-            return renderChoiceOption({
-              question,
-              option,
-              checked,
-              inputType: "checkbox",
-              inputId,
-              onChange: () => {
-                setMultiAnswers((current) => {
-                  const currentIds = current[question.id] ?? [];
-                  return {
-                    ...current,
-                    [question.id]: currentIds.includes(option.id)
-                      ? currentIds.filter((item) => item !== option.id)
-                      : [...currentIds, option.id],
-                  };
-                });
-              },
-            });
-          })}
-          {renderCustomChoiceOption({
-            question,
-            checked: selectedIds.includes(ASK_USER_CUSTOM_ANSWER_ID),
-            inputType: "checkbox",
-            onSelect: () => {
-              setMultiAnswers((current) => {
-                const currentIds = current[question.id] ?? [];
-                return {
-                  ...current,
-                  [question.id]: currentIds.includes(ASK_USER_CUSTOM_ANSWER_ID)
-                    ? currentIds.filter(
-                        (item) => item !== ASK_USER_CUSTOM_ANSWER_ID,
-                      )
-                    : [...currentIds, ASK_USER_CUSTOM_ANSWER_ID],
-                };
-              });
-            },
-          })}
-        </div>
-      );
-    }
-
-    const selectedOptionId = answers[question.id] ?? "";
-    return (
-      <div className="grid gap-1.5">
-        {question.options.map((option) => {
-          const inputId = `${id}-${question.id}-${option.id}`;
-          const checked = selectedOptionId === option.id;
-
-          return renderChoiceOption({
-            question,
-            option,
-            checked,
-            inputType: "radio",
-            inputId,
-            inputName: `${id}-${question.id}`,
-            onChange: () =>
-              setAnswers((current) => ({
-                ...current,
-                [question.id]: option.id,
-              })),
-          });
-        })}
-        {renderCustomChoiceOption({
-          question,
-          checked: selectedOptionId === ASK_USER_CUSTOM_ANSWER_ID,
-          inputType: "radio",
-          inputName: `${id}-${question.id}`,
-          onSelect: () =>
-            setAnswers((current) => ({
-              ...current,
-              [question.id]: ASK_USER_CUSTOM_ANSWER_ID,
-            })),
-        })}
-      </div>
-    );
-  }
-
-  function renderReadOnlyQuestion(question: AskUserQuestion) {
-    if (!response) return null;
-
-    const questionType = getAskUserQuestionType(question);
-
-    return (
-      <div key={question.id} className="grid gap-3">
-        <div className="grid gap-1">
-          <div className="text-base font-medium leading-6 text-foreground">
-            {question.question}
-          </div>
-          {question.description?.trim() && (
-            <div className="text-sm leading-5 text-muted-foreground">
-              {question.description.trim()}
-            </div>
-          )}
-        </div>
-
-        {questionType === "text" ? (
-          renderTextAnswer(question, true)
-        ) : questionType === "multi_select" ? (
-          <div className="grid gap-1.5">
-            {question.options.map((option) => {
-              const selectedIds = response.multiAnswers?.[question.id] ?? [];
-              return renderChoiceOption({
-                question,
-                option,
-                checked: selectedIds.includes(option.id),
-                inputType: "checkbox",
-                readOnly: true,
-              });
-            })}
-            {renderCustomChoiceOption({
-              question,
-              checked: Boolean(
-                response.multiAnswers?.[question.id]?.includes(
-                  ASK_USER_CUSTOM_ANSWER_ID,
-                ),
-              ),
-              inputType: "checkbox",
-              readOnly: true,
-            })}
-          </div>
-        ) : (
-          <div className="grid gap-1.5">
-            {question.options.map((option) =>
-              renderChoiceOption({
-                question,
-                option,
-                checked: response.answers[question.id] === option.id,
-                inputType: "radio",
-                readOnly: true,
-              }),
-            )}
-            {renderCustomChoiceOption({
-              question,
-              checked:
-                response.answers[question.id] === ASK_USER_CUSTOM_ANSWER_ID,
-              inputType: "radio",
-              readOnly: true,
-            })}
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  function handleSubmit() {
-    if (!canSendAnswers) return;
-
-    const normalizedAnswers = Object.fromEntries(
-      request.questions.map((question) => {
-        const questionType = getAskUserQuestionType(question);
-        if (questionType === "multi_select") return [question.id, ""];
-        return [question.id, answers[question.id] ?? ""];
-      }),
-    );
-    const normalizedMultiAnswers = Object.fromEntries(
-      request.questions
-        .filter(
-          (question) => getAskUserQuestionType(question) === "multi_select",
-        )
-        .map((question) => [
-          question.id,
-          (multiAnswers[question.id] ?? []).filter((optionId) => {
-            if (optionId !== ASK_USER_CUSTOM_ANSWER_ID) return true;
-            return Boolean(customAnswers[question.id]?.trim());
-          }),
-        ]),
-    );
-    const normalizedCustomAnswers = Object.fromEntries(
-      request.questions
-        .filter((question) => {
-          const questionType = getAskUserQuestionType(question);
-          if (questionType === "single_choice") {
-            return answers[question.id] === ASK_USER_CUSTOM_ANSWER_ID;
-          }
-          if (questionType === "multi_select") {
-            return (multiAnswers[question.id] ?? []).includes(
-              ASK_USER_CUSTOM_ANSWER_ID,
-            );
-          }
-          return false;
-        })
-        .map((question) => [question.id, customAnswers[question.id].trim()]),
-    );
-    const answerLabels = Object.fromEntries(
-      request.questions.map((question) => {
-        const questionType = getAskUserQuestionType(question);
-        if (questionType === "text") {
-          const value = answers[question.id]?.trim() ?? "";
-          return [question.id, value];
-        }
-        if (questionType === "multi_select") {
-          const selectedIds = normalizedMultiAnswers[question.id] ?? [];
-          return [question.id, getMultiAnswerLabels(question, selectedIds)];
-        }
-
-        const selectedAnswer = answers[question.id];
-        return [
-          question.id,
-          selectedAnswer === ASK_USER_CUSTOM_ANSWER_ID
-            ? customAnswers[question.id].trim()
-            : getSelectedOptionLabel(question.id, selectedAnswer),
-        ];
-      }),
-    );
-
-    onSubmit({
-      answers: normalizedAnswers,
-      multiAnswers:
-        Object.keys(normalizedMultiAnswers).length > 0
-          ? normalizedMultiAnswers
-          : undefined,
-      answerLabels,
-      customAnswers:
-        Object.keys(normalizedCustomAnswers).length > 0
-          ? normalizedCustomAnswers
-          : undefined,
-      answeredAt: new Date().toISOString(),
-    });
-  }
-
-  return (
-    <article key={id} className="flex min-w-0 max-w-full justify-start">
-      <div className="w-full min-w-0 max-w-full overflow-hidden rounded-lg border bg-muted/25 px-4 py-3 text-sm leading-5 text-muted-foreground shadow-xs [overflow-wrap:anywhere]">
-        <button
-          type="button"
-          className="w-full rounded-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          onClick={onToggleCollapsed}
-          aria-expanded={!isCollapsed}
-        >
-          <div className="flex min-w-0 items-center justify-between gap-3 text-sm font-medium uppercase tracking-wide text-muted-foreground">
-            <div className="flex min-w-0 items-center gap-2">
-              <MessageSquareText className="size-3.5 shrink-0" />
-              <span className="truncate">Ask user</span>
-              <span className="text-muted-foreground/60">•</span>
-              <span
-                className={cn(
-                  "inline-flex items-center gap-1",
-                  effectiveStatus === "complete" &&
-                    "text-green-600 dark:text-green-400",
-                  effectiveStatus === "waiting" &&
-                    "text-amber-600 dark:text-amber-400",
-                  (effectiveStatus === "cancelled" ||
-                    effectiveStatus === "failed") &&
-                    "text-red-600 dark:text-red-400",
-                )}
-              >
-                {effectiveStatus === "complete" ? (
-                  <Check className="size-3.5" />
-                ) : effectiveStatus === "waiting" ? (
-                  <Spinner className="size-3.5" />
-                ) : (
-                  <X className="size-3.5" />
-                )}
-                {formatUserInputStatus(effectiveStatus)}
-              </span>
-              <span className="hidden text-muted-foreground/60 sm:inline">
-                • {request.questions.length} question
-                {request.questions.length === 1 ? "" : "s"}
-              </span>
-            </div>
-            {isCollapsed ? (
-              <ChevronRight className="size-3.5 shrink-0" />
-            ) : (
-              <ChevronDown className="size-3.5 shrink-0" />
-            )}
-          </div>
-          {(request.title?.trim() || request.description?.trim()) && (
-            <div className="mt-2 grid gap-1 text-sm normal-case leading-5 tracking-normal text-muted-foreground/85">
-              {request.title?.trim() && (
-                <div className="font-medium text-foreground/80">
-                  {request.title.trim()}
-                </div>
-              )}
-              {request.description?.trim() && (
-                <div>{request.description.trim()}</div>
-              )}
-            </div>
-          )}
-
-          {isCollapsed &&
-            response &&
-            effectiveStatus !== "waiting" &&
-            renderCompletedAnswerList()}
-        </button>
-
-        {!isCollapsed && (
-          <div className="mt-3 grid gap-3">
-            {isWaiting &&
-              activeQuestion &&
-              (() => {
-                const question = activeQuestion;
-                const currentQuestionAnswered = isQuestionAnswered(question);
-                const isFirstQuestion = activeQuestionIndex === 0;
-                const isLastQuestion =
-                  activeQuestionIndex === activeQuestionCount - 1;
-
-                return (
-                  <div className="grid gap-3">
-                    {activeQuestionCount > 1 && (
-                      <div className="text-sm font-medium uppercase tracking-wide text-muted-foreground/80">
-                        Question {activeQuestionIndex + 1} of{" "}
-                        {activeQuestionCount}
-                      </div>
-                    )}
-
-                    <div className="grid gap-1">
-                      <div className="text-base font-medium leading-6 text-foreground">
-                        {question.question}
-                      </div>
-                      {question.description?.trim() && (
-                        <div className="text-sm leading-5 text-muted-foreground">
-                          {question.description.trim()}
-                        </div>
-                      )}
-                    </div>
-
-                    {renderQuestionInput(question)}
-
-                    {canSubmit && (
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          className="rounded-lg"
-                          onClick={onCancel}
-                        >
-                          Cancel
-                        </Button>
-                        <div className="flex flex-wrap justify-end gap-2">
-                          {activeQuestionCount > 1 && !isFirstQuestion && (
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              className="rounded-lg"
-                              onClick={goToPreviousQuestion}
-                            >
-                              Back
-                            </Button>
-                          )}
-                          {activeQuestionCount > 1 && !isLastQuestion ? (
-                            <Button
-                              type="button"
-                              size="sm"
-                              className="rounded-lg"
-                              onClick={goToNextQuestion}
-                              disabled={!currentQuestionAnswered}
-                            >
-                              Next
-                            </Button>
-                          ) : (
-                            <Button
-                              type="button"
-                              size="sm"
-                              className="rounded-lg"
-                              onClick={handleSubmit}
-                              disabled={!canSendAnswers}
-                            >
-                              Submit answers
-                            </Button>
-                          )}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                );
-              })()}
-
-            {isWaiting && !canSubmit && (
-              <div className="rounded-lg border border-dashed bg-muted/30 px-3 py-2 text-sm leading-5 text-muted-foreground">
-                This input request is no longer connected to an active
-                generation. Regenerate the response to ask again.
-              </div>
-            )}
-
-            {response && effectiveStatus !== "waiting" && (
-              <div className="grid gap-3">
-                <div className="text-sm font-medium uppercase tracking-wide text-muted-foreground/80">
-                  Selected answers
-                </div>
-                <div className="grid gap-6 text-sm leading-5">
-                  {request.questions.map((question) =>
-                    renderReadOnlyQuestion(question),
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-    </article>
-  );
-});
-
-function getChecklistItemIcon(done: boolean) {
-  if (done) {
-    return <Check className="size-3.5 text-green-600 dark:text-green-400" />;
-  }
-
-  return <Square className="size-3.5 text-muted-foreground/70" />;
-}
-
-const ChecklistBlock = memo(function ChecklistBlock({
-  id,
-  request,
-  isCollapsed,
-  onToggleCollapsed,
-  onLayoutChange,
-}: {
-  id: string;
-  request: ChecklistWriteRequest;
-  status?: ToolExecutionStatus;
-  isCollapsed: boolean;
-  onToggleCollapsed: () => void;
-  onLayoutChange?: () => void;
-}) {
-  const totalCount = request.items.length;
-  const doneCount = request.items.filter((item) => item.done).length;
-
-  useLayoutEffect(() => {
-    onLayoutChange?.();
-  }, [doneCount, isCollapsed, onLayoutChange, request.items, totalCount]);
-
-  return (
-    <article key={id} className="flex min-w-0 max-w-full justify-start">
-      <div className="w-full min-w-0 max-w-full overflow-hidden rounded-lg border bg-muted/25 px-4 py-3 text-sm leading-5 text-muted-foreground shadow-xs [overflow-wrap:anywhere]">
-        <button
-          type="button"
-          className="w-full rounded-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          onClick={onToggleCollapsed}
-          aria-expanded={!isCollapsed}
-        >
-          <div className="flex min-w-0 items-center justify-between gap-3 text-sm font-medium uppercase tracking-wide text-muted-foreground">
-            <div className="flex min-w-0 items-center gap-2">
-              <ListTodo className="size-3.5 shrink-0" />
-              <span className="truncate">Checklist</span>
-              <span className="text-muted-foreground/60">•</span>
-              <span className="text-muted-foreground/80">
-                {doneCount}/{totalCount} done
-              </span>
-            </div>
-            {isCollapsed ? (
-              <ChevronRight className="size-3.5 shrink-0" />
-            ) : (
-              <ChevronDown className="size-3.5 shrink-0" />
-            )}
-          </div>
-        </button>
-
-        {!isCollapsed && (
-          <ul className="mt-3 grid gap-0 text-sm normal-case leading-5 tracking-normal">
-            {request.items.map((item, index) => (
-              <li
-                key={`${index}-${item.content}`}
-                className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-2 rounded-lg px-2 py-1.5"
-              >
-                <span className="mt-0.5">
-                  {getChecklistItemIcon(item.done)}
-                </span>
-                <div
-                  className={cn(
-                    "min-w-0 font-medium text-foreground/85",
-                    item.done &&
-                      "text-muted-foreground line-through decoration-muted-foreground/50",
-                  )}
-                >
-                  {item.content}
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-    </article>
-  );
-});
 
 type ToolMentionOption = {
   name: string;
@@ -2039,10 +815,6 @@ type ActiveProcessStepRef = {
   id?: string;
 };
 
-type VisibleAssistantProcessStep = ChatAssistantProcessStep & {
-  sourceStepIds: string[];
-};
-
 function keepOnlyLatestChecklistListStep<T extends ChatAssistantProcessStep>(
   processSteps: T[],
 ): T[] {
@@ -2053,33 +825,6 @@ function cancelUnfinishedChecklistListSteps(
   processSteps: ChatAssistantProcessStep[],
 ): ChatAssistantProcessStep[] {
   return processSteps;
-}
-
-function getVisibleAssistantProcessSteps(
-  processSteps: ChatAssistantProcessStep[],
-): VisibleAssistantProcessStep[] {
-  const visibleSteps: VisibleAssistantProcessStep[] = [];
-
-  for (const step of keepOnlyLatestChecklistListStep(processSteps)) {
-    if (step.type === "thinking" && !step.content.trim()) {
-      continue;
-    }
-
-    const previousStep = visibleSteps[visibleSteps.length - 1];
-
-    if (
-      step.type === "assistant_message" &&
-      previousStep?.type === "assistant_message"
-    ) {
-      previousStep.content = `${previousStep.content}${step.content}`;
-      previousStep.sourceStepIds = [...previousStep.sourceStepIds, step.id];
-      continue;
-    }
-
-    visibleSteps.push({ ...step, sourceStepIds: [step.id] });
-  }
-
-  return visibleSteps;
 }
 
 type ActiveGeneration = {
@@ -2096,14 +841,6 @@ type PendingAskUserRequest = {
   resolve: (result: ChatToolResult) => void;
   reject: (error: unknown) => void;
   cleanup: () => void;
-};
-
-type MessageContextMenuState = {
-  messageId: string;
-  x: number;
-  y: number;
-  linkHref: string | null;
-  selectedText: string;
 };
 
 type FindInPageResultState = {
@@ -2148,12 +885,6 @@ export default function Home() {
   const [visualFlushRequests, setVisualFlushRequests] = useState<
     Record<string, number>
   >({});
-  const [isLoadingModels, setIsLoadingModels] = useState(false);
-  const [modelLoadStatus, setModelLoadStatus] = useState<
-    "idle" | "success" | "empty" | "error"
-  >("idle");
-  const [isModelComboboxOpen, setIsModelComboboxOpen] = useState(false);
-  const [modelSearchValue, setModelSearchValue] = useState("");
   const [messageContextMenu, setMessageContextMenu] =
     useState<MessageContextMenuState | null>(null);
   const [findBarOpen, setFindBarOpen] = useState(false);
@@ -2165,7 +896,6 @@ export default function Home() {
   const [sidebarModelSearchValue, setSidebarModelSearchValue] = useState("");
   const [isChatToolPickerOpen, setIsChatToolPickerOpen] = useState(false);
   const [chatToolSearchValue, setChatToolSearchValue] = useState("");
-  const [isApiKeyVisible, setIsApiKeyVisible] = useState(false);
   const [isNearChatBottom, setIsNearChatBottom] = useState(true);
   const [showScrollToBottomButton, setShowScrollToBottomButton] =
     useState(false);
@@ -2195,7 +925,6 @@ export default function Home() {
   const pendingAskUserRequestsRef = useRef<
     Record<string, PendingAskUserRequest>
   >({});
-  const modelLoadStatusTimerRef = useRef<number | null>(null);
   const scrollFrameRef = useRef<number | null>(null);
   const stickyScrollFrameRef = useRef<number | null>(null);
   const stickyScrollSettleFramesRef = useRef(0);
@@ -2216,9 +945,10 @@ export default function Home() {
   const didHydrateRef = useRef(false);
   const composerDraftSaveTimeoutRef = useRef<number | null>(null);
 
-  // Auto-scroll state: enabled by default, disabled when user scrolls up
-  const [autoScrollEnabled, setAutoScrollEnabled] = useState(true);
-  const autoScrollEnabledRef = useRef(true);
+  // Sticky auto-scroll is enabled only while the active chat is generating.
+  // Manual scroll-to-bottom still forces a one-off scroll when generation is idle.
+  const [autoScrollEnabled, setAutoScrollEnabled] = useState(false);
+  const autoScrollEnabledRef = useRef(false);
 
   const { resolvedTheme, setTheme } = useTheme();
 
@@ -2402,27 +1132,6 @@ export default function Home() {
   const isSending = activeChat
     ? generatingChatIds.includes(activeChat.id)
     : false;
-  const activeModelSettings = getActiveModelSettings({
-    ...activeProvider,
-    model: "",
-  });
-  const modelSuggestions = useMemo(() => {
-    return normalizeProviderModels([
-      ...(activeProvider.models ?? []),
-      ...(activeProvider.enabledModelIds ?? []),
-      activeProvider.model,
-    ]);
-  }, [activeProvider]);
-
-  const filteredModelSuggestions = useMemo(() => {
-    const search = modelSearchValue.trim().toLowerCase();
-    if (!search) return modelSuggestions;
-
-    return modelSuggestions.filter((model) =>
-      model.toLowerCase().includes(search),
-    );
-  }, [modelSearchValue, modelSuggestions]);
-
   const visibleProviderGroups = useMemo(() => {
     const search = sidebarModelSearchValue.trim().toLowerCase();
 
@@ -2626,9 +1335,6 @@ export default function Home() {
 
   useEffect(() => {
     return () => {
-      if (modelLoadStatusTimerRef.current !== null) {
-        window.clearTimeout(modelLoadStatusTimerRef.current);
-      }
       if (scrollFrameRef.current !== null) {
         window.cancelAnimationFrame(scrollFrameRef.current);
       }
@@ -2818,8 +1524,12 @@ export default function Home() {
     return Boolean(activeChatId && isChatGenerating(activeChatId));
   }
 
+  function canRunAutomaticStickyScroll() {
+    return isActiveChatGenerating();
+  }
+
   function getStickyScrollSettleFrames() {
-    return isActiveChatGenerating() ? STICKY_SCROLL_SETTLE_FRAMES : 1;
+    return canRunAutomaticStickyScroll() ? STICKY_SCROLL_SETTLE_FRAMES : 1;
   }
 
   function armStickyScrollToBottom() {
@@ -2890,6 +1600,7 @@ export default function Home() {
     settleFrames,
   }: { force?: boolean; settleFrames?: number } = {}) {
     if (!force) {
+      if (!canRunAutomaticStickyScroll()) return;
       if (!autoScrollEnabledRef.current) return;
       if (isStickyScrollSuppressed()) return;
     }
@@ -2908,6 +1619,11 @@ export default function Home() {
       const shouldForce = stickyScrollForceRef.current;
 
       if (!shouldForce) {
+        if (!canRunAutomaticStickyScroll()) {
+          stickyScrollSettleFramesRef.current = 0;
+          return;
+        }
+
         if (!autoScrollEnabledRef.current) {
           stickyScrollSettleFramesRef.current = 0;
           return;
@@ -2946,7 +1662,11 @@ export default function Home() {
     (chatId: string) => {
       if (chatId !== activeChatId) return;
 
-      if (autoScrollEnabledRef.current && !isStickyScrollSuppressed()) {
+      if (
+        canRunAutomaticStickyScroll() &&
+        autoScrollEnabledRef.current &&
+        !isStickyScrollSuppressed()
+      ) {
         scheduleStickyScrollToBottom();
         return;
       }
@@ -2976,13 +1696,12 @@ export default function Home() {
 
       if (
         activeChatId &&
+        canRunAutomaticStickyScroll() &&
         autoScrollEnabledRef.current &&
         !isStickyScrollSuppressed()
       ) {
         scheduleStickyScrollToBottom({
-          settleFrames: isActiveChatGenerating()
-            ? STICKY_SCROLL_SETTLE_FRAMES
-            : 1,
+          settleFrames: STICKY_SCROLL_SETTLE_FRAMES,
         });
       }
     },
@@ -2990,7 +1709,11 @@ export default function Home() {
   );
 
   const handleAskUserLayoutChange = useCallback(() => {
-    if (autoScrollEnabledRef.current && !isStickyScrollSuppressed()) {
+    if (
+      canRunAutomaticStickyScroll() &&
+      autoScrollEnabledRef.current &&
+      !isStickyScrollSuppressed()
+    ) {
       scheduleStickyScrollToBottom({ settleFrames: 2 });
       return;
     }
@@ -3021,7 +1744,11 @@ export default function Home() {
       return;
     }
 
-    if (autoScrollEnabledRef.current && !isStickyScrollSuppressed()) {
+    if (
+      canRunAutomaticStickyScroll() &&
+      autoScrollEnabledRef.current &&
+      !isStickyScrollSuppressed()
+    ) {
       scheduleStickyScrollToBottom();
       return;
     }
@@ -3035,11 +1762,13 @@ export default function Home() {
     if (!scrollElement) return;
 
     function handleResize() {
-      if (autoScrollEnabledRef.current && !isStickyScrollSuppressed()) {
+      if (
+        canRunAutomaticStickyScroll() &&
+        autoScrollEnabledRef.current &&
+        !isStickyScrollSuppressed()
+      ) {
         scheduleStickyScrollToBottom({
-          settleFrames: isActiveChatGenerating()
-            ? STICKY_SCROLL_SETTLE_FRAMES
-            : 1,
+          settleFrames: STICKY_SCROLL_SETTLE_FRAMES,
         });
         return;
       }
@@ -3072,11 +1801,15 @@ export default function Home() {
   useEffect(() => {
     if (!activeChatId) return;
 
+    if (!canRunAutomaticStickyScroll()) {
+      setChatAutoScrollEnabled(false);
+      syncChatScrollState();
+      return;
+    }
+
     if (autoScrollEnabledRef.current && !isStickyScrollSuppressed()) {
       scheduleStickyScrollToBottom({
-        settleFrames: isActiveChatGenerating()
-          ? STICKY_SCROLL_SETTLE_FRAMES
-          : 2,
+        settleFrames: STICKY_SCROLL_SETTLE_FRAMES,
       });
       return;
     }
@@ -3146,19 +1879,22 @@ export default function Home() {
           return;
         }
 
-        if (isNearBottom && !isStickyScrollSuppressed()) {
+        if (
+          isNearBottom &&
+          canRunAutomaticStickyScroll() &&
+          !isStickyScrollSuppressed()
+        ) {
           setChatAutoScrollEnabled(true);
+        } else if (!canRunAutomaticStickyScroll()) {
+          setChatAutoScrollEnabled(false);
         } else if (!isNearBottom && hasRecentManualScrollInput()) {
           setChatAutoScrollEnabled(false);
         } else if (
           !isNearBottom &&
-          isActiveChatGenerating() &&
           autoScrollEnabledRef.current &&
           !isStickyScrollSuppressed()
         ) {
           scheduleStickyScrollToBottom();
-        } else if (!isNearBottom && !isActiveChatGenerating()) {
-          setChatAutoScrollEnabled(false);
         }
       }
     });
@@ -3301,37 +2037,6 @@ export default function Home() {
         content={`~~~json\n${normalized}\n~~~`}
       />
     );
-  }
-
-  function formatGenerationInfoJson(metrics: ChatAssistantVariant["metrics"]) {
-    if (!metrics) return "{}";
-
-    const usage = metrics.tokenUsage
-      ? Object.fromEntries(
-          Object.entries({
-            prompt_tokens: metrics.tokenUsage.promptTokens,
-            completion_tokens: metrics.tokenUsage.completionTokens,
-            total_tokens: metrics.tokenUsage.totalTokens,
-          }).filter(([, value]) => value !== undefined),
-        )
-      : undefined;
-
-    const info = Object.fromEntries(
-      Object.entries({
-        model: metrics.model,
-        provider: metrics.providerName,
-        finish_reason: metrics.finishReason,
-        usage: usage && Object.keys(usage).length > 0 ? usage : undefined,
-        duration_ms: metrics.durationMs,
-        output_tokens: metrics.outputTokens,
-        tokens_per_second: metrics.tokensPerSecond,
-        is_approximate: metrics.isApproximate,
-        started_at: metrics.startedAt,
-        completed_at: metrics.completedAt,
-      }).filter(([, value]) => value !== undefined && value !== ""),
-    );
-
-    return JSON.stringify(info, null, 2);
   }
 
   function renderCodeBlock(
@@ -4640,23 +3345,6 @@ ${value}
     }));
   }
 
-  function applyPreset(id: string) {
-    const preset = providerPresets.find((item) => item.id === id);
-    if (!preset) return;
-
-    updateProviderSetting({
-      ...preset,
-      id: activeProvider.id,
-      defaultSettings: {
-        ...defaultGenerationSettings,
-        ...(preset.defaultSettings ?? {}),
-      },
-      modelSettings: preset.modelSettings ?? {},
-    });
-    setModelLoadStatus("idle");
-    showSuccess("Provider preset loaded", preset.name);
-  }
-
   function addProvider() {
     const provider = createNewProvider();
     updateProvidersState((currentState) => ({
@@ -4742,69 +3430,6 @@ ${value}
     setSidebarModelSearchValue("");
   }
 
-  function toggleVisibleModel(model: string, checked: boolean) {
-    const normalizedModel = model.trim();
-    if (!normalizedModel) return;
-
-    updateProvidersState((currentState) => ({
-      ...currentState,
-      providers: currentState.providers.map((provider) => {
-        if (provider.id !== currentState.activeProviderId) return provider;
-
-        const enabledModelIds = checked
-          ? normalizeProviderModels([
-              ...(provider.enabledModelIds ?? []),
-              normalizedModel,
-            ])
-          : normalizeProviderModels(
-              (provider.enabledModelIds ?? []).filter(
-                (item) => item !== normalizedModel,
-              ),
-            );
-        const model = enabledModelIds.includes(provider.model)
-          ? provider.model
-          : "";
-
-        return normalizeProviderForState({
-          ...provider,
-          models: normalizeProviderModels([
-            ...(provider.models ?? []),
-            normalizedModel,
-          ]),
-          enabledModelIds,
-          model,
-        });
-      }),
-    }));
-  }
-
-  function updateActiveModelSettings(patch: ProviderGenerationSettings) {
-    updateProviderSetting({
-      defaultSettings: sanitizeGenerationSettings({
-        ...defaultGenerationSettings,
-        ...(activeProvider.defaultSettings ?? {}),
-        ...patch,
-      }),
-    });
-  }
-
-  function resetActiveModelSettings() {
-    updateProviderSetting({ defaultSettings: defaultGenerationSettings });
-  }
-
-  function setTemporaryModelLoadStatus(status: "success" | "empty" | "error") {
-    setModelLoadStatus(status);
-
-    if (modelLoadStatusTimerRef.current !== null) {
-      window.clearTimeout(modelLoadStatusTimerRef.current);
-    }
-
-    modelLoadStatusTimerRef.current = window.setTimeout(() => {
-      setModelLoadStatus("idle");
-      modelLoadStatusTimerRef.current = null;
-    }, 1800);
-  }
-
   async function saveSettingsChanges() {
     try {
       await Promise.all([
@@ -4816,63 +3441,6 @@ ${value}
     } catch (error) {
       console.error("Failed to save providers:", error);
       showError("Failed to save providers", labelForError(error));
-    }
-  }
-
-  function getLoadModelsButtonLabel(provider = activeProvider) {
-    if (isLoadingModels) return "Loading models...";
-    if (modelLoadStatus === "success") {
-      const count = provider.models?.length ?? 0;
-      return `Loaded ${count} model${count === 1 ? "" : "s"}`;
-    }
-    if (modelLoadStatus === "empty") return "No models returned";
-    if (modelLoadStatus === "error") return "Model lookup failed";
-
-    return "Load models";
-  }
-
-  async function loadModelsFromProvider(providerForLoad = activeProvider) {
-    setIsLoadingModels(true);
-    setModelLoadStatus("idle");
-
-    if (modelLoadStatusTimerRef.current !== null) {
-      window.clearTimeout(modelLoadStatusTimerRef.current);
-      modelLoadStatusTimerRef.current = null;
-    }
-
-    try {
-      const loadedModels = await loadProviderModels(providerForLoad);
-      await saveCachedProviderModels(providerForLoad, loadedModels);
-
-      updateProvidersState((currentState) => ({
-        ...currentState,
-        providers: currentState.providers.map((provider) => {
-          if (provider.id !== providerForLoad.id) return provider;
-
-          const enabledModelIds = normalizeProviderModels(
-            (provider.enabledModelIds ?? []).filter((model) =>
-              loadedModels.includes(model),
-            ),
-          );
-          const model = enabledModelIds.includes(provider.model)
-            ? provider.model
-            : "";
-
-          return normalizeProviderForState({
-            ...provider,
-            models: loadedModels,
-            enabledModelIds,
-            model,
-          });
-        }),
-      }));
-
-      setTemporaryModelLoadStatus(loadedModels.length ? "success" : "empty");
-    } catch (error) {
-      setTemporaryModelLoadStatus("error");
-      console.error("Model lookup failed:", error);
-    } finally {
-      setIsLoadingModels(false);
     }
   }
 
@@ -5414,14 +3982,8 @@ ${value}
       }
 
       if (chatId === activeChatId) {
-        if (autoScrollEnabledRef.current && !isStickyScrollSuppressed()) {
-          scheduleStickyScrollToBottom({
-            force: true,
-            settleFrames: STICKY_SCROLL_SETTLE_FRAMES,
-          });
-        } else {
-          syncChatScrollState();
-        }
+        setChatAutoScrollEnabled(false);
+        syncChatScrollState();
       }
     }
   }
@@ -6219,6 +4781,56 @@ ${value}
     );
   }
 
+  const handleProvidersStateChange = useStableCallback(updateProvidersState);
+  const handleProviderSettingChange = useStableCallback(updateProviderSetting);
+  const handleAddProvider = useStableCallback(addProvider);
+  const handleDuplicateProvider = useStableCallback(duplicateProvider);
+  const handleDeleteProvider = useStableCallback(deleteProvider);
+  const handleSaveSettingsChanges = useStableCallback(saveSettingsChanges);
+  const stableShowSuccess = useStableCallback(showSuccess);
+  const stableShowError = useStableCallback(showError);
+  const toolDisplayKey = useMemo(
+    () =>
+      loadedTools
+        .map((tool) => `${tool.name}:${tool.description ?? ""}`)
+        .join("\n"),
+    [loadedTools],
+  );
+  const stableRegisterMessageElement = useStableCallback(registerMessageElement);
+  const stableRenderToolExecutionBlock = useStableCallback(renderToolExecutionBlock);
+  const stableCanSubmitAskUserResponse = useStableCallback((toolCallId: string) =>
+    Boolean(pendingAskUserRequestsRef.current[toolCallId]),
+  );
+  const stableCaptureMessageContext = useStableCallback(captureMessageContext);
+  const stableCloseMessageContextMenu = useStableCallback(closeMessageContextMenu);
+  const stableCopyLinkHref = useStableCallback(copyLinkHref);
+  const stableCopyMessageContent = useStableCallback(copyMessageContent);
+  const stableRegenerateAssistantMessage = useStableCallback(
+    regenerateAssistantMessage,
+  );
+  const stableStartEditingUserMessage = useStableCallback(startEditingUserMessage);
+  const stableDeleteMessage = useStableCallback(deleteMessage);
+  const stableCancelEditingUserMessage = useStableCallback(
+    cancelEditingUserMessage,
+  );
+  const stableSaveEditedUserMessage = useStableCallback(saveEditedUserMessage);
+  const stableSubmitEditedUserMessage = useStableCallback(submitEditedUserMessage);
+  const stableSelectAssistantVariant = useStableCallback(selectAssistantVariant);
+  const stableToggleToolExecutionCollapsed = useStableCallback(
+    toggleToolExecutionCollapsed,
+  );
+  const stableSubmitAskUserResponse = useStableCallback(submitAskUserResponse);
+  const stableCancelAskUserRequest = useStableCallback(cancelAskUserRequest);
+  const stableHandleAskUserLayoutChange = useStableCallback(
+    handleAskUserLayoutChange,
+  );
+  const stableHandleAssistantVisualProgress = useStableCallback(
+    handleAssistantVisualProgress,
+  );
+  const stableHandleAssistantVisualStreamingChange = useStableCallback(
+    handleAssistantVisualStreamingChange,
+  );
+
   if (!mounted) {
     return (
       <main className="flex h-dvh items-center justify-center bg-background text-muted-foreground">
@@ -6466,672 +5078,40 @@ ${value}
                   </div>
                 </div>
               ) : (
-                messages.map((message) => {
-                  const activeVariant =
-                    message.role === "assistant"
-                      ? getActiveVariant(message)
-                      : undefined;
-                  const content =
-                    message.role === "assistant"
-                      ? (activeVariant?.content ?? "")
-                      : message.content;
-                  const reasoning = activeVariant?.reasoning ?? "";
-                  const toolCalls = activeVariant?.toolCalls ?? [];
-                  const toolResults = activeVariant?.toolResults ?? [];
-                  const processSteps = activeVariant?.processSteps ?? [];
-                  const visibleProcessSteps =
-                    getVisibleAssistantProcessSteps(processSteps);
-                  const hasVisibleProcessSteps = visibleProcessSteps.length > 0;
-                  const latestProcessStepId =
-                    processSteps[processSteps.length - 1]?.id;
-                  const assistantMessageProcessSteps =
-                    visibleProcessSteps.filter(
-                      (step) => step.type === "assistant_message",
-                    );
-                  const hasInlineAssistantMessageSteps =
-                    assistantMessageProcessSteps.length > 0;
-                  const status = activeVariant?.status;
-                  const metrics = activeVariant?.metrics;
-                  const generatedModelName = metrics?.model?.trim() ?? "";
-                  const isVisuallyStreaming = visualStreamingMessageIds.some(
-                    (streamingMessageId) =>
-                      streamingMessageId === message.id ||
-                      streamingMessageId.startsWith(`${message.id}:`),
-                  );
-                  const isMessageStreaming =
-                    status === "streaming" || isVisuallyStreaming;
-                  const variantCount =
-                    message.role === "assistant" ? message.variants.length : 0;
-                  const activeVariantNumber =
-                    message.role === "assistant"
-                      ? message.activeVariantIndex + 1
-                      : 0;
-
-                  return (
-                    <div
-                      key={message.id}
-                      ref={registerMessageElement(message.id)}
-                      data-message-id={message.id}
-                      className="grid min-w-0 max-w-full gap-2"
-                    >
-                      {message.role === "assistant" &&
-                        hasVisibleProcessSteps && (
-                          <div className="grid gap-2">
-                            {visibleProcessSteps.map((step) => {
-                              const isLatestProcessStep =
-                                step.sourceStepIds.includes(
-                                  latestProcessStepId ?? "",
-                                );
-                              const stepFlushVersion =
-                                step.sourceStepIds.reduce(
-                                  (total, sourceStepId) =>
-                                    total +
-                                    (visualFlushRequests[
-                                      `${message.id}:${sourceStepId}`
-                                    ] ?? 0),
-                                  0,
-                                );
-
-                              if (step.type === "thinking") {
-                                if (!step.content.trim()) return null;
-
-                                const isThinkingStreaming =
-                                  status === "streaming" && isLatestProcessStep;
-
-                                return (
-                                  <article
-                                    key={step.id}
-                                    className="flex min-w-0 max-w-full justify-start"
-                                  >
-                                    <div className="w-full min-w-0 max-w-full overflow-hidden rounded-lg border border-dashed bg-muted/40 px-4 py-3 text-base leading-6 text-muted-foreground shadow-xs [overflow-wrap:anywhere]">
-                                      <div className="mb-2 flex items-center gap-2 text-sm font-medium uppercase tracking-wide">
-                                        <Brain className="size-3.5" />
-                                        Thinking
-                                        {isThinkingStreaming ? "..." : ""}
-                                      </div>
-                                      <div className="min-w-0 overflow-visible text-sm leading-5">
-                                        <SmoothAssistantMessageContent
-                                          content={step.content}
-                                          className="chat-markdown-compact shrink-0"
-                                          isApiStreaming={isThinkingStreaming}
-                                          flushVersion={stepFlushVersion}
-                                          forceInstant={!isThinkingStreaming}
-                                          onVisualProgress={() =>
-                                            handleAssistantVisualProgress(
-                                              activeChat?.id ?? "",
-                                            )
-                                          }
-                                          onVisualStreamingChange={(
-                                            isStreaming,
-                                          ) =>
-                                            handleAssistantVisualStreamingChange(
-                                              `${message.id}:${step.id}`,
-                                              isStreaming,
-                                            )
-                                          }
-                                        />
-                                      </div>
-                                    </div>
-                                  </article>
-                                );
-                              }
-
-                              if (step.type === "assistant_message") {
-                                if (!step.content.trim()) return null;
-
-                                const isAssistantBlockStreaming =
-                                  status === "streaming" && isLatestProcessStep;
-                                return (
-                                  <div key={step.id} className="grid gap-1">
-                                    <article
-                                      className="flex min-w-0 max-w-full justify-start"
-                                      onContextMenu={(event) =>
-                                        captureMessageContext(event, message.id)
-                                      }
-                                    >
-                                      <div className="min-w-0 max-w-full overflow-visible rounded-lg px-0 py-1 text-base leading-6 text-card-foreground shadow-xs [overflow-wrap:anywhere]">
-                                        <SmoothAssistantMessageContent
-                                          content={step.content}
-                                          isApiStreaming={
-                                            isAssistantBlockStreaming
-                                          }
-                                          flushVersion={stepFlushVersion}
-                                          onVisualProgress={() =>
-                                            handleAssistantVisualProgress(
-                                              activeChat?.id ?? "",
-                                            )
-                                          }
-                                          onVisualStreamingChange={(
-                                            isStreaming,
-                                          ) =>
-                                            handleAssistantVisualStreamingChange(
-                                              `${message.id}:${step.id}`,
-                                              isStreaming,
-                                            )
-                                          }
-                                        />
-                                      </div>
-                                    </article>
-                                  </div>
-                                );
-                              }
-
-                              if (step.type === "user_input") {
-                                const manualCollapsed =
-                                  collapsedToolStepIds[step.id];
-                                const isCollapsed =
-                                  manualCollapsed ?? step.status !== "waiting";
-
-                                return (
-                                  <AskUserBlock
-                                    key={step.id}
-                                    id={step.id}
-                                    request={step.request}
-                                    response={step.response}
-                                    status={step.status}
-                                    canSubmit={Boolean(
-                                      pendingAskUserRequestsRef.current[
-                                        step.toolCall.id
-                                      ],
-                                    )}
-                                    isCollapsed={isCollapsed}
-                                    onToggleCollapsed={() =>
-                                      toggleToolExecutionCollapsed(
-                                        step.id,
-                                        !isCollapsed,
-                                      )
-                                    }
-                                    onSubmit={(response) =>
-                                      submitAskUserResponse(
-                                        step.toolCall,
-                                        step.request,
-                                        response,
-                                      )
-                                    }
-                                    onCancel={() =>
-                                      cancelAskUserRequest(step.toolCall.id)
-                                    }
-                                    onLayoutChange={handleAskUserLayoutChange}
-                                  />
-                                );
-                              }
-
-                              if (step.type === "checklist") {
-                                const manualCollapsed =
-                                  collapsedToolStepIds[step.id];
-                                const isCollapsed = manualCollapsed ?? false;
-
-                                return (
-                                  <ChecklistBlock
-                                    key={step.id}
-                                    id={step.id}
-                                    request={step.request}
-                                    status={step.status}
-                                    isCollapsed={isCollapsed}
-                                    onToggleCollapsed={() =>
-                                      toggleToolExecutionCollapsed(
-                                        step.id,
-                                        !isCollapsed,
-                                      )
-                                    }
-                                    onLayoutChange={handleAskUserLayoutChange}
-                                  />
-                                );
-                              }
-
-                              return renderToolExecutionBlock({
-                                id: step.id,
-                                toolCall: step.toolCall,
-                                toolResult: step.toolResult,
-                                status: step.status,
-                              });
-                            })}
-                          </div>
-                        )}
-
-                      {message.role === "assistant" &&
-                        !hasVisibleProcessSteps &&
-                        reasoning.trim() &&
-                        (() => {
-                          return (
-                            <article className="flex min-w-0 max-w-full justify-start">
-                              <div className="w-full min-w-0 max-w-full overflow-hidden rounded-lg border border-dashed bg-muted/40 px-4 py-3 text-base leading-6 text-muted-foreground shadow-xs [overflow-wrap:anywhere]">
-                                <div className="mb-2 flex items-center gap-2 text-sm font-medium uppercase tracking-wide">
-                                  <Brain className="size-3.5" />
-                                  Thinking{isMessageStreaming ? "..." : ""}
-                                </div>
-                                <div className="min-w-0 overflow-visible text-sm leading-5">
-                                  <SmoothAssistantMessageContent
-                                    content={reasoning}
-                                    className="chat-markdown-compact shrink-0"
-                                    isApiStreaming={
-                                      status === "streaming" && !content
-                                    }
-                                    flushVersion={
-                                      visualFlushRequests[message.id] ?? 0
-                                    }
-                                    forceInstant={Boolean(content)}
-                                    onVisualProgress={() =>
-                                      handleAssistantVisualProgress(
-                                        activeChat?.id ?? "",
-                                      )
-                                    }
-                                    onVisualStreamingChange={(isStreaming) =>
-                                      handleAssistantVisualStreamingChange(
-                                        `${message.id}:reasoning`,
-                                        isStreaming,
-                                      )
-                                    }
-                                  />
-                                </div>
-                              </div>
-                            </article>
-                          );
-                        })()}
-
-                      {message.role === "assistant" &&
-                        !hasVisibleProcessSteps &&
-                        toolCalls.length > 0 && (
-                          <div className="grid gap-2">
-                            {toolCalls.map((toolCall) => {
-                              const result = toolResults.find(
-                                (item) => item.toolCallId === toolCall.id,
-                              );
-
-                              return renderToolExecutionBlock({
-                                id: toolCall.id,
-                                toolCall,
-                                toolResult: result,
-                                status: result
-                                  ? result.isError
-                                    ? "failed"
-                                    : "complete"
-                                  : "running",
-                              });
-                            })}
-                          </div>
-                        )}
-
-                      {message.role === "user" &&
-                      editingMessageId === message.id ? (
-                        <UserMessageEditor
-                          initialContent={message.content}
-                          disabled={isSending}
-                          onCancel={cancelEditingUserMessage}
-                          onSave={(nextContent) =>
-                            saveEditedUserMessage(message.id, nextContent)
-                          }
-                          onSubmit={(nextContent) =>
-                            submitEditedUserMessage(message.id, nextContent)
-                          }
-                        />
-                      ) : (
-                        (message.role === "user" ||
-                          (!hasInlineAssistantMessageSteps &&
-                            (content || status !== "streaming"))) && (
-                          <>
-                            <article
-                              className={cn(
-                                "flex min-w-0 max-w-full",
-                                message.role === "user"
-                                  ? "justify-end"
-                                  : "justify-start",
-                              )}
-                              onContextMenu={(event) =>
-                                captureMessageContext(event, message.id)
-                              }
-                            >
-                              <div
-                                className={cn(
-                                  "min-w-0 text-base leading-6 [overflow-wrap:anywhere] w-full rounded-lg",
-                                  message.role === "user"
-                                    ? "max-h-[32rem] overflow-y-auto overflow-x-hidden chat-message-scrollbar bg-primary px-4 py-3 text-primary-foreground shadow-xs"
-                                    : "min-w-0 max-w-full overflow-visible px-0 py-1 text-card-foreground shadow-xs",
-                                  status === "error" && "border-destructive/50",
-                                )}
-                              >
-                                {message.role === "assistant" ? (
-                                  <>
-                                    <SmoothAssistantMessageContent
-                                      content={content}
-                                      isApiStreaming={status === "streaming"}
-                                      flushVersion={
-                                        visualFlushRequests[message.id] ?? 0
-                                      }
-                                      onVisualProgress={() =>
-                                        handleAssistantVisualProgress(
-                                          activeChat?.id ?? "",
-                                        )
-                                      }
-                                      onVisualStreamingChange={(isStreaming) =>
-                                        handleAssistantVisualStreamingChange(
-                                          `${message.id}:content`,
-                                          isStreaming,
-                                        )
-                                      }
-                                    />
-                                  </>
-                                ) : (
-                                  <UserMessageContent
-                                    content={message.content}
-                                  />
-                                )}
-                              </div>
-                            </article>
-
-                            {messageContextMenu?.messageId === message.id && (
-                              <div
-                                data-message-context-menu
-                                className="fixed z-50 min-w-55 rounded-lg border bg-popover p-1 text-base text-popover-foreground shadow-md"
-                                style={{
-                                  left: messageContextMenu.x,
-                                  top: messageContextMenu.y,
-                                }}
-                                onContextMenu={(event) =>
-                                  event.preventDefault()
-                                }
-                              >
-                                {messageContextMenu.linkHref && (
-                                  <>
-                                    <button
-                                      type="button"
-                                      className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
-                                      onClick={() => {
-                                        void copyLinkHref(
-                                          messageContextMenu.linkHref,
-                                        );
-                                        closeMessageContextMenu();
-                                      }}
-                                    >
-                                      <Copy className="size-4" />
-                                      Copy link
-                                    </button>
-                                    <div className="-mx-1 my-1 h-px bg-border" />
-                                  </>
-                                )}
-                                <button
-                                  type="button"
-                                  className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
-                                  disabled={
-                                    !messageContextMenu.selectedText.trim() &&
-                                    !content.trim()
-                                  }
-                                  onClick={() => {
-                                    void copyMessageContent(
-                                      message.id,
-                                      messageContextMenu.selectedText ||
-                                        content,
-                                    );
-                                    closeMessageContextMenu();
-                                  }}
-                                >
-                                  <Copy className="size-4" />
-                                  {messageContextMenu.selectedText.trim()
-                                    ? "Copy selection"
-                                    : message.role === "assistant"
-                                      ? "Copy answer"
-                                      : "Copy message"}
-                                </button>
-                                {message.role === "assistant" && (
-                                  <button
-                                    type="button"
-                                    className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
-                                    disabled={isSending}
-                                    onClick={() => {
-                                      void regenerateAssistantMessage(
-                                        message.id,
-                                      );
-                                      closeMessageContextMenu();
-                                    }}
-                                  >
-                                    <RefreshCcw className="size-4" />
-                                    {status === "error"
-                                      ? "Retry answer"
-                                      : "Regenerate answer"}
-                                  </button>
-                                )}
-                                {message.role === "user" && (
-                                  <button
-                                    type="button"
-                                    className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
-                                    disabled={isSending}
-                                    onClick={() => {
-                                      startEditingUserMessage(message.id);
-                                      closeMessageContextMenu();
-                                    }}
-                                  >
-                                    <Pencil className="size-4" />
-                                    Edit message
-                                  </button>
-                                )}
-                                <div className="-mx-1 my-1 h-px bg-border" />
-                                <button
-                                  type="button"
-                                  className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-destructive hover:bg-destructive/10 hover:text-destructive disabled:pointer-events-none disabled:opacity-50 dark:hover:bg-destructive/20"
-                                  disabled={isSending}
-                                  onClick={() => {
-                                    deleteMessage(message.id);
-                                    closeMessageContextMenu();
-                                  }}
-                                >
-                                  <Trash2 className="size-4" />
-                                  Delete message
-                                </button>
-                              </div>
-                            )}
-                          </>
-                        )
-                      )}
-
-                      {message.role === "user" &&
-                        editingMessageId !== message.id && (
-                          <div className="flex justify-end gap-1.5 text-sm leading-5 text-muted-foreground">
-                            <TooltipIconButton
-                              type="button"
-                              variant="ghost"
-                              size="icon-sm"
-                              className="text-destructive hover:text-destructive"
-                              label="Delete message"
-                              onClick={() => deleteMessage(message.id)}
-                              disabled={isSending}
-                            >
-                              <Trash2 className="size-3" />
-                            </TooltipIconButton>
-
-                            <TooltipIconButton
-                              type="button"
-                              variant="ghost"
-                              size="icon-sm"
-                              label={
-                                copiedMessageId === message.id
-                                  ? "Copied"
-                                  : "Copy message"
-                              }
-                              onClick={() =>
-                                copyMessageContent(message.id, message.content)
-                              }
-                              disabled={!message.content.trim()}
-                            >
-                              {copiedMessageId === message.id ? (
-                                <Check className="size-3" />
-                              ) : (
-                                <Copy className="size-3" />
-                              )}
-                            </TooltipIconButton>
-
-                            <TooltipIconButton
-                              type="button"
-                              variant="ghost"
-                              size="icon-sm"
-                              label="Edit message"
-                              onClick={() =>
-                                startEditingUserMessage(message.id)
-                              }
-                              disabled={isSending}
-                            >
-                              <Pencil className="size-3" />
-                            </TooltipIconButton>
-                          </div>
-                        )}
-
-                      {message.role === "assistant" && (
-                        <div className="grid gap-2 text-sm leading-5 text-muted-foreground">
-                          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
-                            <div className="min-h-6 min-w-0 flex-1 text-left">
-                              {isMessageStreaming ? (
-                                <span className="generating-gradient-text font-medium">
-                                  Generating
-                                </span>
-                              ) : generatedModelName ? (
-                                <span
-                                  className="block truncate text-muted-foreground"
-                                  title={`Generated with ${generatedModelName}`}
-                                >
-                                  {generatedModelName}
-                                </span>
-                              ) : (
-                                <span aria-hidden="true" />
-                              )}
-                            </div>
-
-                            <div className="flex flex-wrap items-center justify-end gap-1.5">
-                              {variantCount > 1 && (
-                                <div className="flex items-center gap-1">
-                                  <TooltipIconButton
-                                    type="button"
-                                    variant="ghost"
-                                    size="icon-sm"
-                                    label="Previous answer"
-                                    onClick={() =>
-                                      selectAssistantVariant(
-                                        message.id,
-                                        message.activeVariantIndex - 1,
-                                      )
-                                    }
-                                    disabled={
-                                      message.activeVariantIndex <= 0 ||
-                                      isSending
-                                    }
-                                  >
-                                    <ChevronLeft className="size-3.5" />
-                                  </TooltipIconButton>
-                                  <span className="min-w-9 text-center tabular-nums">
-                                    {activeVariantNumber}/{variantCount}
-                                  </span>
-                                  <TooltipIconButton
-                                    type="button"
-                                    variant="ghost"
-                                    size="icon-sm"
-                                    label="Next answer"
-                                    onClick={() =>
-                                      selectAssistantVariant(
-                                        message.id,
-                                        message.activeVariantIndex + 1,
-                                      )
-                                    }
-                                    disabled={
-                                      message.activeVariantIndex >=
-                                        variantCount - 1 || isSending
-                                    }
-                                  >
-                                    <ChevronRight className="size-3.5" />
-                                  </TooltipIconButton>
-                                </div>
-                              )}
-
-                              <Popover>
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <PopoverTrigger asChild>
-                                      <Button
-                                        type="button"
-                                        variant="ghost"
-                                        size="icon-sm"
-                                        className="h-6 w-6 rounded-lg text-muted-foreground"
-                                        disabled={
-                                          metrics?.durationMs === undefined
-                                        }
-                                        title="Generation info"
-                                        aria-label="Generation info"
-                                      >
-                                        <Info className="size-3" />
-                                      </Button>
-                                    </PopoverTrigger>
-                                  </TooltipTrigger>
-                                  <TooltipContent>
-                                    Generation info
-                                  </TooltipContent>
-                                </Tooltip>
-                                <PopoverContent
-                                  align="end"
-                                  className="w-[min(26rem,calc(100vw-2rem))] rounded-lg p-3"
-                                >
-                                  <div className="mb-2 text-sm font-medium text-popover-foreground">
-                                    Generation info
-                                  </div>
-                                  {renderJsonCodeBlock(
-                                    formatGenerationInfoJson(metrics),
-                                    "chat-markdown-compact max-h-120 overflow-auto text-sm",
-                                  )}
-                                </PopoverContent>
-                              </Popover>
-
-                              <TooltipIconButton
-                                type="button"
-                                variant="ghost"
-                                size="icon-sm"
-                                className="text-destructive hover:text-destructive"
-                                label="Delete message"
-                                onClick={() => deleteMessage(message.id)}
-                                disabled={isSending}
-                              >
-                                <Trash2 className="size-3" />
-                              </TooltipIconButton>
-
-                              <TooltipIconButton
-                                type="button"
-                                variant="ghost"
-                                size="icon-sm"
-                                label={
-                                  status === "error"
-                                    ? "Retry answer"
-                                    : "Regenerate answer"
-                                }
-                                onClick={() =>
-                                  regenerateAssistantMessage(message.id)
-                                }
-                                disabled={isSending}
-                              >
-                                <RefreshCcw className="size-3" />
-                              </TooltipIconButton>
-
-                              <TooltipIconButton
-                                type="button"
-                                variant="ghost"
-                                size="icon-sm"
-                                label={
-                                  copiedMessageId === message.id
-                                    ? "Copied"
-                                    : "Copy answer"
-                                }
-                                onClick={() =>
-                                  copyMessageContent(message.id, content)
-                                }
-                                disabled={!content.trim()}
-                              >
-                                {copiedMessageId === message.id ? (
-                                  <Check className="size-3" />
-                                ) : (
-                                  <Copy className="size-3" />
-                                )}
-                              </TooltipIconButton>
-                            </div>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })
+                <ChatMessageList
+                  messages={messages}
+                  activeChatId={activeChat?.id ?? ""}
+                  isSending={isSending}
+                  editingMessageId={editingMessageId}
+                  copiedMessageId={copiedMessageId}
+                  messageContextMenu={messageContextMenu}
+                  visualFlushRequests={visualFlushRequests}
+                  visualStreamingMessageIds={visualStreamingMessageIds}
+                  collapsedToolStepIds={collapsedToolStepIds}
+                  toolDisplayKey={toolDisplayKey}
+                  registerMessageElement={stableRegisterMessageElement}
+                  renderToolExecutionBlock={stableRenderToolExecutionBlock}
+                  canSubmitAskUserResponse={stableCanSubmitAskUserResponse}
+                  onCaptureMessageContext={stableCaptureMessageContext}
+                  onCloseMessageContextMenu={stableCloseMessageContextMenu}
+                  onCopyLinkHref={stableCopyLinkHref}
+                  onCopyMessageContent={stableCopyMessageContent}
+                  onRegenerateAssistantMessage={stableRegenerateAssistantMessage}
+                  onStartEditingUserMessage={stableStartEditingUserMessage}
+                  onDeleteMessage={stableDeleteMessage}
+                  onCancelEditingUserMessage={stableCancelEditingUserMessage}
+                  onSaveEditedUserMessage={stableSaveEditedUserMessage}
+                  onSubmitEditedUserMessage={stableSubmitEditedUserMessage}
+                  onSelectAssistantVariant={stableSelectAssistantVariant}
+                  onToggleToolExecutionCollapsed={stableToggleToolExecutionCollapsed}
+                  onSubmitAskUserResponse={stableSubmitAskUserResponse}
+                  onCancelAskUserRequest={stableCancelAskUserRequest}
+                  onAskUserLayoutChange={stableHandleAskUserLayoutChange}
+                  onAssistantVisualProgress={stableHandleAssistantVisualProgress}
+                  onAssistantVisualStreamingChange={
+                    stableHandleAssistantVisualStreamingChange
+                  }
+                />
               )}
               <div
                 ref={chatBottomRef}
@@ -7177,481 +5157,19 @@ ${value}
         />
       </section>
 
-      <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
-        <DialogContent className="flex h-[min(1000px,calc(100dvh-2rem))] max-h-none flex-col gap-0 overflow-hidden p-0 sm:max-w-5xl">
-          <DialogHeader className="shrink-0 border-b px-5 py-4 pr-12">
-            <DialogTitle>Providers</DialogTitle>
-            <DialogDescription>
-              Manage providers, choose visible models, and configure generation
-              defaults.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden md:grid-cols-[260px_minmax(0,1fr)]">
-            <aside className="min-h-0 overflow-y-auto border-b bg-card/70 p-3 md:border-b-0 md:border-r">
-              <div className="mb-3 flex items-center justify-between gap-2">
-                <Label className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
-                  Providers
-                </Label>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  className="h-7 rounded-lg px-2 text-sm"
-                  onClick={addProvider}
-                >
-                  <Plus className="size-3.5" />
-                  Add
-                </Button>
-              </div>
-
-              <div className="grid gap-1.5">
-                {providers.map((item) => (
-                  <div
-                    key={item.id}
-                    role="button"
-                    tabIndex={0}
-                    className={cn(
-                      "group flex min-w-0 cursor-pointer items-start gap-2 rounded-lg border px-2 py-2 outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                      item.id === activeProvider.id
-                        ? "border-primary/30 bg-accent text-accent-foreground"
-                        : "border-transparent hover:border-border hover:bg-muted/60",
-                    )}
-                    onClick={() =>
-                      setProvidersState((currentState) => ({
-                        ...currentState,
-                        activeProviderId: item.id,
-                      }))
-                    }
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter" || event.key === " ") {
-                        event.preventDefault();
-                        setProvidersState((currentState) => ({
-                          ...currentState,
-                          activeProviderId: item.id,
-                        }));
-                      }
-                    }}
-                  >
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-base leading-6">
-                        {providerDisplayName(item)}
-                      </div>
-                      <div className="truncate text-sm leading-5 text-muted-foreground">
-                        {(item.enabledModelIds ?? []).length} visible ·{" "}
-                        {item.baseUrl || "No base URL"}
-                      </div>
-                    </div>
-
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon-sm"
-                          className="h-7 w-7 shrink-0 rounded-lg opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
-                          onClick={(event) => event.stopPropagation()}
-                          title="Provider actions"
-                        >
-                          <MoreVertical className="size-3.5" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="rounded-lg">
-                        <DropdownMenuItem
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            duplicateProvider(item.id);
-                          }}
-                        >
-                          <Copy className="size-4" />
-                          Duplicate
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem
-                          variant="destructive"
-                          disabled={providers.length <= 1}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            deleteProvider(item.id);
-                          }}
-                        >
-                          <Trash2 className="size-4" />
-                          Delete
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-                ))}
-              </div>
-            </aside>
-
-            <div className="min-h-0 overflow-y-auto overscroll-contain px-5 py-4">
-              <div className="grid gap-5 pb-1">
-                <div className="grid gap-2">
-                  <Label>Preset</Label>
-                  <Select value="" onValueChange={applyPreset}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Load a preset into selected provider" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {providerPresets.map((preset) => (
-                        <SelectItem key={preset.id} value={preset.id}>
-                          {preset.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="grid gap-2">
-                    <Label htmlFor="provider-name">Provider name</Label>
-                    <Input
-                      id="provider-name"
-                      value={activeProvider.name}
-                      onChange={(event) =>
-                        updateProviderSetting({ name: event.target.value })
-                      }
-                      placeholder="Provide the provider name"
-                    />
-                  </div>
-
-                  <div className="grid gap-2">
-                    <Label htmlFor="provider-url">Base URL</Label>
-                    <Input
-                      id="provider-url"
-                      value={activeProvider.baseUrl}
-                      onChange={(event) =>
-                        updateProviderSetting({ baseUrl: event.target.value })
-                      }
-                      placeholder="http://localhost:1234/v1"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid gap-4">
-                  <div className="grid gap-2">
-                    <Label htmlFor="provider-api-key">API key</Label>
-                    <div className="relative">
-                      <Input
-                        id="provider-api-key"
-                        value={activeProvider.apiKey}
-                        onChange={(event) =>
-                          updateProviderSetting({ apiKey: event.target.value })
-                        }
-                        placeholder="Provide your API key"
-                        type={isApiKeyVisible ? "text" : "password"}
-                        className="pr-10"
-                      />
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon-sm"
-                        className="absolute right-1 top-1/2 h-7 w-7 -translate-y-1/2 rounded-lg text-muted-foreground"
-                        onClick={() =>
-                          setIsApiKeyVisible((current) => !current)
-                        }
-                        title={
-                          isApiKeyVisible ? "Hide API key" : "Show API key"
-                        }
-                      >
-                        {isApiKeyVisible ? (
-                          <EyeOff className="size-4" />
-                        ) : (
-                          <Eye className="size-4" />
-                        )}
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="grid gap-3 rounded-lg border bg-card p-3">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <Label>Visible models</Label>
-                      <p className="mt-1 text-sm leading-5 text-muted-foreground">
-                        Only checked models appear in the sidebar model
-                        selector.
-                      </p>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      <Button
-                        type="button"
-                        variant="secondary"
-                        size="sm"
-                        className="rounded-lg"
-                        onClick={() => loadModelsFromProvider(activeProvider)}
-                        disabled={
-                          isLoadingModels || !activeProvider.baseUrl.trim()
-                        }
-                      >
-                        <RefreshCcw
-                          className={cn(
-                            "size-4",
-                            isLoadingModels && "animate-spin",
-                          )}
-                        />
-                        {getLoadModelsButtonLabel(activeProvider)}
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="rounded-lg"
-                        onClick={() =>
-                          updateProviderSetting({
-                            enabledModelIds: normalizeProviderModels(
-                              activeProvider.models ?? [],
-                            ),
-                          })
-                        }
-                        disabled={(activeProvider.models ?? []).length === 0}
-                      >
-                        Select all
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="rounded-lg"
-                        onClick={() =>
-                          updateProviderSetting({
-                            enabledModelIds: [],
-                            model: "",
-                          })
-                        }
-                        disabled={
-                          (activeProvider.enabledModelIds ?? []).length === 0
-                        }
-                      >
-                        Clear
-                      </Button>
-                    </div>
-                  </div>
-
-                  <div className="max-h-64 overflow-y-auto rounded-lg border bg-background p-2">
-                    {(activeProvider.models ?? []).length > 0 ? (
-                      <div className="grid gap-1">
-                        {(activeProvider.models ?? []).map((model) => {
-                          const checked = (
-                            activeProvider.enabledModelIds ?? []
-                          ).includes(model);
-
-                          return (
-                            <label
-                              key={model}
-                              className="flex min-w-0 cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-base hover:bg-accent hover:text-accent-foreground"
-                            >
-                              <input
-                                type="checkbox"
-                                checked={checked}
-                                onChange={(event) =>
-                                  toggleVisibleModel(
-                                    model,
-                                    event.target.checked,
-                                  )
-                                }
-                                className="size-4 shrink-0 accent-primary"
-                              />
-                              <span className="min-w-0 flex-1 truncate">
-                                {model}
-                              </span>
-                            </label>
-                          );
-                        })}
-                      </div>
-                    ) : (
-                      <p className="px-2 py-4 text-base text-muted-foreground">
-                        Load models to choose which ones should be visible.
-                      </p>
-                    )}
-                  </div>
-                </div>
-
-                <Separator />
-
-                <div className="grid gap-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <Label>Generation settings</Label>
-                      <p className="mt-1 text-sm leading-5 text-muted-foreground">
-                        Saved per selected provider and used for that provider's
-                        visible models.
-                      </p>
-                    </div>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="rounded-lg"
-                      onClick={resetActiveModelSettings}
-                    >
-                      Reset
-                    </Button>
-                  </div>
-
-                  <div className="grid gap-4 md:grid-cols-3">
-                    <div className="grid gap-2">
-                      <Label htmlFor="generation-temperature">
-                        Temperature
-                      </Label>
-                      <Input
-                        id="generation-temperature"
-                        type="number"
-                        min="0"
-                        max="2"
-                        step="0.1"
-                        value={formatOptionalNumber(
-                          activeModelSettings.temperature,
-                        )}
-                        onChange={(event) =>
-                          updateActiveModelSettings({
-                            temperature: parseOptionalNumber(
-                              event.target.value,
-                            ),
-                          })
-                        }
-                        placeholder="Provider default"
-                      />
-                    </div>
-
-                    <div className="grid gap-2">
-                      <Label htmlFor="generation-top-p">Top P</Label>
-                      <Input
-                        id="generation-top-p"
-                        type="number"
-                        min="0"
-                        max="1"
-                        step="0.05"
-                        value={formatOptionalNumber(activeModelSettings.topP)}
-                        onChange={(event) =>
-                          updateActiveModelSettings({
-                            topP: parseOptionalNumber(event.target.value),
-                          })
-                        }
-                        placeholder="Provider default"
-                      />
-                    </div>
-
-                    <div className="grid gap-2">
-                      <Label htmlFor="generation-max-tokens">Max tokens</Label>
-                      <Input
-                        id="generation-max-tokens"
-                        type="number"
-                        min="1"
-                        step="1"
-                        value={formatOptionalNumber(
-                          activeModelSettings.maxTokens,
-                        )}
-                        onChange={(event) =>
-                          updateActiveModelSettings({
-                            maxTokens: parseOptionalNumber(event.target.value),
-                          })
-                        }
-                        placeholder="Provider default"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="grid gap-4 md:grid-cols-3">
-                    <div className="grid gap-2">
-                      <Label>Thinking controls</Label>
-                      <Select
-                        value={activeModelSettings.reasoningMode ?? "auto"}
-                        onValueChange={(reasoningMode) =>
-                          updateActiveModelSettings({
-                            reasoningMode:
-                              reasoningMode as ProviderGenerationSettings["reasoningMode"],
-                          })
-                        }
-                      >
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="auto">Auto-detect</SelectItem>
-                          <SelectItem value="enabled">Force enabled</SelectItem>
-                          <SelectItem value="off">Off</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    <div className="grid gap-2">
-                      <Label>Reasoning effort</Label>
-                      <Select
-                        value={activeModelSettings.reasoningEffort ?? "medium"}
-                        onValueChange={(reasoningEffort) =>
-                          updateActiveModelSettings({
-                            reasoningEffort:
-                              reasoningEffort as ProviderGenerationSettings["reasoningEffort"],
-                          })
-                        }
-                      >
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="low">Low</SelectItem>
-                          <SelectItem value="medium">Medium</SelectItem>
-                          <SelectItem value="high">High</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    <div className="grid gap-2">
-                      <Label htmlFor="generation-timeout">
-                        Request timeout, ms
-                      </Label>
-                      <Input
-                        id="generation-timeout"
-                        type="number"
-                        min="1000"
-                        step="1000"
-                        value={formatOptionalNumber(
-                          activeModelSettings.requestTimeoutMs,
-                        )}
-                        onChange={(event) =>
-                          updateActiveModelSettings({
-                            requestTimeoutMs: parseOptionalNumber(
-                              event.target.value,
-                            ),
-                          })
-                        }
-                        placeholder="30000"
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <DialogFooter className="h-[72px] shrink-0 items-center border-t px-5 py-3">
-            <Button
-              type="button"
-              variant="secondary"
-              className="rounded-lg"
-              onClick={() =>
-                updateProviderSetting({
-                  ...defaultProvider,
-                  id: activeProvider.id,
-                  defaultSettings: defaultGenerationSettings,
-                  modelSettings: {},
-                })
-              }
-            >
-              Reset selected provider
-            </Button>
-            <Button
-              type="button"
-              className="rounded-lg"
-              onClick={saveSettingsChanges}
-            >
-              Save
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ProviderSettingsDialog
+        open={settingsOpen}
+        onOpenChange={setSettingsOpen}
+        providers={providers}
+        activeProvider={activeProvider}
+        onProvidersStateChange={handleProvidersStateChange}
+        onProviderSettingChange={handleProviderSettingChange}
+        onAddProvider={handleAddProvider}
+        onDuplicateProvider={handleDuplicateProvider}
+        onDeleteProvider={handleDeleteProvider}
+        onSave={handleSaveSettingsChanges}
+        showSuccess={stableShowSuccess}
+      />
 
       <ToolsDialog
         open={toolsOpen}
@@ -7660,8 +5178,8 @@ ${value}
         onToolsSettingsChange={setToolsSettings}
         loadedTools={loadedTools}
         onLoadedToolsChange={setLoadedTools}
-        showSuccess={showSuccess}
-        showError={showError}
+        showSuccess={stableShowSuccess}
+        showError={stableShowError}
       />
 
       <Dialog open={systemPromptOpen} onOpenChange={setSystemPromptOpen}>

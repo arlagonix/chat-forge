@@ -43,9 +43,7 @@ function takeVisibleWords(
   let end = 0;
   let words = 0;
   const wordPattern = /\s*\S+\s*/g;
-  let wordMatch: RegExpExecArray | null;
-
-  while ((wordMatch = wordPattern.exec(remaining)) && words < maxWords) {
+  while (wordPattern.exec(remaining) && words < maxWords) {
     end = wordPattern.lastIndex;
     words += 1;
   }
@@ -200,6 +198,16 @@ function useSmoothStreamingText({
   return visibleContent;
 }
 
+type SmoothAssistantMessageContentProps = {
+  content: string;
+  className?: string;
+  isApiStreaming: boolean;
+  flushVersion: number;
+  forceInstant?: boolean;
+  onVisualProgress?: () => void;
+  onVisualStreamingChange?: (isVisuallyStreaming: boolean) => void;
+};
+
 export const SmoothAssistantMessageContent = memo(
   function SmoothAssistantMessageContent({
     content,
@@ -209,15 +217,7 @@ export const SmoothAssistantMessageContent = memo(
     forceInstant = false,
     onVisualProgress,
     onVisualStreamingChange,
-  }: {
-    content: string;
-    className?: string;
-    isApiStreaming: boolean;
-    flushVersion: number;
-    forceInstant?: boolean;
-    onVisualProgress?: () => void;
-    onVisualStreamingChange?: (isVisuallyStreaming: boolean) => void;
-  }) {
+  }: SmoothAssistantMessageContentProps) {
     const visibleContent = useSmoothStreamingText({
       content,
       isApiStreaming,
@@ -231,4 +231,10 @@ export const SmoothAssistantMessageContent = memo(
       <AssistantMessageContent content={visibleContent} className={className} />
     );
   },
+  (previous, next) =>
+    previous.content === next.content &&
+    previous.className === next.className &&
+    previous.isApiStreaming === next.isApiStreaming &&
+    previous.flushVersion === next.flushVersion &&
+    previous.forceInstant === next.forceInstant,
 );

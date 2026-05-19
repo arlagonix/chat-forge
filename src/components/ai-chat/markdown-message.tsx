@@ -3,12 +3,14 @@
 import { Check, Clipboard, Download, WrapText } from "lucide-react";
 import React, { isValidElement, ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
+import type { Components } from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import rehypeKatex from "rehype-katex";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
+import type { PluggableList } from "unified";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -364,38 +366,47 @@ function CodeBlock({
   );
 }
 
-export function MarkdownMessage({ content, className }: MarkdownMessageProps) {
+const REMARK_PLUGINS: PluggableList = [remarkGfm, remarkMath];
+
+const REHYPE_PLUGINS: PluggableList = [
+  rehypeRaw,
+  [rehypeSanitize, SAFE_HTML_SCHEMA],
+  rehypeKatex,
+  [rehypeHighlight, { detect: false, ignoreMissing: true }],
+];
+
+const MARKDOWN_COMPONENTS: Components = {
+  a: ({ className, ...props }) => (
+    <a
+      className={cn("underline underline-offset-4", className)}
+      target="_blank"
+      rel="noreferrer"
+      {...props}
+    />
+  ),
+  code: ({ className, children, ...props }) => (
+    <code className={cn(className)} {...props}>
+      {children}
+    </code>
+  ),
+  pre: ({ className, children }) => (
+    <CodeBlock className={className}>{children}</CodeBlock>
+  ),
+};
+
+export const MarkdownMessage = React.memo(function MarkdownMessage({
+  content,
+  className,
+}: MarkdownMessageProps) {
   return (
     <div className={cn("chat-markdown min-w-0 max-w-full", className)}>
       <ReactMarkdown
-        remarkPlugins={[remarkGfm, remarkMath]}
-        rehypePlugins={[
-          rehypeRaw,
-          [rehypeSanitize, SAFE_HTML_SCHEMA],
-          rehypeKatex,
-          [rehypeHighlight, { detect: false, ignoreMissing: true }],
-        ]}
-        components={{
-          a: ({ className, ...props }) => (
-            <a
-              className={cn("underline underline-offset-4", className)}
-              target="_blank"
-              rel="noreferrer"
-              {...props}
-            />
-          ),
-          code: ({ className, children, ...props }) => (
-            <code className={cn(className)} {...props}>
-              {children}
-            </code>
-          ),
-          pre: ({ className, children }) => (
-            <CodeBlock className={className}>{children}</CodeBlock>
-          ),
-        }}
+        remarkPlugins={REMARK_PLUGINS}
+        rehypePlugins={REHYPE_PLUGINS}
+        components={MARKDOWN_COMPONENTS}
       >
         {normalizeMarkdownContent(content)}
       </ReactMarkdown>
     </div>
   );
-}
+});
