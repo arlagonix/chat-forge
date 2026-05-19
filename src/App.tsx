@@ -1,86 +1,29 @@
 "use client";
 
+import { ChevronDown } from "lucide-react";
 import {
-  Check,
-  ChevronDown,
-  ChevronLeft,
-  ChevronRight,
-  ChevronsUpDown,
-  Lock,
-  MessageSquareText,
-  Moon,
-  MoreVertical,
-  PanelLeftClose,
-  PanelLeftOpen,
-  Plus,
-  Search,
-  Send,
-  Settings,
-  Square,
-  Sun,
-  Trash2,
-  Wrench,
-  X,
-} from "lucide-react";
-import type {
-  FormEvent,
-  MouseEvent as ReactMouseEvent,
-  ReactNode,
-  PointerEvent as ReactPointerEvent,
-  WheelEvent as ReactWheelEvent,
-} from "react";
-import {
-  forwardRef,
-  memo,
   useCallback,
   useEffect,
-  useImperativeHandle,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
 } from "react";
 
-import { MarkdownMessage } from "@/components/ai-chat/markdown-message";
+import { ChatMessageList } from "@/components/ai-chat/chat-message-list";
 import {
-  ChatMessageList,
-  type MessageContextMenuState,
-} from "@/components/ai-chat/chat-message-list";
-import { TooltipIconButton } from "@/components/ai-chat/tooltip-icon-button";
+  ChatComposer,
+  type ChatComposerHandle,
+  type ToolMentionOption,
+} from "@/components/ai-chat/chat-composer";
+import { ToolExecutionBlock } from "@/components/ai-chat/tool-execution-block";
+import { ComposerFooter } from "@/components/ai-chat/composer-footer";
+import { EmptyChatState } from "@/components/ai-chat/empty-chat-state";
+import { FindBar } from "@/components/ai-chat/find-bar";
+import { ChatSidebar } from "@/components/chat-sidebar";
+import { SystemPromptDialog } from "@/components/dialogs/system-prompt-dialog";
 import { ProviderSettingsDialog } from "@/components/provider-settings-dialog";
 import { ToolsDialog } from "@/components/tools-dialog";
 import { Button } from "@/components/ui/button";
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from "@/components/ui/command";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { Input } from "@/components/ui/input";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import { Spinner } from "@/components/ui/spinner";
-import { Textarea } from "@/components/ui/textarea";
 import {
   buildTokenMetrics,
   createId,
@@ -93,7 +36,6 @@ import {
   normalizeProviderForState,
   normalizeProviderModels,
   providerDisplayName,
-  providerLabel,
   sortChatsByUpdatedAt,
   titleFromMessage,
 } from "@/lib/ai-chat/chat-utils";
@@ -101,7 +43,6 @@ import { streamProviderChat } from "@/lib/ai-chat/direct-provider-client";
 import { defaultProvider } from "@/lib/ai-chat/provider-presets";
 import {
   createEmptyChat,
-  deleteChat,
   loadActiveChatId,
   loadChats,
   loadProvidersState,
@@ -115,9 +56,23 @@ import {
   saveToolsSettings,
 } from "@/lib/ai-chat/storage";
 import { runQueuedTool } from "@/lib/ai-chat/tool-execution-queue";
+import {
+  ASK_USER_TOOL,
+  ASK_USER_TOOL_NAME,
+  CHECKLIST_WRITE_TOOL,
+  CHECKLIST_WRITE_TOOL_NAME,
+  DEFAULT_TOOLS_SETTINGS,
+  compareToolsByDisplayOrder,
+  createAskUserToolResult,
+  createChecklistWriteToolResult,
+  isBuiltInToolName,
+  isValidToolName,
+  parseAskUserRequestFromToolCall,
+  parseChecklistWriteRequestFromToolCall,
+  parseToolArgumentsText,
+  parseToolMentionNames,
+} from "@/lib/ai-chat/builtin-tools";
 import type {
-  AskUserQuestion,
-  AskUserQuestionType,
   AskUserRequest,
   AskUserResponse,
   ChatAssistantProcessStep,
@@ -126,16 +81,16 @@ import type {
   ChatSession,
   ChatToolCall,
   ChatToolResult,
-  ChecklistItem,
-  ChecklistWriteRequest,
   LoadedToolInfo,
   ProviderConfig,
   ProvidersState,
-  ToolExecutionPreview,
   ToolExecutionStatus,
   ToolsSettings,
   UserInputStatus,
 } from "@/lib/ai-chat/types";
+import { useChatActions } from "@/hooks/use-chat-actions";
+import { useChatAutoscroll } from "@/hooks/use-chat-autoscroll";
+import { useMessageContextMenu } from "@/hooks/use-message-context-menu";
 import { useStableCallback } from "@/hooks/use-stable-callback";
 import { useTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
@@ -152,192 +107,7 @@ const STICKY_SCROLL_SETTLE_FRAMES = 5;
 const FORCED_SCROLL_SETTLE_FRAMES = 8;
 const SIDEBAR_COLLAPSED_STORAGE_KEY = "chat-forge-sidebar-collapsed";
 const COMPOSER_DRAFTS_STORAGE_KEY = "chat-forge-composer-drafts";
-const DEFAULT_TOOLS_SETTINGS: ToolsSettings = {
-  enabled: true,
-  askUserEnabled: true,
-  checklistWriteEnabled: true,
-};
-const ASK_USER_TOOL_NAME = "ask_user";
-const CHECKLIST_WRITE_TOOL_NAME = "checklist_write";
-const TOOL_NAME_PATTERN = /^[A-Za-z0-9_-]+$/;
-const TOOL_MENTION_PATTERN = /(^|\s)@tool:([A-Za-z0-9_-]+)(?=$|\s)/g;
-const ASK_USER_CUSTOM_ANSWER_ID = "__custom__";
-const MAX_ASK_USER_QUESTIONS = 5;
-const MAX_ASK_USER_OPTIONS = 8;
-const MAX_ASK_USER_TITLE_LENGTH = 120;
-const MAX_ASK_USER_DESCRIPTION_LENGTH = 500;
-const MAX_ASK_USER_QUESTION_LENGTH = 500;
-const MAX_ASK_USER_OPTION_LABEL_LENGTH = 160;
-const MAX_ASK_USER_OPTION_DESCRIPTION_LENGTH = 300;
-const MAX_CHECKLIST_ITEMS = 10;
-const MAX_CHECKLIST_CONTENT_LENGTH = 180;
-const ASK_USER_TOOL: LoadedToolInfo = {
-  id: "builtin-ask-user",
-  name: ASK_USER_TOOL_NAME,
-  enabled: true,
-  description:
-    "Pause and ask the user focused clarification questions, then continue the same response. Supports single_choice, multi_select, and text questions. Use text when the user must provide a custom value such as a number, name, or range. For choice questions, use concise option labels and strongly prefer one-sentence option descriptions. Use only when the answer materially changes the next step.",
-  parameters: {
-    type: "object",
-    additionalProperties: false,
-    properties: {
-      title: {
-        type: "string",
-        description: "Short heading for the question form.",
-      },
-      description: {
-        type: "string",
-        description: "Optional short explanation of why this input is needed.",
-      },
-      questions: {
-        type: "array",
-        description:
-          "One to five questions. Each question must set type to single_choice, multi_select, or text.",
-        minItems: 1,
-        maxItems: MAX_ASK_USER_QUESTIONS,
-        items: {
-          type: "object",
-          additionalProperties: false,
-          properties: {
-            id: {
-              type: "string",
-              description: "Stable snake_case answer key.",
-            },
-            type: {
-              type: "string",
-              enum: ["single_choice", "multi_select", "text"],
-              description:
-                "Use single_choice for one option, multi_select for several options, and text for custom-only user input.",
-            },
-            question: { type: "string" },
-            description: { type: "string" },
-            input: {
-              type: "object",
-              additionalProperties: false,
-              description:
-                "Only for text questions. Set multiline to true for longer free-form answers.",
-              properties: {
-                multiline: { type: "boolean" },
-              },
-            },
-            options: {
-              type: "array",
-              description:
-                "Required for single_choice and multi_select. Use concise labels and strongly prefer one-sentence gray-helper descriptions. Do not include Other/custom; Chat Forge adds a custom typed answer option automatically for choice questions.",
-              minItems: 2,
-              maxItems: MAX_ASK_USER_OPTIONS,
-              items: {
-                type: "object",
-                additionalProperties: false,
-                properties: {
-                  id: { type: "string" },
-                  label: {
-                    type: "string",
-                    description: "Short option label, usually 1-5 words.",
-                  },
-                  description: {
-                    type: "string",
-                    description:
-                      "Strongly recommended one-sentence explanation shown below the label.",
-                  },
-                },
-                required: ["id", "label"],
-              },
-            },
-          },
-          required: ["id", "type", "question"],
-        },
-      },
-    },
-    required: ["questions"],
-  },
-  command: "",
-  args: [],
-  input: "none",
-  timeoutMs: 0,
-};
-const CHECKLIST_WRITE_TOOL: LoadedToolInfo = {
-  id: "builtin-checklist-write",
-  name: CHECKLIST_WRITE_TOOL_NAME,
-  enabled: true,
-  description:
-    "Create or update a visible checklist snapshot to track progress during complex multi-step work. Use this for substantial coding, debugging, research, or planning tasks. Keep items short. Each item must explicitly set done to true or false.",
-  parameters: {
-    type: "object",
-    additionalProperties: false,
-    properties: {
-      items: {
-        type: "array",
-        description:
-          "Checklist items. Include the full current checklist snapshot. Each item must explicitly set done to true or false.",
-        minItems: 1,
-        maxItems: MAX_CHECKLIST_ITEMS,
-        items: {
-          type: "object",
-          additionalProperties: false,
-          properties: {
-            content: {
-              type: "string",
-              description: "Short user-visible checklist item.",
-            },
-            done: {
-              type: "boolean",
-              description:
-                "Whether this item is completed. Always provide true or false.",
-            },
-          },
-          required: ["content", "done"],
-        },
-      },
-    },
-    required: ["items"],
-  },
-  command: "",
-  args: [],
-  input: "none",
-  timeoutMs: 0,
-};
 const MAX_TOOL_ROUNDS = 20;
-const TOOL_DESCRIPTION_PREVIEW_MAX_LENGTH = 95;
-
-function isValidToolName(toolName: string) {
-  return TOOL_NAME_PATTERN.test(toolName);
-}
-
-function isBuiltInToolName(toolName: string) {
-  return (
-    toolName === ASK_USER_TOOL_NAME || toolName === CHECKLIST_WRITE_TOOL_NAME
-  );
-}
-
-function compareToolsByDisplayOrder(
-  left: Pick<LoadedToolInfo, "name">,
-  right: Pick<LoadedToolInfo, "name">,
-) {
-  const leftIsBuiltIn = isBuiltInToolName(left.name);
-  const rightIsBuiltIn = isBuiltInToolName(right.name);
-
-  if (leftIsBuiltIn !== rightIsBuiltIn) return leftIsBuiltIn ? -1 : 1;
-
-  return left.name.localeCompare(right.name);
-}
-
-function parseToolMentionNames(content: string) {
-  const names: string[] = [];
-  const seen = new Set<string>();
-  const pattern = new RegExp(TOOL_MENTION_PATTERN);
-  let match: RegExpExecArray | null;
-
-  while ((match = pattern.exec(content)) !== null) {
-    const name = match[2]?.trim();
-    if (!name || seen.has(name)) continue;
-
-    seen.add(name);
-    names.push(name);
-  }
-
-  return names;
-}
 
 function loadComposerDrafts(): Record<string, string> {
   if (typeof window === "undefined") return {};
@@ -379,417 +149,6 @@ function saveComposerDrafts(drafts: Record<string, string>) {
     JSON.stringify(nonEmptyDrafts),
   );
 }
-
-function getAskUserQuestionType(
-  question: AskUserQuestion,
-): AskUserQuestionType {
-  if (
-    question.type === "multi_select" ||
-    question.type === "text" ||
-    question.type === "single_choice"
-  ) {
-    return question.type;
-  }
-
-  return "single_choice";
-}
-
-type ToolMentionOption = {
-  name: string;
-  description?: string;
-  isBuiltin?: boolean;
-};
-
-type ActiveToolMention = {
-  startIndex: number;
-  endIndex: number;
-  query: string;
-};
-
-function findActiveToolMention(
-  content: string,
-  cursorIndex: number,
-): ActiveToolMention | null {
-  const prefix = content.slice(0, cursorIndex);
-  const match = /(^|\s)@tool:([A-Za-z0-9_-]*)$/.exec(prefix);
-
-  if (!match) return null;
-
-  const fullMatch = match[0] ?? "";
-  const leadingWhitespace = match[1] ?? "";
-  const query = match[2] ?? "";
-  const startIndex = cursorIndex - fullMatch.length + leadingWhitespace.length;
-
-  return {
-    startIndex,
-    endIndex: cursorIndex,
-    query,
-  };
-}
-
-type ChatComposerHandle = {
-  clear: () => void;
-  focus: () => void;
-};
-
-const ChatComposer = memo(
-  forwardRef<
-    ChatComposerHandle,
-    {
-      disabled: boolean;
-      isSending: boolean;
-      draftKey: string;
-      draft: string;
-      onDraftChange: (draft: string) => void;
-      onSend: (content: string) => Promise<boolean> | boolean;
-      onStop: () => void;
-      footerStart?: ReactNode;
-      toolMentionOptions?: ToolMentionOption[];
-    }
-  >(function ChatComposer(
-    {
-      disabled,
-      isSending,
-      draftKey,
-      draft,
-      onDraftChange,
-      onSend,
-      onStop,
-      footerStart,
-      toolMentionOptions = [],
-    },
-    ref,
-  ) {
-    const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-    const toolMentionMenuRef = useRef<HTMLDivElement | null>(null);
-    const [localDraft, setLocalDraft] = useState(draft);
-    const [activeToolMention, setActiveToolMention] =
-      useState<ActiveToolMention | null>(null);
-    const [selectedToolSuggestionIndex, setSelectedToolSuggestionIndex] =
-      useState(0);
-    const trimmedDraft = localDraft.trim();
-    const canSend = !disabled && !isSending && trimmedDraft.length > 0;
-
-    const toolMentionSuggestions = useMemo(() => {
-      if (!activeToolMention || disabled || isSending) return [];
-
-      const query = activeToolMention.query.trim().toLowerCase();
-      const filteredOptions = query
-        ? toolMentionOptions.filter((tool) =>
-            `${tool.name} ${tool.description ?? ""}`
-              .toLowerCase()
-              .includes(query),
-          )
-        : toolMentionOptions;
-
-      return filteredOptions.slice(0, 8);
-    }, [activeToolMention, disabled, isSending, toolMentionOptions]);
-
-    const isToolMentionMenuOpen =
-      Boolean(activeToolMention) && toolMentionSuggestions.length > 0;
-
-    const updateActiveToolMention = useCallback(
-      (value: string, cursorIndex: number | null) => {
-        setActiveToolMention(
-          findActiveToolMention(value, cursorIndex ?? value.length),
-        );
-      },
-      [],
-    );
-
-    const applyToolMentionSuggestion = useCallback(
-      (toolName: string) => {
-        if (!activeToolMention) return;
-
-        const suffix = localDraft.slice(activeToolMention.endIndex);
-        const shouldAddTrailingSpace =
-          suffix.length === 0 || !/^\s/.test(suffix);
-        const replacement = `@tool:${toolName}${
-          shouldAddTrailingSpace ? " " : ""
-        }`;
-        const nextDraft = `${localDraft.slice(
-          0,
-          activeToolMention.startIndex,
-        )}${replacement}${suffix}`;
-        const nextCursorIndex =
-          activeToolMention.startIndex + replacement.length;
-
-        setLocalDraft(nextDraft);
-        onDraftChange(nextDraft);
-        setActiveToolMention(null);
-        setSelectedToolSuggestionIndex(0);
-
-        window.requestAnimationFrame(() => {
-          const textarea = textareaRef.current;
-          if (!textarea) return;
-
-          textarea.focus({ preventScroll: true });
-          textarea.setSelectionRange(nextCursorIndex, nextCursorIndex);
-        });
-      },
-      [activeToolMention, localDraft, onDraftChange],
-    );
-
-    const focusTextarea = useCallback(() => {
-      window.requestAnimationFrame(() => {
-        window.requestAnimationFrame(() => {
-          const textarea = textareaRef.current;
-          if (!textarea) return;
-
-          textarea.focus({ preventScroll: true });
-
-          const cursorPosition = textarea.value.length;
-          textarea.setSelectionRange(cursorPosition, cursorPosition);
-        });
-      });
-    }, []);
-
-    useImperativeHandle(
-      ref,
-      () => ({
-        clear: () => {
-          setLocalDraft("");
-          onDraftChange("");
-          setActiveToolMention(null);
-          setSelectedToolSuggestionIndex(0);
-        },
-        focus: focusTextarea,
-      }),
-      [focusTextarea, onDraftChange],
-    );
-
-    useEffect(() => {
-      setLocalDraft(draft);
-      setActiveToolMention(null);
-      setSelectedToolSuggestionIndex(0);
-    }, [draftKey, draft]);
-
-    useEffect(() => {
-      setSelectedToolSuggestionIndex(0);
-    }, [activeToolMention?.query, toolMentionSuggestions.length]);
-
-    useLayoutEffect(() => {
-      if (!isToolMentionMenuOpen) return;
-
-      const selectedElement = toolMentionMenuRef.current?.querySelector(
-        `[data-tool-suggestion-index="${selectedToolSuggestionIndex}"]`,
-      );
-      selectedElement?.scrollIntoView({ block: "nearest" });
-    }, [
-      activeToolMention?.query,
-      isToolMentionMenuOpen,
-      selectedToolSuggestionIndex,
-      toolMentionSuggestions.length,
-    ]);
-
-    useEffect(() => {
-      const textarea = textareaRef.current;
-      if (!textarea) return;
-
-      textarea.style.height = "auto";
-
-      const computedStyle = window.getComputedStyle(textarea);
-      const lineHeight = Number.parseFloat(computedStyle.lineHeight) || 24;
-      const paddingTop = Number.parseFloat(computedStyle.paddingTop) || 0;
-      const paddingBottom = Number.parseFloat(computedStyle.paddingBottom) || 0;
-      const maxHeight = lineHeight * 11 + paddingTop + paddingBottom;
-
-      textarea.style.height = `${Math.min(textarea.scrollHeight, maxHeight)}px`;
-      textarea.style.overflowY =
-        textarea.scrollHeight > maxHeight ? "auto" : "hidden";
-    }, [localDraft]);
-
-    async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-      event.preventDefault();
-      if (!canSend) return;
-
-      const wasSent = await onSend(localDraft);
-      if (wasSent) {
-        setLocalDraft("");
-        onDraftChange("");
-        setActiveToolMention(null);
-        setSelectedToolSuggestionIndex(0);
-      }
-    }
-
-    return (
-      <form
-        onSubmit={handleSubmit}
-        className="bg-background px-3 py-3 md:px-4 md:py-4"
-        data-draft-input
-      >
-        <div className="mx-auto w-full max-w-3xl border rounded-lg bg-card p-3 pt-0 shadow-sm">
-          <div className="mx-auto grid w-full gap-2">
-            <div className="relative">
-              {isToolMentionMenuOpen && (
-                <div
-                  ref={toolMentionMenuRef}
-                  className="absolute bottom-full left-1/2 z-20 mb-2 max-h-64 w-[min(48rem,calc(100vw-2rem))] -translate-x-1/2 overflow-y-auto rounded-lg border bg-popover p-1 text-popover-foreground shadow-lg"
-                >
-                  {toolMentionSuggestions.map((tool, index) => {
-                    const isSelected = index === selectedToolSuggestionIndex;
-
-                    return (
-                      <button
-                        key={tool.name}
-                        type="button"
-                        data-tool-suggestion-index={index}
-                        onMouseDown={(event) => {
-                          event.preventDefault();
-                          applyToolMentionSuggestion(tool.name);
-                        }}
-                        className={cn(
-                          "flex w-full min-w-0 items-start gap-2 rounded-md px-2 py-1.5 text-left text-sm",
-                          isSelected && "bg-accent text-accent-foreground",
-                        )}
-                        title={tool.description}
-                      >
-                        <Wrench className="mt-0.5 size-3.5 shrink-0 opacity-70" />
-                        <span className="min-w-0 flex-1">
-                          <span className="flex min-w-0 items-center gap-1.5 font-medium">
-                            <span className="min-w-0 truncate">
-                              {tool.name}
-                            </span>
-                            {tool.isBuiltin && (
-                              <Lock className="size-3 shrink-0 text-muted-foreground" />
-                            )}
-                          </span>
-                          {tool.description && (
-                            <span className="mt-0.5 line-clamp-1 text-muted-foreground">
-                              {tool.description}
-                            </span>
-                          )}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-              <Textarea
-                ref={textareaRef}
-                value={localDraft}
-                rows={3}
-                onChange={(event) => {
-                  const nextDraft = event.target.value;
-                  setLocalDraft(nextDraft);
-                  onDraftChange(nextDraft);
-                  updateActiveToolMention(
-                    nextDraft,
-                    event.target.selectionStart,
-                  );
-                }}
-                onClick={(event) => {
-                  updateActiveToolMention(
-                    event.currentTarget.value,
-                    event.currentTarget.selectionStart,
-                  );
-                }}
-                onSelect={(event) => {
-                  updateActiveToolMention(
-                    event.currentTarget.value,
-                    event.currentTarget.selectionStart,
-                  );
-                }}
-                onKeyUp={(event) => {
-                  if (
-                    ![
-                      "ArrowLeft",
-                      "ArrowRight",
-                      "ArrowUp",
-                      "ArrowDown",
-                      "Home",
-                      "End",
-                      "PageUp",
-                      "PageDown",
-                    ].includes(event.key)
-                  ) {
-                    return;
-                  }
-
-                  updateActiveToolMention(
-                    event.currentTarget.value,
-                    event.currentTarget.selectionStart,
-                  );
-                }}
-                onKeyDown={(event) => {
-                  if (isToolMentionMenuOpen) {
-                    if (event.key === "ArrowDown") {
-                      event.preventDefault();
-                      setSelectedToolSuggestionIndex((index) =>
-                        Math.min(index + 1, toolMentionSuggestions.length - 1),
-                      );
-                      return;
-                    }
-
-                    if (event.key === "ArrowUp") {
-                      event.preventDefault();
-                      setSelectedToolSuggestionIndex((index) =>
-                        Math.max(index - 1, 0),
-                      );
-                      return;
-                    }
-
-                    if (event.key === "Enter" || event.key === "Tab") {
-                      const selectedTool =
-                        toolMentionSuggestions[selectedToolSuggestionIndex];
-
-                      if (selectedTool) {
-                        event.preventDefault();
-                        applyToolMentionSuggestion(selectedTool.name);
-                        return;
-                      }
-                    }
-
-                    if (event.key === "Escape") {
-                      event.preventDefault();
-                      setActiveToolMention(null);
-                      setSelectedToolSuggestionIndex(0);
-                      return;
-                    }
-                  }
-
-                  if (event.key !== "Enter") return;
-
-                  if (event.shiftKey) return;
-
-                  event.preventDefault();
-                  event.currentTarget.form?.requestSubmit();
-                }}
-                placeholder="Type a message..."
-                className="min-h-[5.5rem] resize-none border-0 !bg-transparent px-1 leading-6 shadow-none focus-visible:ring-0"
-              />
-            </div>
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="min-w-0 flex-1">{footerStart}</div>
-              {isSending ? (
-                <Button
-                  type="button"
-                  variant="secondary"
-                  onClick={onStop}
-                  className="shrink-0 rounded-lg"
-                  title="Stop generation"
-                >
-                  <Square className="size-4" />
-                  Stop
-                </Button>
-              ) : (
-                <Button
-                  type="submit"
-                  disabled={!canSend}
-                  className="shrink-0 rounded-lg"
-                  title="Send message"
-                >
-                  <Send className="size-4" />
-                  Send
-                </Button>
-              )}
-            </div>
-          </div>
-        </div>
-      </form>
-    );
-  }),
-);
 
 type StreamBufferEvent =
   | {
@@ -885,8 +244,6 @@ export default function Home() {
   const [visualFlushRequests, setVisualFlushRequests] = useState<
     Record<string, number>
   >({});
-  const [messageContextMenu, setMessageContextMenu] =
-    useState<MessageContextMenuState | null>(null);
   const [findBarOpen, setFindBarOpen] = useState(false);
   const [findQuery, setFindQuery] = useState("");
   const [findResult, setFindResult] =
@@ -896,10 +253,6 @@ export default function Home() {
   const [sidebarModelSearchValue, setSidebarModelSearchValue] = useState("");
   const [isChatToolPickerOpen, setIsChatToolPickerOpen] = useState(false);
   const [chatToolSearchValue, setChatToolSearchValue] = useState("");
-  const [isNearChatBottom, setIsNearChatBottom] = useState(true);
-  const [showScrollToBottomButton, setShowScrollToBottomButton] =
-    useState(false);
-  const [isChatScrollable, setIsChatScrollable] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
   const [systemPromptOpen, setSystemPromptOpen] = useState(false);
@@ -914,29 +267,18 @@ export default function Home() {
   const [collapsedToolStepIds, setCollapsedToolStepIds] = useState<
     Record<string, boolean>
   >({});
-  const chatScrollRef = useRef<HTMLDivElement | null>(null);
-  const chatContentRef = useRef<HTMLDivElement | null>(null);
-  const chatBottomRef = useRef<HTMLDivElement | null>(null);
+  const {
+    messageContextMenu,
+    captureMessageContext,
+    closeMessageContextMenu,
+  } = useMessageContextMenu();
   const messageElementRefs = useRef(new Map<string, HTMLDivElement>());
-  const pendingChatBottomScrollRef = useRef(false);
   const chatComposerRef = useRef<ChatComposerHandle | null>(null);
   const findInputRef = useRef<HTMLInputElement | null>(null);
   const generationRefs = useRef<Record<string, ActiveGeneration>>({});
   const pendingAskUserRequestsRef = useRef<
     Record<string, PendingAskUserRequest>
   >({});
-  const scrollFrameRef = useRef<number | null>(null);
-  const stickyScrollFrameRef = useRef<number | null>(null);
-  const stickyScrollSettleFramesRef = useRef(0);
-  const stickyScrollForceRef = useRef(false);
-  const autoScrollResetTimeoutRef = useRef<number | null>(null);
-  const manualScrollSuppressionTimeoutRef = useRef<number | null>(null);
-  const isAutoScrollingRef = useRef(false);
-  const manualScrollSuppressedUntilRef = useRef(0);
-  const lastChatScrollTopRef = useRef(0);
-  const manualScrollInputUntilRef = useRef(0);
-  const isResizingChatRef = useRef(false);
-  const isChatScrollableRef = useRef(false);
   const streamBuffersRef = useRef<Record<string, StreamBuffer>>({});
   const streamActiveProcessStepRefs = useRef<
     Record<string, ActiveProcessStepRef>
@@ -945,10 +287,6 @@ export default function Home() {
   const didHydrateRef = useRef(false);
   const composerDraftSaveTimeoutRef = useRef<number | null>(null);
 
-  // Sticky auto-scroll is enabled only while the active chat is generating.
-  // Manual scroll-to-bottom still forces a one-off scroll when generation is idle.
-  const [autoScrollEnabled, setAutoScrollEnabled] = useState(false);
-  const autoScrollEnabledRef = useRef(false);
 
   const { resolvedTheme, setTheme } = useTheme();
 
@@ -1027,37 +365,6 @@ export default function Home() {
     );
   }, [isSidebarCollapsed]);
 
-  useEffect(() => {
-    if (!messageContextMenu) return;
-
-    function handleDocumentPointerDown(event: PointerEvent) {
-      const target = event.target instanceof Element ? event.target : null;
-
-      if (target?.closest("[data-message-context-menu]")) {
-        return;
-      }
-
-      closeMessageContextMenu();
-    }
-
-    function handleDocumentKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        closeMessageContextMenu();
-      }
-    }
-
-    document.addEventListener("pointerdown", handleDocumentPointerDown, true);
-    document.addEventListener("keydown", handleDocumentKeyDown);
-
-    return () => {
-      document.removeEventListener(
-        "pointerdown",
-        handleDocumentPointerDown,
-        true,
-      );
-      document.removeEventListener("keydown", handleDocumentKeyDown);
-    };
-  }, [messageContextMenu]);
 
   function runFindInPage(
     query: string,
@@ -1098,6 +405,16 @@ export default function Home() {
 
   function focusDraftTextarea() {
     chatComposerRef.current?.focus();
+  }
+
+  function registerMessageElement(messageId: string) {
+    return (element: HTMLDivElement | null) => {
+      if (element) {
+        messageElementRefs.current.set(messageId, element);
+      } else {
+        messageElementRefs.current.delete(messageId);
+      }
+    };
   }
 
   const sortedChats = useMemo(() => sortChatsByUpdatedAt(chats), [chats]);
@@ -1231,6 +548,34 @@ export default function Home() {
     [availableTools],
   );
 
+  const {
+    chatScrollRef,
+    chatContentRef,
+    chatBottomRef,
+    autoScrollEnabledRef,
+    isNearChatBottom,
+    showScrollToBottomButton,
+    isChatScrollable,
+    resetChatScrollState,
+    armStickyScrollToBottom,
+    scheduleStickyScrollToBottom,
+    isStickyScrollSuppressed,
+    syncChatScrollState,
+    scrollChatToBottom,
+    handleChatScroll,
+    handleChatWheel,
+    handleChatPointerDown,
+    handleAssistantVisualProgress,
+    handleAssistantVisualStreamingChange,
+    handleAskUserLayoutChange,
+  } = useChatAutoscroll({
+    activeChatId,
+    generatingChatIds,
+    messages,
+    closeMessageContextMenu,
+    setVisualStreamingMessageIds,
+  });
+
   useEffect(() => {
     let cancelled = false;
 
@@ -1335,18 +680,6 @@ export default function Home() {
 
   useEffect(() => {
     return () => {
-      if (scrollFrameRef.current !== null) {
-        window.cancelAnimationFrame(scrollFrameRef.current);
-      }
-      if (stickyScrollFrameRef.current !== null) {
-        window.cancelAnimationFrame(stickyScrollFrameRef.current);
-      }
-      if (autoScrollResetTimeoutRef.current !== null) {
-        window.clearTimeout(autoScrollResetTimeoutRef.current);
-      }
-      if (manualScrollSuppressionTimeoutRef.current !== null) {
-        window.clearTimeout(manualScrollSuppressionTimeoutRef.current);
-      }
       Object.values(streamFlushTimeoutRefs.current).forEach((timeoutId) =>
         window.clearTimeout(timeoutId),
       );
@@ -1438,499 +771,6 @@ export default function Home() {
     return () => window.clearTimeout(timeoutId);
   }, [chats]);
 
-  function getChatDistanceFromBottom() {
-    const scrollElement = chatScrollRef.current;
-    if (!scrollElement) return 0;
-
-    return Math.max(
-      0,
-      scrollElement.scrollHeight -
-        scrollElement.scrollTop -
-        scrollElement.clientHeight,
-    );
-  }
-
-  function canChatScroll() {
-    const scrollElement = chatScrollRef.current;
-    if (!scrollElement) return false;
-
-    return scrollElement.scrollHeight > scrollElement.clientHeight + 1;
-  }
-
-  function syncChatScrollableState() {
-    const nextIsScrollable = canChatScroll();
-    isChatScrollableRef.current = nextIsScrollable;
-    setIsChatScrollable((currentIsScrollable) =>
-      currentIsScrollable === nextIsScrollable
-        ? currentIsScrollable
-        : nextIsScrollable,
-    );
-    return nextIsScrollable;
-  }
-
-  function setChatAutoScrollEnabled(enabled: boolean) {
-    autoScrollEnabledRef.current = enabled;
-    setAutoScrollEnabled((currentEnabled) =>
-      currentEnabled === enabled ? currentEnabled : enabled,
-    );
-  }
-
-  function isStickyScrollSuppressed() {
-    return Date.now() < manualScrollSuppressedUntilRef.current;
-  }
-
-  function isChatNearBottom(threshold = CHAT_BOTTOM_THRESHOLD_PX) {
-    if (!canChatScroll()) return true;
-    return getChatDistanceFromBottom() <= threshold;
-  }
-
-  function clearStickyScrollSuppression() {
-    manualScrollSuppressedUntilRef.current = 0;
-
-    if (manualScrollSuppressionTimeoutRef.current !== null) {
-      window.clearTimeout(manualScrollSuppressionTimeoutRef.current);
-      manualScrollSuppressionTimeoutRef.current = null;
-    }
-  }
-
-  function suppressStickyScroll() {
-    manualScrollSuppressedUntilRef.current =
-      Date.now() + STICKY_SCROLL_SUPPRESSION_MS;
-    setChatAutoScrollEnabled(false);
-
-    if (manualScrollSuppressionTimeoutRef.current !== null) {
-      window.clearTimeout(manualScrollSuppressionTimeoutRef.current);
-    }
-
-    manualScrollSuppressionTimeoutRef.current = window.setTimeout(() => {
-      manualScrollSuppressionTimeoutRef.current = null;
-
-      if (!isChatNearBottom(CHAT_BOTTOM_THRESHOLD_PX)) return;
-
-      setChatAutoScrollEnabled(true);
-      scheduleStickyScrollToBottom();
-    }, STICKY_SCROLL_SUPPRESSION_MS);
-  }
-
-  function markManualScrollInput(durationMs = 200) {
-    manualScrollInputUntilRef.current = Date.now() + durationMs;
-  }
-
-  function hasRecentManualScrollInput() {
-    return Date.now() < manualScrollInputUntilRef.current;
-  }
-
-  function isActiveChatGenerating() {
-    return Boolean(activeChatId && isChatGenerating(activeChatId));
-  }
-
-  function canRunAutomaticStickyScroll() {
-    return isActiveChatGenerating();
-  }
-
-  function getStickyScrollSettleFrames() {
-    return canRunAutomaticStickyScroll() ? STICKY_SCROLL_SETTLE_FRAMES : 1;
-  }
-
-  function armStickyScrollToBottom() {
-    clearStickyScrollSuppression();
-    markProgrammaticChatScroll(500);
-    setChatAutoScrollEnabled(true);
-    setIsNearChatBottom(true);
-    setShowScrollToBottomButton(false);
-    requestChatBottomScrollAfterRender();
-    scheduleStickyScrollToBottom({
-      force: true,
-      settleFrames: FORCED_SCROLL_SETTLE_FRAMES,
-    });
-  }
-
-  function syncChatScrollState() {
-    syncChatScrollableState();
-
-    const distanceFromBottom = getChatDistanceFromBottom();
-    const isNearBottom =
-      !canChatScroll() || distanceFromBottom <= CHAT_BOTTOM_THRESHOLD_PX;
-
-    setIsNearChatBottom(isNearBottom);
-    setShowScrollToBottomButton(
-      canChatScroll() &&
-        distanceFromBottom > SCROLL_TO_BOTTOM_BUTTON_THRESHOLD_PX,
-    );
-
-    return { distanceFromBottom, isNearBottom };
-  }
-
-  function markProgrammaticChatScroll(durationMs = 80) {
-    isAutoScrollingRef.current = true;
-
-    if (autoScrollResetTimeoutRef.current !== null) {
-      window.clearTimeout(autoScrollResetTimeoutRef.current);
-    }
-
-    autoScrollResetTimeoutRef.current = window.setTimeout(() => {
-      autoScrollResetTimeoutRef.current = null;
-      isAutoScrollingRef.current = false;
-    }, durationMs);
-  }
-
-  function scrollToBottomInstant() {
-    const scrollElement = chatScrollRef.current;
-    if (!scrollElement) return;
-
-    const nextScrollTop = Math.max(
-      0,
-      scrollElement.scrollHeight - scrollElement.clientHeight,
-    );
-
-    markProgrammaticChatScroll();
-    scrollElement.scrollTop = nextScrollTop;
-    chatBottomRef.current?.scrollIntoView({ block: "end" });
-
-    const finalScrollTop = Math.max(
-      0,
-      scrollElement.scrollHeight - scrollElement.clientHeight,
-    );
-    scrollElement.scrollTop = finalScrollTop;
-    lastChatScrollTopRef.current = finalScrollTop;
-  }
-
-  function scheduleStickyScrollToBottom({
-    force = false,
-    settleFrames,
-  }: { force?: boolean; settleFrames?: number } = {}) {
-    if (!force) {
-      if (!canRunAutomaticStickyScroll()) return;
-      if (!autoScrollEnabledRef.current) return;
-      if (isStickyScrollSuppressed()) return;
-    }
-
-    stickyScrollForceRef.current = stickyScrollForceRef.current || force;
-    stickyScrollSettleFramesRef.current = Math.max(
-      stickyScrollSettleFramesRef.current,
-      Math.max(1, settleFrames ?? getStickyScrollSettleFrames()),
-    );
-
-    if (stickyScrollFrameRef.current !== null) return;
-
-    const runStickyScrollFrame = () => {
-      stickyScrollFrameRef.current = null;
-
-      const shouldForce = stickyScrollForceRef.current;
-
-      if (!shouldForce) {
-        if (!canRunAutomaticStickyScroll()) {
-          stickyScrollSettleFramesRef.current = 0;
-          return;
-        }
-
-        if (!autoScrollEnabledRef.current) {
-          stickyScrollSettleFramesRef.current = 0;
-          return;
-        }
-
-        if (isStickyScrollSuppressed()) {
-          stickyScrollSettleFramesRef.current = 0;
-          return;
-        }
-      }
-
-      scrollToBottomInstant();
-      syncChatScrollableState();
-      setIsNearChatBottom(true);
-      setShowScrollToBottomButton(false);
-
-      stickyScrollSettleFramesRef.current = Math.max(
-        0,
-        stickyScrollSettleFramesRef.current - 1,
-      );
-
-      if (stickyScrollSettleFramesRef.current > 0) {
-        stickyScrollFrameRef.current =
-          window.requestAnimationFrame(runStickyScrollFrame);
-        return;
-      }
-
-      stickyScrollForceRef.current = false;
-    };
-
-    stickyScrollFrameRef.current =
-      window.requestAnimationFrame(runStickyScrollFrame);
-  }
-
-  const handleAssistantVisualProgress = useCallback(
-    (chatId: string) => {
-      if (chatId !== activeChatId) return;
-
-      if (
-        canRunAutomaticStickyScroll() &&
-        autoScrollEnabledRef.current &&
-        !isStickyScrollSuppressed()
-      ) {
-        scheduleStickyScrollToBottom();
-        return;
-      }
-
-      syncChatScrollState();
-    },
-    [activeChatId, generatingChatIds],
-  );
-
-  const handleAssistantVisualStreamingChange = useCallback(
-    (messageId: string, isVisuallyStreaming: boolean) => {
-      setVisualStreamingMessageIds((currentMessageIds) => {
-        const hasMessageId = currentMessageIds.includes(messageId);
-
-        if (isVisuallyStreaming) {
-          return hasMessageId
-            ? currentMessageIds
-            : [...currentMessageIds, messageId];
-        }
-
-        return hasMessageId
-          ? currentMessageIds.filter(
-              (currentMessageId) => currentMessageId !== messageId,
-            )
-          : currentMessageIds;
-      });
-
-      if (
-        activeChatId &&
-        canRunAutomaticStickyScroll() &&
-        autoScrollEnabledRef.current &&
-        !isStickyScrollSuppressed()
-      ) {
-        scheduleStickyScrollToBottom({
-          settleFrames: STICKY_SCROLL_SETTLE_FRAMES,
-        });
-      }
-    },
-    [activeChatId, generatingChatIds],
-  );
-
-  const handleAskUserLayoutChange = useCallback(() => {
-    if (
-      canRunAutomaticStickyScroll() &&
-      autoScrollEnabledRef.current &&
-      !isStickyScrollSuppressed()
-    ) {
-      scheduleStickyScrollToBottom({ settleFrames: 2 });
-      return;
-    }
-
-    syncChatScrollState();
-  }, []);
-
-  function registerMessageElement(messageId: string) {
-    return (element: HTMLDivElement | null) => {
-      if (element) {
-        messageElementRefs.current.set(messageId, element);
-      } else {
-        messageElementRefs.current.delete(messageId);
-      }
-    };
-  }
-
-  function requestChatBottomScrollAfterRender() {
-    pendingChatBottomScrollRef.current = true;
-  }
-
-  useLayoutEffect(() => {
-    syncChatScrollableState();
-
-    if (pendingChatBottomScrollRef.current) {
-      pendingChatBottomScrollRef.current = false;
-      scheduleStickyScrollToBottom({ force: true });
-      return;
-    }
-
-    if (
-      canRunAutomaticStickyScroll() &&
-      autoScrollEnabledRef.current &&
-      !isStickyScrollSuppressed()
-    ) {
-      scheduleStickyScrollToBottom();
-      return;
-    }
-
-    syncChatScrollState();
-  }, [messages]);
-
-  useLayoutEffect(() => {
-    const scrollElement = chatScrollRef.current;
-    const contentElement = chatContentRef.current;
-    if (!scrollElement) return;
-
-    function handleResize() {
-      if (
-        canRunAutomaticStickyScroll() &&
-        autoScrollEnabledRef.current &&
-        !isStickyScrollSuppressed()
-      ) {
-        scheduleStickyScrollToBottom({
-          settleFrames: STICKY_SCROLL_SETTLE_FRAMES,
-        });
-        return;
-      }
-
-      syncChatScrollState();
-    }
-
-    const resizeObserver = new ResizeObserver(handleResize);
-    resizeObserver.observe(scrollElement);
-    if (contentElement) {
-      resizeObserver.observe(contentElement);
-    }
-
-    handleResize();
-
-    return () => {
-      resizeObserver.disconnect();
-    };
-  }, [activeChatId, messages.length]);
-
-  useEffect(() => {
-    if (!activeChatId) return;
-    if (!generatingChatIds.includes(activeChatId)) return;
-    if (!autoScrollEnabledRef.current) return;
-    if (isStickyScrollSuppressed()) return;
-
-    scheduleStickyScrollToBottom();
-  }, [activeChatId, generatingChatIds, messages]);
-
-  useEffect(() => {
-    if (!activeChatId) return;
-
-    if (!canRunAutomaticStickyScroll()) {
-      setChatAutoScrollEnabled(false);
-      syncChatScrollState();
-      return;
-    }
-
-    if (autoScrollEnabledRef.current && !isStickyScrollSuppressed()) {
-      scheduleStickyScrollToBottom({
-        settleFrames: STICKY_SCROLL_SETTLE_FRAMES,
-      });
-      return;
-    }
-
-    syncChatScrollState();
-  }, [activeChatId, generatingChatIds]);
-
-  useEffect(() => {
-    function handleDocumentKeyDown(event: KeyboardEvent) {
-      if (event.defaultPrevented) return;
-
-      const target = event.target instanceof HTMLElement ? event.target : null;
-      const isTypingTarget =
-        target instanceof HTMLInputElement ||
-        target instanceof HTMLTextAreaElement ||
-        target?.isContentEditable;
-
-      if (isTypingTarget) return;
-
-      if (
-        event.key === "ArrowUp" ||
-        event.key === "PageUp" ||
-        event.key === "Home"
-      ) {
-        markManualScrollInput(1000);
-        suppressStickyScroll();
-      }
-    }
-
-    document.addEventListener("keydown", handleDocumentKeyDown, {
-      capture: true,
-    });
-
-    return () => {
-      document.removeEventListener("keydown", handleDocumentKeyDown, {
-        capture: true,
-      });
-    };
-  }, []);
-
-  function scrollChatToBottom() {
-    armStickyScrollToBottom();
-  }
-
-  function handleChatScroll() {
-    closeMessageContextMenu();
-
-    if (scrollFrameRef.current !== null) return;
-
-    scrollFrameRef.current = window.requestAnimationFrame(() => {
-      scrollFrameRef.current = null;
-      const scrollElement = chatScrollRef.current;
-      if (!scrollElement) return;
-
-      const previousScrollTop = lastChatScrollTopRef.current;
-      const currentScrollTop = scrollElement.scrollTop;
-      lastChatScrollTopRef.current = currentScrollTop;
-
-      const { isNearBottom } = syncChatScrollState();
-
-      if (!isAutoScrollingRef.current) {
-        if (
-          currentScrollTop < previousScrollTop &&
-          hasRecentManualScrollInput()
-        ) {
-          suppressStickyScroll();
-          return;
-        }
-
-        if (
-          isNearBottom &&
-          canRunAutomaticStickyScroll() &&
-          !isStickyScrollSuppressed()
-        ) {
-          setChatAutoScrollEnabled(true);
-        } else if (!canRunAutomaticStickyScroll()) {
-          setChatAutoScrollEnabled(false);
-        } else if (!isNearBottom && hasRecentManualScrollInput()) {
-          setChatAutoScrollEnabled(false);
-        } else if (
-          !isNearBottom &&
-          autoScrollEnabledRef.current &&
-          !isStickyScrollSuppressed()
-        ) {
-          scheduleStickyScrollToBottom();
-        }
-      }
-    });
-  }
-
-  function handleChatWheel(event: ReactWheelEvent<HTMLDivElement>) {
-    closeMessageContextMenu();
-    markManualScrollInput();
-
-    if (event.deltaY < 0) {
-      suppressStickyScroll();
-    }
-  }
-
-  function handleChatPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
-    const target = event.target instanceof Element ? event.target : null;
-    const scrollElement = chatScrollRef.current;
-
-    if (scrollElement) {
-      const rect = scrollElement.getBoundingClientRect();
-      const scrollbarGutterWidth =
-        scrollElement.offsetWidth - scrollElement.clientWidth;
-
-      if (
-        scrollbarGutterWidth > 0 &&
-        event.clientX >= rect.right - scrollbarGutterWidth - 2
-      ) {
-        markManualScrollInput(1000);
-      }
-    }
-
-    if (!target?.closest("[data-message-context-menu]")) {
-      closeMessageContextMenu();
-    }
-  }
-
   function showSuccess(message: string, description?: string) {
     toast(message, description ? { description } : undefined);
   }
@@ -2015,95 +855,6 @@ export default function Home() {
     return toolNames;
   }
 
-  function formatJsonLikeCodeBlock(value: string) {
-    const trimmed = value.trim();
-    if (!trimmed) return "{}";
-
-    try {
-      return JSON.stringify(JSON.parse(trimmed), null, 2);
-    } catch {
-      return trimmed;
-    }
-  }
-
-  function renderJsonCodeBlock(
-    value: string,
-    className = "chat-markdown-compact",
-  ) {
-    const normalized = formatJsonLikeCodeBlock(value);
-    return (
-      <MarkdownMessage
-        className={className}
-        content={`~~~json\n${normalized}\n~~~`}
-      />
-    );
-  }
-
-  function renderCodeBlock(
-    value: string,
-    language = "text",
-    className = "chat-markdown-compact",
-  ) {
-    return (
-      <MarkdownMessage
-        className={className}
-        content={`~~~${language}
-${value}
-~~~`}
-      />
-    );
-  }
-
-  function renderCommandCodeBlock(value: string) {
-    return renderCodeBlock(value, "bash");
-  }
-
-  function renderToolExecutionPreview(execution?: ToolExecutionPreview) {
-    if (!execution) return null;
-
-    return (
-      <>
-        <div className="grid gap-1.5">
-          <div className="text-sm font-medium uppercase tracking-wide text-muted-foreground/80">
-            Command
-          </div>
-          {renderCommandCodeBlock(execution.displayCommand)}
-        </div>
-        {execution.cwd?.trim() && (
-          <div className="grid gap-1.5">
-            <div className="text-sm font-medium uppercase tracking-wide text-muted-foreground/80">
-              Working directory
-            </div>
-            {renderCodeBlock(execution.cwd, "text")}
-          </div>
-        )}
-      </>
-    );
-  }
-
-  function formatToolDescriptionPreview(description?: string) {
-    const normalizedDescription =
-      description?.replace(/\s+/g, " ").trim() || "";
-    if (!normalizedDescription) return "";
-
-    if (normalizedDescription.length <= TOOL_DESCRIPTION_PREVIEW_MAX_LENGTH) {
-      return normalizedDescription;
-    }
-
-    return `${normalizedDescription
-      .slice(0, TOOL_DESCRIPTION_PREVIEW_MAX_LENGTH)
-      .trimEnd()}…`;
-  }
-
-  function getEffectiveToolStatus(
-    status: ToolExecutionStatus | undefined,
-    result?: ChatToolResult,
-  ): ToolExecutionStatus {
-    if (result?.isError) return "failed";
-    if (result) return "complete";
-    return status ?? "running";
-  }
-
   function isToolExecutionCollapsed(stepId: string) {
     const manualState = collapsedToolStepIds[stepId];
     if (manualState !== undefined) return manualState;
@@ -2121,33 +872,6 @@ ${value}
     }));
   }
 
-  function renderToolStatus(status: ToolExecutionStatus) {
-    if (status === "failed") {
-      return (
-        <span className="inline-flex items-center gap-1 text-red-600 dark:text-red-400">
-          <X className="size-3.5" />
-          Failed
-        </span>
-      );
-    }
-
-    if (status === "complete") {
-      return (
-        <span className="inline-flex items-center gap-1 text-green-600 dark:text-green-400">
-          <Check className="size-3.5" />
-          Complete
-        </span>
-      );
-    }
-
-    return (
-      <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400">
-        <Spinner className="size-3.5" />
-        {status === "pending" ? "Waiting" : "Running"}
-      </span>
-    );
-  }
-
   function renderToolExecutionBlock({
     id,
     toolCall,
@@ -2159,563 +883,17 @@ ${value}
     toolResult?: ChatToolResult;
     status?: ToolExecutionStatus;
   }) {
-    const effectiveStatus = getEffectiveToolStatus(status, toolResult);
-    const isCollapsed = isToolExecutionCollapsed(id);
-    const executionPreview = buildToolExecutionPreviewForCall(
-      toolCall,
-      toolResult,
-    );
-    const toolInfo = loadedTools.find(
-      (candidate) => candidate.name === toolCall.function.name,
-    );
-    const toolDescription = formatToolDescriptionPreview(toolInfo?.description);
-    const showToolInput =
-      hasMeaningfulToolInput(toolCall.function.arguments || "") &&
-      (!executionPreview || executionPreview.usesStdin);
-
     return (
-      <article key={id} className="flex min-w-0 max-w-full justify-start">
-        <div className="w-full min-w-0 max-w-full overflow-hidden rounded-lg border bg-muted/25 px-4 py-3 text-sm leading-5 text-muted-foreground shadow-xs [overflow-wrap:anywhere]">
-          <button
-            type="button"
-            className="w-full rounded-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            onClick={() => toggleToolExecutionCollapsed(id, !isCollapsed)}
-            aria-expanded={!isCollapsed}
-          >
-            <div className="flex min-w-0 items-center justify-between gap-3 text-sm font-medium uppercase tracking-wide text-muted-foreground">
-              <div className="flex min-w-0 items-center gap-2">
-                <Wrench className="size-3.5 shrink-0" />
-                <span className="truncate">{toolCall.function.name}</span>
-                <span className="text-muted-foreground/60">•</span>
-                {renderToolStatus(effectiveStatus)}
-              </div>
-              {isCollapsed ? (
-                <ChevronRight className="size-3.5 shrink-0" />
-              ) : (
-                <ChevronDown className="size-3.5 shrink-0" />
-              )}
-            </div>
-            {toolDescription && (
-              <div className="mt-2 text-sm normal-case leading-5 tracking-normal text-muted-foreground/85">
-                {toolDescription}
-              </div>
-            )}
-          </button>
-
-          {!isCollapsed && (
-            <div className="mt-3 grid gap-3">
-              {renderToolExecutionPreview(executionPreview)}
-              {showToolInput && (
-                <div className="grid gap-1.5">
-                  <div className="text-sm font-medium uppercase tracking-wide text-muted-foreground/80">
-                    Input
-                  </div>
-                  {renderJsonCodeBlock(toolCall.function.arguments || "{}")}
-                </div>
-              )}
-              {toolResult?.content.trim() && (
-                <div className="grid gap-1.5">
-                  <div className="text-sm font-medium uppercase tracking-wide text-muted-foreground/80">
-                    Output
-                  </div>
-                  {renderJsonCodeBlock(toolResult.content)}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      </article>
+      <ToolExecutionBlock
+        id={id}
+        toolCall={toolCall}
+        toolResult={toolResult}
+        status={status}
+        loadedTools={loadedTools}
+        isCollapsed={isToolExecutionCollapsed(id)}
+        onToggleCollapsed={toggleToolExecutionCollapsed}
+      />
     );
-  }
-
-  function hasMeaningfulToolInput(value: string) {
-    const trimmed = value.trim();
-    if (!trimmed) return false;
-
-    try {
-      const parsed = JSON.parse(trimmed);
-      if (parsed == null) return false;
-      if (typeof parsed === "object" && !Array.isArray(parsed)) {
-        return Object.keys(parsed).length > 0;
-      }
-      if (Array.isArray(parsed)) return parsed.length > 0;
-      return true;
-    } catch {
-      return Boolean(trimmed);
-    }
-  }
-
-  function extractTemplatePlaceholders(args: string[]) {
-    const placeholders = new Set<string>();
-    const pattern = /\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}/g;
-    for (const arg of args) {
-      for (const match of arg.matchAll(pattern)) placeholders.add(match[1]);
-    }
-    return [...placeholders];
-  }
-
-  function getToolArgValue(args: unknown, key: string) {
-    if (
-      !args ||
-      typeof args !== "object" ||
-      Array.isArray(args) ||
-      !(key in args)
-    ) {
-      throw new Error(`Missing required tool argument: ${key}`);
-    }
-
-    return (args as Record<string, unknown>)[key];
-  }
-
-  function stringifyCommandArgValue(value: unknown) {
-    if (typeof value === "string") return value;
-    if (typeof value === "number" || typeof value === "boolean") {
-      return String(value);
-    }
-    if (value === null || value === undefined) return "";
-    return JSON.stringify(value);
-  }
-
-  function materializeCommandArgs(templateArgs: string[], modelArgs: unknown) {
-    const templatePattern = /\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}/g;
-
-    return templateArgs.map((templateArg) =>
-      templateArg.replace(templatePattern, (_full, key: string) =>
-        stringifyCommandArgValue(getToolArgValue(modelArgs, key)),
-      ),
-    );
-  }
-
-  function quoteCommandPreviewPart(value: string) {
-    if (!value) return '""';
-    if (/^[A-Za-z0-9_@%+=:,./\\-]+$/.test(value)) return value;
-    return `"${value.replace(/"/g, '\\"')}"`;
-  }
-
-  function formatCommandPreview(command: string, args: string[]) {
-    return [command, ...args].map(quoteCommandPreviewPart).join(" ");
-  }
-
-  function buildToolExecutionPreview(
-    tool: Pick<LoadedToolInfo, "command" | "args" | "cwd" | "input">,
-    modelArgs: unknown,
-  ): ToolExecutionPreview {
-    const commandArgs = materializeCommandArgs(tool.args, modelArgs);
-    const stdin =
-      tool.input === "json-stdin" ? JSON.stringify(modelArgs ?? {}) : undefined;
-
-    return {
-      command: tool.command,
-      args: commandArgs,
-      cwd: tool.cwd,
-      inputMode: tool.input,
-      stdin,
-      displayCommand: formatCommandPreview(tool.command, commandArgs),
-      usesStdin: tool.input === "json-stdin",
-      usesPlaceholders: extractTemplatePlaceholders(tool.args).length > 0,
-    };
-  }
-
-  function parseToolArgumentsText(value: string) {
-    return value.trim() ? JSON.parse(value) : {};
-  }
-
-  function readTrimmedString(source: Record<string, unknown>, key: string) {
-    const value = source[key];
-    return typeof value === "string" && value.trim() ? value.trim() : undefined;
-  }
-
-  function readLimitedString(
-    source: Record<string, unknown>,
-    key: string,
-    maxLength: number,
-    label: string,
-  ) {
-    const value = readTrimmedString(source, key);
-    if (value && value.length > maxLength) {
-      throw new Error(`${label} must be ${maxLength} characters or less.`);
-    }
-    return value;
-  }
-
-  function readAskUserQuestionType(
-    source: Record<string, unknown>,
-  ): AskUserQuestionType {
-    const value = readTrimmedString(source, "type");
-    if (
-      value === "single_choice" ||
-      value === "multi_select" ||
-      value === "text"
-    ) {
-      return value;
-    }
-
-    return "single_choice";
-  }
-
-  function readAskUserInputConfig(source: Record<string, unknown>) {
-    const rawInput = source.input;
-    if (!rawInput || typeof rawInput !== "object" || Array.isArray(rawInput)) {
-      return undefined;
-    }
-
-    const inputSource = rawInput as Record<string, unknown>;
-    return {
-      multiline: inputSource.multiline === true,
-    };
-  }
-
-  function parseAskUserRequest(args: unknown): AskUserRequest {
-    if (!args || typeof args !== "object" || Array.isArray(args)) {
-      throw new Error("ask_user arguments must be a JSON object.");
-    }
-
-    const source = args as Record<string, unknown>;
-    const rawQuestions = Array.isArray(source.questions)
-      ? source.questions
-      : typeof source.question === "string" && Array.isArray(source.options)
-        ? [
-            {
-              id: readTrimmedString(source, "id") ?? "answer",
-              question: source.question,
-              description: source.description,
-              options: source.options,
-            },
-          ]
-        : undefined;
-
-    if (!rawQuestions?.length) {
-      throw new Error("ask_user requires at least one question.");
-    }
-
-    if (rawQuestions.length > MAX_ASK_USER_QUESTIONS) {
-      throw new Error(
-        `ask_user supports at most ${MAX_ASK_USER_QUESTIONS} questions.`,
-      );
-    }
-
-    const questionIds = new Set<string>();
-    const questions = rawQuestions.map((rawQuestion, questionIndex) => {
-      if (
-        !rawQuestion ||
-        typeof rawQuestion !== "object" ||
-        Array.isArray(rawQuestion)
-      ) {
-        throw new Error("Each ask_user question must be an object.");
-      }
-
-      const questionSource = rawQuestion as Record<string, unknown>;
-      const id =
-        readTrimmedString(questionSource, "id") ??
-        `question_${questionIndex + 1}`;
-      const question = readLimitedString(
-        questionSource,
-        "question",
-        MAX_ASK_USER_QUESTION_LENGTH,
-        `ask_user question ${id}`,
-      );
-
-      if (!question) {
-        throw new Error(`ask_user question ${id} is missing text.`);
-      }
-
-      if (questionIds.has(id)) {
-        throw new Error(`Duplicate ask_user question id: ${id}.`);
-      }
-      questionIds.add(id);
-
-      const type = readAskUserQuestionType(questionSource);
-      const rawOptions = questionSource.options;
-      const options = (() => {
-        if (type === "text") return [];
-
-        if (!Array.isArray(rawOptions) || rawOptions.length < 2) {
-          throw new Error(
-            `ask_user ${type} question ${id} requires at least two options.`,
-          );
-        }
-
-        if (rawOptions.length > MAX_ASK_USER_OPTIONS) {
-          throw new Error(
-            `ask_user question ${id} supports at most ${MAX_ASK_USER_OPTIONS} options.`,
-          );
-        }
-
-        const optionIds = new Set<string>();
-        return rawOptions.map((rawOption, optionIndex) => {
-          if (
-            !rawOption ||
-            typeof rawOption !== "object" ||
-            Array.isArray(rawOption)
-          ) {
-            throw new Error(
-              `ask_user option ${optionIndex + 1} must be an object.`,
-            );
-          }
-
-          const optionSource = rawOption as Record<string, unknown>;
-          const optionId =
-            readTrimmedString(optionSource, "id") ??
-            `option_${optionIndex + 1}`;
-          const label = readLimitedString(
-            optionSource,
-            "label",
-            MAX_ASK_USER_OPTION_LABEL_LENGTH,
-            `ask_user option ${optionId} label`,
-          );
-
-          if (!label) {
-            throw new Error(`ask_user option ${optionId} is missing a label.`);
-          }
-
-          if (optionId === ASK_USER_CUSTOM_ANSWER_ID) {
-            throw new Error(
-              `ask_user option id ${ASK_USER_CUSTOM_ANSWER_ID} is reserved for custom answers.`,
-            );
-          }
-
-          if (optionIds.has(optionId)) {
-            throw new Error(
-              `Duplicate ask_user option id ${optionId} in question ${id}.`,
-            );
-          }
-          optionIds.add(optionId);
-
-          return {
-            id: optionId,
-            label,
-            description: readLimitedString(
-              optionSource,
-              "description",
-              MAX_ASK_USER_OPTION_DESCRIPTION_LENGTH,
-              `ask_user option ${optionId} description`,
-            ),
-          };
-        });
-      })();
-
-      return {
-        id,
-        type,
-        question,
-        description: readLimitedString(
-          questionSource,
-          "description",
-          MAX_ASK_USER_DESCRIPTION_LENGTH,
-          `ask_user question ${id} description`,
-        ),
-        options,
-        input: readAskUserInputConfig(questionSource),
-      };
-    });
-
-    return {
-      title: readLimitedString(
-        source,
-        "title",
-        MAX_ASK_USER_TITLE_LENGTH,
-        "ask_user title",
-      ),
-      description: readLimitedString(
-        source,
-        "description",
-        MAX_ASK_USER_DESCRIPTION_LENGTH,
-        "ask_user description",
-      ),
-      questions,
-    };
-  }
-
-  function parseAskUserRequestFromToolCall(toolCall: ChatToolCall) {
-    return parseAskUserRequest(
-      parseToolArgumentsText(toolCall.function.arguments || "{}"),
-    );
-  }
-
-  function parseChecklistWriteRequest(args: unknown): ChecklistWriteRequest {
-    if (!args || typeof args !== "object" || Array.isArray(args)) {
-      throw new Error("checklist_write arguments must be a JSON object.");
-    }
-
-    const source = args as Record<string, unknown>;
-    if (!Array.isArray(source.items) || source.items.length === 0) {
-      throw new Error("checklist_write requires at least one checklist item.");
-    }
-
-    if (source.items.length > MAX_CHECKLIST_ITEMS) {
-      throw new Error(
-        `checklist_write supports at most ${MAX_CHECKLIST_ITEMS} items.`,
-      );
-    }
-
-    const items: ChecklistItem[] = source.items.map((rawItem, index) => {
-      if (!rawItem || typeof rawItem !== "object" || Array.isArray(rawItem)) {
-        throw new Error(`checklist_write item ${index + 1} must be an object.`);
-      }
-
-      const itemSource = rawItem as Record<string, unknown>;
-      const content = readLimitedString(
-        itemSource,
-        "content",
-        MAX_CHECKLIST_CONTENT_LENGTH,
-        `checklist_write item ${index + 1} content`,
-      );
-
-      if (!content) {
-        throw new Error(
-          `checklist_write item ${index + 1} is missing content.`,
-        );
-      }
-
-      if (typeof itemSource.done !== "boolean") {
-        throw new Error(
-          `checklist_write item ${index + 1} must explicitly set done to true or false.`,
-        );
-      }
-
-      return { content, done: itemSource.done };
-    });
-
-    return { items };
-  }
-
-  function parseChecklistWriteRequestFromToolCall(toolCall: ChatToolCall) {
-    return parseChecklistWriteRequest(
-      parseToolArgumentsText(toolCall.function.arguments || "{}"),
-    );
-  }
-
-  function createChecklistWriteToolResult(
-    toolCall: ChatToolCall,
-    request: ChecklistWriteRequest,
-  ): ChatToolResult {
-    const done = request.items.filter((item) => item.done).length;
-
-    return {
-      toolCallId: toolCall.id,
-      toolName: CHECKLIST_WRITE_TOOL_NAME,
-      content: JSON.stringify(
-        {
-          ok: true,
-          total: request.items.length,
-          done,
-        },
-        null,
-        2,
-      ),
-    };
-  }
-
-  function buildToolExecutionPreviewForCall(
-    toolCall: ChatToolCall,
-    result?: ChatToolResult,
-  ) {
-    if (result?.execution) return result.execution;
-
-    const tool = loadedTools.find(
-      (candidate) => candidate.name === toolCall.function.name,
-    );
-    if (!tool) return undefined;
-
-    try {
-      return buildToolExecutionPreview(
-        tool,
-        parseToolArgumentsText(toolCall.function.arguments || "{}"),
-      );
-    } catch {
-      return undefined;
-    }
-  }
-
-  function createAskUserToolResult(
-    toolCall: ChatToolCall,
-    request: AskUserRequest,
-    response: AskUserResponse,
-  ): ChatToolResult {
-    const answers = Object.fromEntries(
-      request.questions.map((question) => {
-        const questionType = getAskUserQuestionType(question);
-
-        if (questionType === "text") {
-          const answer = response.answers[question.id] ?? "";
-          return [
-            question.id,
-            {
-              question: question.question,
-              answer_type: "text",
-              answer,
-            },
-          ];
-        }
-
-        if (questionType === "multi_select") {
-          const selectedOptionIds = response.multiAnswers?.[question.id] ?? [];
-          const selectedOptionLabels = selectedOptionIds.map((optionId) => {
-            if (optionId === ASK_USER_CUSTOM_ANSWER_ID) {
-              return response.customAnswers?.[question.id]?.trim() ?? "";
-            }
-
-            return (
-              question.options.find((option) => option.id === optionId)
-                ?.label ?? optionId
-            );
-          });
-          const customAnswer = selectedOptionIds.includes(
-            ASK_USER_CUSTOM_ANSWER_ID,
-          )
-            ? response.customAnswers?.[question.id]?.trim()
-            : undefined;
-
-          return [
-            question.id,
-            {
-              question: question.question,
-              answer_type: "multi_select",
-              selected_option_ids: selectedOptionIds,
-              selected_option_labels: selectedOptionLabels,
-              ...(customAnswer ? { custom_answer: customAnswer } : {}),
-            },
-          ];
-        }
-
-        const selectedOptionId = response.answers[question.id] ?? "";
-        const selectedOption = question.options.find(
-          (option) => option.id === selectedOptionId,
-        );
-        const customAnswer =
-          selectedOptionId === ASK_USER_CUSTOM_ANSWER_ID
-            ? response.customAnswers?.[question.id]?.trim()
-            : undefined;
-
-        return [
-          question.id,
-          {
-            question: question.question,
-            answer_type: customAnswer ? "custom" : "option",
-            selected_option_id: selectedOptionId,
-            selected_option_label:
-              response.answerLabels?.[question.id] ??
-              customAnswer ??
-              selectedOption?.label ??
-              selectedOptionId,
-            ...(customAnswer ? { custom_answer: customAnswer } : {}),
-          },
-        ];
-      }),
-    );
-
-    return {
-      toolCallId: toolCall.id,
-      toolName: ASK_USER_TOOL_NAME,
-      content: JSON.stringify(
-        {
-          answered_at: response.answeredAt,
-          answers,
-        },
-        null,
-        2,
-      ),
-    };
   }
 
   async function executeAskUserToolCall(
@@ -3982,8 +2160,14 @@ ${value}
       }
 
       if (chatId === activeChatId) {
-        setChatAutoScrollEnabled(false);
-        syncChatScrollState();
+        if (autoScrollEnabledRef.current && !isStickyScrollSuppressed()) {
+          scheduleStickyScrollToBottom({
+            force: true,
+            settleFrames: STICKY_SCROLL_SETTLE_FRAMES,
+          });
+        } else {
+          syncChatScrollState();
+        }
       }
     }
   }
@@ -4158,170 +2342,6 @@ ${value}
     });
   }
 
-  function startEditingUserMessage(messageId: string) {
-    if (isSending) {
-      showInfo("Wait until generation finishes before editing messages.");
-      return;
-    }
-
-    setEditingMessageId(messageId);
-  }
-
-  function cancelEditingUserMessage() {
-    setEditingMessageId(null);
-  }
-
-  function getSelectedTextWithin(element: HTMLElement) {
-    const selection = window.getSelection();
-
-    if (!selection || selection.isCollapsed) {
-      return "";
-    }
-
-    const selectedText = selection.toString();
-
-    if (!selectedText.trim()) {
-      return "";
-    }
-
-    for (let index = 0; index < selection.rangeCount; index += 1) {
-      const range = selection.getRangeAt(index);
-
-      try {
-        if (range.intersectsNode(element)) {
-          return selectedText;
-        }
-      } catch {
-        // Ignore detached selection ranges.
-      }
-    }
-
-    return "";
-  }
-
-  function closeMessageContextMenu() {
-    setMessageContextMenu(null);
-  }
-
-  function captureMessageContext(
-    event: ReactMouseEvent<HTMLElement>,
-    messageId: string,
-  ) {
-    event.preventDefault();
-
-    const target = event.target instanceof Element ? event.target : null;
-    const link = target?.closest("a[href]");
-    const menuWidth = 220;
-    const menuHeight = 180;
-    const margin = 8;
-    const x = Math.max(
-      margin,
-      Math.min(event.clientX, window.innerWidth - menuWidth - margin),
-    );
-    const y = Math.max(
-      margin,
-      Math.min(event.clientY, window.innerHeight - menuHeight - margin),
-    );
-
-    setMessageContextMenu({
-      messageId,
-      x,
-      y,
-      linkHref: link instanceof HTMLAnchorElement ? link.href : null,
-      selectedText: getSelectedTextWithin(event.currentTarget),
-    });
-  }
-
-  async function copyLinkHref(href: string | null) {
-    if (!href) return;
-
-    try {
-      await navigator.clipboard.writeText(href);
-      showSuccess("Link copied.");
-    } catch (error) {
-      console.error("Failed to copy link:", error);
-      toast.error("Failed to copy link.");
-    }
-  }
-
-  function deleteMessage(messageId: string) {
-    if (!activeChat) return;
-
-    if (isChatGenerating(activeChat.id)) {
-      showInfo("Wait until generation finishes before deleting messages.");
-      return;
-    }
-
-    updateActiveChatMessages((currentMessages) =>
-      currentMessages.filter((message) => message.id !== messageId),
-    );
-
-    setEditingMessageId((currentMessageId) =>
-      currentMessageId === messageId ? null : currentMessageId,
-    );
-    setCopiedMessageId((currentMessageId) =>
-      currentMessageId === messageId ? null : currentMessageId,
-    );
-    messageElementRefs.current.delete(messageId);
-    showSuccess("Message deleted.");
-  }
-
-  async function copyMessageContent(messageId: string, content: string) {
-    if (!content.trim()) {
-      return;
-    }
-
-    try {
-      await navigator.clipboard.writeText(content);
-      setCopiedMessageId(messageId);
-      window.setTimeout(() => {
-        setCopiedMessageId((currentMessageId) =>
-          currentMessageId === messageId ? null : currentMessageId,
-        );
-      }, 1200);
-    } catch (error) {
-      console.error("Failed to copy message:", error);
-      toast.error("Failed to copy message.");
-    }
-  }
-
-  async function saveEditedUserMessage(
-    messageId: string,
-    editedContent: string,
-  ) {
-    if (!activeChat) return;
-    if (isChatGenerating(activeChat.id)) return;
-
-    const userMessage = editedContent.trim();
-    if (!userMessage) {
-      showError("Message is required.");
-      return;
-    }
-
-    const userIndex = activeChat.messages.findIndex(
-      (message) => message.id === messageId && message.role === "user",
-    );
-    const currentMessage = activeChat.messages[userIndex];
-
-    if (userIndex < 0 || !currentMessage || currentMessage.role !== "user") {
-      showError("Could not find the message to edit.");
-      return;
-    }
-
-    updateChat(activeChat.id, (chat) => ({
-      ...chat,
-      title: userIndex === 0 ? titleFromMessage(userMessage) : chat.title,
-      messages: chat.messages.map((message) =>
-        message.id === messageId && message.role === "user"
-          ? { ...message, content: userMessage }
-          : message,
-      ),
-    }));
-
-    setEditingMessageId(null);
-    showSuccess("Message saved.");
-  }
-
   async function submitEditedUserMessage(
     messageId: string,
     editedContent: string,
@@ -4411,375 +2431,42 @@ ${value}
     });
   }
 
-  function stopGeneration() {
-    if (!activeChat) return;
-    stopChatGeneration(activeChat.id);
-  }
-
-  async function createNewChat() {
-    const chat = {
-      ...createEmptyChat(),
-      providerId: activeProvider.id,
-      model: getProviderFallbackModel(activeProvider),
-    };
-    setChats((currentChats) => [chat, ...currentChats]);
-    setActiveChatId(chat.id);
-    setEditingMessageId(null);
-    clearStickyScrollSuppression();
-    setChatAutoScrollEnabled(true);
-    setIsNearChatBottom(true);
-    setShowScrollToBottomButton(false);
-    focusDraftTextarea();
-
-    try {
-      await saveChat(chat);
-      await saveActiveChatId(chat.id);
-    } catch (error) {
-      console.error("Failed to save new chat:", error);
-    }
-  }
-
-  async function switchChat(chatId: string) {
-    setActiveChatId(chatId);
-    setEditingMessageId(null);
-    clearStickyScrollSuppression();
-    setChatAutoScrollEnabled(true);
-    setIsNearChatBottom(true);
-    setShowScrollToBottomButton(false);
-  }
-
-  async function clearCurrentChat() {
-    if (!activeChat) return;
-
-    if (isChatGenerating(activeChat.id)) stopChatGeneration(activeChat.id);
-
-    const now = new Date().toISOString();
-    updateChat(activeChat.id, (chat) => ({
-      ...chat,
-      title: "New chat",
-      messages: [],
-      updatedAt: now,
-    }));
-    showSuccess("Chat cleared.");
-  }
-
-  async function removeChat(chatId: string) {
-    if (isChatGenerating(chatId)) stopChatGeneration(chatId);
-
-    const remainingChats = sortChatsByUpdatedAt(
-      chats.filter((chat) => chat.id !== chatId),
-    );
-    const nextChats =
-      remainingChats.length > 0
-        ? remainingChats
-        : [
-            {
-              ...createEmptyChat(),
-              providerId: activeProvider.id,
-              model: getProviderFallbackModel(activeProvider),
-            },
-          ];
-    const nextActiveId =
-      activeChatId === chatId
-        ? nextChats[0].id
-        : (activeChatId ?? nextChats[0].id);
-
-    setChats(nextChats);
-    setActiveChatId(nextActiveId);
-
-    try {
-      await deleteChat(chatId);
-      if (remainingChats.length === 0) {
-        await saveChat(nextChats[0]);
-      }
-      await saveActiveChatId(nextActiveId);
-    } catch (error) {
-      console.error("Failed to delete chat:", error);
-    }
-  }
-
-  function renderAppOptionsMenu(triggerClassName?: string) {
-    return (
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            className={triggerClassName}
-            title="Menu"
-          >
-            <MoreVertical className="size-4" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent
-          align="end"
-          className="rounded-lg"
-          onCloseAutoFocus={(event) => {
-            event.preventDefault();
-            window.requestAnimationFrame(() => {
-              (document.activeElement as HTMLElement | null)?.blur();
-            });
-          }}
-        >
-          <DropdownMenuItem onClick={() => setSettingsOpen(true)}>
-            <Settings className="size-4" />
-            Providers
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => setToolsOpen(true)}>
-            <Wrench className="size-4" />
-            Tools
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => setSystemPromptOpen(true)}>
-            <MessageSquareText className="size-4" />
-            System prompt
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            onClick={() =>
-              setTheme(resolvedTheme === "dark" ? "light" : "dark")
-            }
-          >
-            {resolvedTheme === "dark" ? (
-              <Sun className="size-4" />
-            ) : (
-              <Moon className="size-4" />
-            )}
-            {resolvedTheme === "dark" ? "Light theme" : "Dark theme"}
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem onClick={clearCurrentChat}>
-            <Trash2 className="size-4" />
-            <span className="flex-1">Clear current chat</span>
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-    );
-  }
-
-  function toggleActiveChatTool(toolName: string) {
-    if (!activeChat) return;
-
-    const isGloballyEnabled = globallyEnabledToolNames.has(toolName);
-
-    updateChat(activeChat.id, (chat) => {
-      const chatEnabled = new Set(chat.enabledToolNames ?? []);
-      const chatDisabled = new Set(chat.disabledToolNames ?? []);
-      const isCurrentlyEnabled =
-        !chatDisabled.has(toolName) &&
-        (isGloballyEnabled || chatEnabled.has(toolName));
-
-      if (isCurrentlyEnabled) {
-        chatEnabled.delete(toolName);
-
-        if (isGloballyEnabled) chatDisabled.add(toolName);
-        else chatDisabled.delete(toolName);
-      } else {
-        chatDisabled.delete(toolName);
-
-        if (isGloballyEnabled) chatEnabled.delete(toolName);
-        else chatEnabled.add(toolName);
-      }
-
-      const enabledToolNames = availableTools
-        .map((tool) => tool.name)
-        .filter((name) => chatEnabled.has(name));
-      const disabledToolNames = availableTools
-        .map((tool) => tool.name)
-        .filter((name) => chatDisabled.has(name));
-
-      return {
-        ...chat,
-        enabledToolNames,
-        disabledToolNames,
-      };
-    });
-  }
-
-  function renderComposerToolPicker() {
-    const selectedNames = new Set(activeChatEnabledToolNames);
-
-    return (
-      <Popover
-        open={isChatToolPickerOpen}
-        onOpenChange={(open) => {
-          setIsChatToolPickerOpen(open);
-          if (!open) setChatToolSearchValue("");
-        }}
-      >
-        <PopoverTrigger asChild>
-          <Button
-            type="button"
-            variant="outline"
-            role="combobox"
-            disabled={!activeChat || isSending}
-            aria-expanded={isChatToolPickerOpen}
-            className="h-9 shrink-0 justify-between gap-2 rounded-lg px-3 text-left font-normal"
-            title={
-              isSending
-                ? "Wait until this chat finishes generating"
-                : "Select tools for this chat"
-            }
-          >
-            <span className="flex min-w-0 items-center gap-2">
-              <Wrench className="size-4 shrink-0 opacity-70" />
-            </span>
-            <ChevronsUpDown className="size-4 shrink-0 opacity-50" />
-          </Button>
-        </PopoverTrigger>
-        <PopoverContent
-          align="start"
-          className="w-[min(24rem,calc(100vw-2rem))] rounded-lg p-0"
-        >
-          <Command shouldFilter={false}>
-            <CommandInput
-              value={chatToolSearchValue}
-              onValueChange={setChatToolSearchValue}
-              placeholder="Search tools..."
-            />
-            <CommandList>
-              {visibleChatTools.length > 0 ? (
-                <CommandGroup heading="Available tools">
-                  {visibleChatTools.map((tool) => {
-                    const isSelected = selectedNames.has(tool.name);
-
-                    return (
-                      <CommandItem
-                        key={tool.name}
-                        value={`${tool.name} ${tool.description}`}
-                        onSelect={() => toggleActiveChatTool(tool.name)}
-                        className="min-w-0 cursor-pointer items-start gap-2"
-                        title={tool.description}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={isSelected}
-                          readOnly
-                          tabIndex={-1}
-                          className="mt-0.5 size-4 shrink-0 accent-primary"
-                        />
-                        <div className="min-w-0 flex-1">
-                          <div className="flex min-w-0 items-center gap-1.5">
-                            <span className="min-w-0 truncate font-medium">
-                              {tool.name}
-                            </span>
-                            {isBuiltInToolName(tool.name) && (
-                              <Lock className="size-3 shrink-0 text-muted-foreground" />
-                            )}
-                          </div>
-                          {tool.description && (
-                            <div className="mt-0.5 line-clamp-2 text-sm leading-5 text-muted-foreground">
-                              {tool.description}
-                            </div>
-                          )}
-                        </div>
-                      </CommandItem>
-                    );
-                  })}
-                </CommandGroup>
-              ) : (
-                <CommandEmpty>No tools found.</CommandEmpty>
-              )}
-            </CommandList>
-          </Command>
-        </PopoverContent>
-      </Popover>
-    );
-  }
-
-  function renderComposerFooterStart() {
-    return (
-      <div className="flex min-w-0 flex-wrap items-center gap-2">
-        {renderComposerModelSelector()}
-        {renderComposerToolPicker()}
-      </div>
-    );
-  }
-
-  function renderComposerModelSelector() {
-    return (
-      <Popover
-        open={isSidebarModelComboboxOpen}
-        onOpenChange={setIsSidebarModelComboboxOpen}
-      >
-        <PopoverTrigger asChild>
-          <Button
-            type="button"
-            variant="outline"
-            role="combobox"
-            disabled={!activeChat || isSending}
-            aria-expanded={isSidebarModelComboboxOpen}
-            className="model-picker-trigger h-9 w-full max-w-[14rem] justify-between overflow-hidden rounded-lg px-3 text-left font-normal"
-            title={
-              isSending
-                ? "Wait until this chat finishes generating"
-                : activeChatModel
-                  ? providerLabel(activeChatProvider)
-                  : "Select a model"
-            }
-          >
-            <span
-              className={cn(
-                "min-w-0 flex-1 truncate",
-                !activeChatModel && "text-muted-foreground",
-              )}
-            >
-              {activeChatModel || "Select model"}
-            </span>
-            <ChevronsUpDown className="ml-2 size-4 shrink-0 opacity-50" />
-          </Button>
-        </PopoverTrigger>
-        <PopoverContent
-          align="start"
-          className="w-[min(var(--radix-popover-trigger-width),24rem)] rounded-lg p-0"
-        >
-          <Command shouldFilter={false}>
-            <CommandInput
-              value={sidebarModelSearchValue}
-              onValueChange={setSidebarModelSearchValue}
-              placeholder="Search models..."
-            />
-            <CommandList>
-              {visibleProviderGroups.length > 0 ? (
-                visibleProviderGroups.map(({ provider, models }) => (
-                  <CommandGroup
-                    key={provider.id}
-                    heading={providerDisplayName(provider)}
-                  >
-                    {models.map((model) => (
-                      <CommandItem
-                        key={`${provider.id}:${model}`}
-                        value={`${providerDisplayName(provider)} ${model}`}
-                        onSelect={() =>
-                          selectActiveChatProviderModel(provider.id, model)
-                        }
-                        className="min-w-0 cursor-pointer"
-                        title={`${providerDisplayName(provider)} · ${model}`}
-                      >
-                        <span className="min-w-0 flex-1 truncate">{model}</span>
-                        <Check
-                          className={cn(
-                            "size-4",
-                            activeChatProvider.id === provider.id &&
-                              activeChatModel === model
-                              ? "opacity-100"
-                              : "opacity-0",
-                          )}
-                        />
-                      </CommandItem>
-                    ))}
-                  </CommandGroup>
-                ))
-              ) : (
-                <CommandEmpty>
-                  No visible models. Enable models in Providers.
-                </CommandEmpty>
-              )}
-            </CommandList>
-          </Command>
-        </PopoverContent>
-      </Popover>
-    );
-  }
+  const {
+    startEditingUserMessage,
+    cancelEditingUserMessage,
+    copyLinkHref,
+    deleteMessage,
+    copyMessageContent,
+    saveEditedUserMessage,
+    stopGeneration,
+    createNewChat,
+    switchChat,
+    clearCurrentChat,
+    removeChat,
+    toggleActiveChatTool,
+  } = useChatActions({
+    activeChat,
+    activeChatId,
+    activeProvider,
+    availableTools,
+    chats,
+    globallyEnabledToolNames,
+    isSending,
+    messageElementRefs,
+    setActiveChatId,
+    setChats,
+    setCopiedMessageId,
+    setEditingMessageId,
+    resetChatScrollState,
+    focusDraftTextarea,
+    isChatGenerating,
+    stopChatGeneration,
+    showError,
+    showInfo,
+    showSuccess,
+    updateActiveChatMessages,
+    updateChat,
+  });
 
   const handleProvidersStateChange = useStableCallback(updateProvidersState);
   const handleProviderSettingChange = useStableCallback(updateProviderSetting);
@@ -4841,197 +2528,35 @@ ${value}
 
   return (
     <main className="relative flex h-dvh min-h-0 overflow-hidden bg-background text-foreground">
-      <aside
-        data-sidebar
-        className={cn(
-          "w-80 shrink-0 flex-col border-r bg-card/80",
-          isSidebarCollapsed ? "flex md:hidden" : "flex",
-        )}
-      >
-        <div className="border-b py-3 pl-3 pr-2">
-          <div className="flex items-center justify-between gap-2">
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              className="hidden shrink-0 rounded-lg md:inline-flex"
-              onClick={() => setIsSidebarCollapsed(true)}
-              title="Hide sidebar"
-            >
-              <PanelLeftClose className="size-4" />
-            </Button>
-
-            <div className="min-w-0 flex-1">
-              <h1 className="flex min-w-0 items-baseline gap-1 truncate text-base font-semibold leading-6">
-                <span className="truncate">{APP_NAME}</span>
-                <span className="shrink-0 text-muted-foreground">
-                  {APP_VERSION_LABEL}
-                </span>
-              </h1>
-            </div>
-
-            {renderAppOptionsMenu("shrink-0 rounded-lg")}
-          </div>
-        </div>
-
-        <div className="min-h-0 flex-1 overflow-y-auto p-2 chat-scrollbar">
-          <div className="grid gap-3">
-            {groupedChats.map((group) => (
-              <section key={group.label} className="grid gap-1.5">
-                <div className="px-2 pt-1 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-                  {group.label}
-                </div>
-                <div className="grid gap-[1px]">
-                  {group.chats.map((chat) => (
-                    <div
-                      key={chat.id}
-                      role="button"
-                      tabIndex={0}
-                      className={cn(
-                        "group flex min-w-0 cursor-pointer items-center gap-1 border rounded-lg px-2 py-1 outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                        chat.id === activeChat?.id
-                          ? "border-primary/30 bg-accent text-accent-foreground"
-                          : "border-transparent hover:border-border hover:bg-muted/60",
-                      )}
-                      onClick={() => switchChat(chat.id)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter" || event.key === " ") {
-                          event.preventDefault();
-                          switchChat(chat.id);
-                        }
-                      }}
-                      title={chat.title}
-                    >
-                      <div className="min-w-0 flex-1 text-left">
-                        <div className="truncate text-base leading-6 ">
-                          {chat.title}
-                        </div>
-                        {/* <div className="truncate text-sm leading-5 text-muted-foreground">
-                          {chat.messages.length} message
-                          {chat.messages.length === 1 ? "" : "s"}
-                          {" · "}
-                          {formatChatActivityDate(getChatActivityDate(chat))}
-                        </div> */}
-                      </div>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon-sm"
-                        className="h-7 w-7 shrink-0 rounded-lg opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          removeChat(chat.id);
-                        }}
-                        title="Delete chat"
-                      >
-                        <Trash2 className="size-3.5" />
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              </section>
-            ))}
-          </div>
-        </div>
-
-        <div className="grid gap-2 border-t p-3">
-          <Button
-            type="button"
-            variant="secondary"
-            className="w-full justify-center rounded-lg"
-            onClick={createNewChat}
-            title="New chat (Ctrl+N)"
-          >
-            <Plus className="size-4" />
-            New chat
-          </Button>
-        </div>
-      </aside>
-
-      {isSidebarCollapsed ? (
-        <div className="absolute left-2 top-2 z-30 hidden items-center gap-1 rounded-lg border bg-card/95 p-1 shadow-sm md:flex">
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            className="rounded-lg"
-            onClick={() => setIsSidebarCollapsed(false)}
-            title="Show sidebar"
-          >
-            <PanelLeftOpen className="size-4" />
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            className="rounded-lg"
-            onClick={createNewChat}
-            title="New chat (Ctrl+N)"
-          >
-            <Plus className="size-4" />
-          </Button>
-          {renderAppOptionsMenu("rounded-lg")}
-        </div>
-      ) : null}
+      <ChatSidebar
+        appName={APP_NAME}
+        appVersionLabel={APP_VERSION_LABEL}
+        groupedChats={groupedChats}
+        activeChatId={activeChat?.id}
+        isCollapsed={isSidebarCollapsed}
+        resolvedTheme={resolvedTheme}
+        onCollapsedChange={setIsSidebarCollapsed}
+        onSwitchChat={switchChat}
+        onRemoveChat={removeChat}
+        onCreateNewChat={createNewChat}
+        onOpenProviders={() => setSettingsOpen(true)}
+        onOpenTools={() => setToolsOpen(true)}
+        onOpenSystemPrompt={() => setSystemPromptOpen(true)}
+        onSetTheme={setTheme}
+        onClearCurrentChat={clearCurrentChat}
+      />
 
       <section className="relative grid min-h-0 flex-1 grid-rows-[1fr_auto] bg-background">
         {findBarOpen && (
-          <div className="absolute right-3 top-3 z-40 flex max-w-[calc(100%-1.5rem)] items-center gap-1 rounded-lg border bg-card/95 p-1.5 text-card-foreground shadow-md backdrop-blur">
-            <Search className="ml-1 size-4 shrink-0 text-muted-foreground" />
-            <Input
-              ref={findInputRef}
-              value={findQuery}
-              onChange={(event) => setFindQuery(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  findNextMatch(!event.shiftKey);
-                }
-
-                if (event.key === "Escape") {
-                  event.preventDefault();
-                  closeFindBar();
-                }
-              }}
-              className="h-8 w-56 rounded-lg border-0 bg-transparent px-2 shadow-none focus-visible:ring-1"
-              placeholder="Find in page"
-              aria-label="Find in page"
-            />
-            <span className="min-w-14 text-center text-sm tabular-nums text-muted-foreground">
-              {findQuery.trim()
-                ? `${findResult.activeMatchOrdinal || 0}/${findResult.matches}`
-                : "0/0"}
-            </span>
-            <TooltipIconButton
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              label="Previous match"
-              onClick={() => findNextMatch(false)}
-              disabled={!findQuery.trim()}
-            >
-              <ChevronLeft className="size-3" />
-            </TooltipIconButton>
-            <TooltipIconButton
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              label="Next match"
-              onClick={() => findNextMatch(true)}
-              disabled={!findQuery.trim()}
-            >
-              <ChevronRight className="size-3" />
-            </TooltipIconButton>
-            <TooltipIconButton
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              label="Close find"
-              onClick={closeFindBar}
-            >
-              <X className="size-3" />
-            </TooltipIconButton>
-          </div>
+          <FindBar
+            inputRef={findInputRef}
+            query={findQuery}
+            activeMatchOrdinal={findResult.activeMatchOrdinal}
+            matches={findResult.matches}
+            onQueryChange={setFindQuery}
+            onFindNext={findNextMatch}
+            onClose={closeFindBar}
+          />
         )}
 
         <div
@@ -5056,27 +2581,7 @@ ${value}
               )}
             >
               {!hasMessages ? (
-                <div className="flex h-full items-center justify-center px-3">
-                  <div className="max-w-md rounded-lg border bg-card p-6 text-center shadow-xs">
-                    <h2 className="text-base font-semibold">
-                      Start a conversation
-                    </h2>
-                    <p className="mt-2 text-base leading-6 text-muted-foreground">
-                      Configure a provider, choose a model, and send your first
-                      message. Chats are stored locally as JSON files.
-                    </p>
-                    <div className="mt-4 flex justify-center gap-2">
-                      <Button
-                        className="rounded-lg"
-                        variant="secondary"
-                        onClick={() => setSettingsOpen(true)}
-                      >
-                        <Settings className="size-4" />
-                        Open providers
-                      </Button>
-                    </div>
-                  </div>
-                </div>
+                <EmptyChatState onOpenProviders={() => setSettingsOpen(true)} />
               ) : (
                 <ChatMessageList
                   messages={messages}
@@ -5152,7 +2657,25 @@ ${value}
           onDraftChange={updateActiveComposerDraft}
           onSend={sendMessage}
           onStop={stopGeneration}
-          footerStart={renderComposerFooterStart()}
+          footerStart={<ComposerFooter
+            activeChatExists={Boolean(activeChat)}
+            isSending={isSending}
+            activeChatProvider={activeChatProvider}
+            activeChatModel={activeChatModel}
+            visibleProviderGroups={visibleProviderGroups}
+            isModelPickerOpen={isSidebarModelComboboxOpen}
+            onModelPickerOpenChange={setIsSidebarModelComboboxOpen}
+            modelSearchValue={sidebarModelSearchValue}
+            onModelSearchValueChange={setSidebarModelSearchValue}
+            onSelectProviderModel={selectActiveChatProviderModel}
+            visibleChatTools={visibleChatTools}
+            selectedToolNames={activeChatEnabledToolNames}
+            isToolPickerOpen={isChatToolPickerOpen}
+            onToolPickerOpenChange={setIsChatToolPickerOpen}
+            toolSearchValue={chatToolSearchValue}
+            onToolSearchValueChange={setChatToolSearchValue}
+            onToggleTool={toggleActiveChatTool}
+          />}
           toolMentionOptions={toolMentionOptions}
         />
       </section>
@@ -5182,57 +2705,14 @@ ${value}
         showError={stableShowError}
       />
 
-      <Dialog open={systemPromptOpen} onOpenChange={setSystemPromptOpen}>
-        <DialogContent className="flex max-h-[calc(100dvh-2rem)] flex-col gap-0 overflow-hidden rounded-lg p-0 sm:max-w-2xl">
-          <DialogHeader className="shrink-0 border-b px-5 py-4 pr-12">
-            <DialogTitle>System prompt</DialogTitle>
-            <DialogDescription>
-              Define the instruction sent before every chat message. Leave it
-              empty to send no system prompt.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-            <Textarea
-              id="system-prompt"
-              value={systemPrompt}
-              onChange={(event) => setSystemPrompt(event.target.value)}
-              className="min-h-[320px] resize-y leading-6"
-              placeholder="You are a helpful assistant."
-            />
-          </div>
-
-          <DialogFooter className="shrink-0 border-t px-5 py-3">
-            <Button
-              type="button"
-              variant="secondary"
-              className="rounded-lg"
-              onClick={() => setSystemPrompt("You are a helpful assistant.")}
-            >
-              Reset
-            </Button>
-            <Button
-              type="button"
-              className="rounded-lg"
-              onClick={async () => {
-                try {
-                  await saveSystemPrompt(systemPrompt);
-                  showSuccess("System prompt saved.");
-                  setSystemPromptOpen(false);
-                } catch (error) {
-                  console.error("Failed to save system prompt:", error);
-                  showError(
-                    "Failed to save system prompt",
-                    labelForError(error),
-                  );
-                }
-              }}
-            >
-              Save
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <SystemPromptDialog
+        open={systemPromptOpen}
+        value={systemPrompt}
+        onOpenChange={setSystemPromptOpen}
+        onValueChange={setSystemPrompt}
+        showSuccess={stableShowSuccess}
+        showError={stableShowError}
+      />
     </main>
   );
 }
