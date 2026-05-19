@@ -25,7 +25,6 @@ dist-ssr
 
 release
 *.zip
-*.7z
 dist/*
 dist-electron/*
 tmp/*
