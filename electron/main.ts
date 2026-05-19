@@ -624,7 +624,6 @@ async function executeToolManifest(name: unknown, args: unknown) {
   const tools = await loadJsonTools();
   const tool = tools.find((candidate) => candidate.name === toolName);
   if (!tool) throw new Error(`Tool is not configured: ${toolName}`);
-  if (!tool.enabled) throw new Error(`Tool is disabled: ${toolName}`);
 
   const result = await runCommandTool(tool, args);
   const content = buildModelToolResultContent(result, tool.timeoutMs);

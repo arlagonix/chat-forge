@@ -199,6 +199,8 @@ export type ChatSession = {
   updatedAt: string;
   providerId?: string;
   model?: string;
+  enabledToolNames?: string[];
+  disabledToolNames?: string[];
 };
 
 export type ApiToolCall = ChatToolCall;
