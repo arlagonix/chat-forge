@@ -339,7 +339,9 @@ function isValidToolName(toolName: string) {
 }
 
 function isBuiltInToolName(toolName: string) {
-  return toolName === ASK_USER_TOOL_NAME || toolName === CHECKLIST_WRITE_TOOL_NAME;
+  return (
+    toolName === ASK_USER_TOOL_NAME || toolName === CHECKLIST_WRITE_TOOL_NAME
+  );
 }
 
 function compareToolsByDisplayOrder(
@@ -1869,7 +1871,9 @@ const ChatComposer = memo(
                         <Wrench className="mt-0.5 size-3.5 shrink-0 opacity-70" />
                         <span className="min-w-0 flex-1">
                           <span className="flex min-w-0 items-center gap-1.5 font-medium">
-                            <span className="min-w-0 truncate">{tool.name}</span>
+                            <span className="min-w-0 truncate">
+                              {tool.name}
+                            </span>
                             {tool.isBuiltin && (
                               <Lock className="size-3 shrink-0 text-muted-foreground" />
                             )}
@@ -2460,7 +2464,8 @@ export default function Home() {
     if (!toolsSettings.enabled) return names;
 
     if (toolsSettings.askUserEnabled) names.add(ASK_USER_TOOL_NAME);
-    if (toolsSettings.checklistWriteEnabled) names.add(CHECKLIST_WRITE_TOOL_NAME);
+    if (toolsSettings.checklistWriteEnabled)
+      names.add(CHECKLIST_WRITE_TOOL_NAME);
 
     for (const tool of loadedTools) {
       if (
@@ -6807,7 +6812,9 @@ ${value}
                                     />
                                   </>
                                 ) : (
-                                  <UserMessageContent content={message.content} />
+                                  <UserMessageContent
+                                    content={message.content}
+                                  />
                                 )}
                               </div>
                             </article>
@@ -7171,7 +7178,7 @@ ${value}
       </section>
 
       <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
-        <DialogContent className="flex h-[min(820px,calc(100dvh-2rem))] max-h-none flex-col gap-0 overflow-hidden p-0 sm:max-w-5xl">
+        <DialogContent className="flex h-[min(1000px,calc(100dvh-2rem))] max-h-none flex-col gap-0 overflow-hidden p-0 sm:max-w-5xl">
           <DialogHeader className="shrink-0 border-b px-5 py-4 pr-12">
             <DialogTitle>Providers</DialogTitle>
             <DialogDescription>
