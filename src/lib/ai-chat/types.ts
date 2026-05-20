@@ -211,9 +211,19 @@ export type ChatAssistantMessage = {
 
 export type ChatMessage = ChatUserMessage | ChatAssistantMessage;
 
+export type ChatTitleMode = "auto" | "manual";
+
+export type ChatTitleGenerationMode = "local" | "ai";
+
+export type AppSettings = {
+  chatTitleGenerationMode: ChatTitleGenerationMode;
+};
+
 export type ChatSession = {
   id: string;
   title: string;
+  titleMode?: ChatTitleMode;
+  isPinned?: boolean;
   messages: ChatMessage[];
   createdAt: string;
   updatedAt: string;

@@ -9,6 +9,8 @@ import {
 } from "@/lib/ai-chat/storage";
 import {
   getProviderFallbackModel,
+  isAutoTitledChat,
+  normalizeManualChatTitle,
   sortChatsByUpdatedAt,
   titleFromMessage,
 } from "@/lib/ai-chat/chat-utils";
@@ -159,7 +161,14 @@ export function useChatActions({
 
     updateChat(activeChat.id, (chat) => ({
       ...chat,
-      title: userIndex === 0 ? titleFromMessage(userMessage) : chat.title,
+      title:
+        userIndex === 0 && isAutoTitledChat(chat)
+          ? titleFromMessage(userMessage)
+          : chat.title,
+      titleMode:
+        userIndex === 0 && isAutoTitledChat(chat)
+          ? "auto"
+          : chat.titleMode,
       messages: chat.messages.map((message) =>
         message.id === messageId && message.role === "user"
           ? { ...message, content: userMessage }
@@ -211,6 +220,7 @@ export function useChatActions({
     updateChat(activeChat.id, (chat) => ({
       ...chat,
       title: "New chat",
+      titleMode: "auto",
       messages: [],
       updatedAt: now,
     }));
@@ -291,8 +301,27 @@ export function useChatActions({
     });
   }
 
+  function renameChat(chatId: string, title: string) {
+    const nextTitle = normalizeManualChatTitle(title);
+    if (!nextTitle) return;
+
+    updateChat(chatId, (chat) => ({
+      ...chat,
+      title: nextTitle,
+      titleMode: "manual",
+      updatedAt: new Date().toISOString(),
+    }));
+  }
+
+  function toggleChatPinned(chatId: string) {
+    updateChat(chatId, (chat) => ({
+      ...chat,
+      isPinned: chat.isPinned !== true,
+    }));
+  }
+
   return {
-      startEditingUserMessage,
+    startEditingUserMessage,
     cancelEditingUserMessage,
     copyLinkHref,
     deleteMessage,
@@ -304,5 +333,7 @@ export function useChatActions({
     clearCurrentChat,
     removeChat,
     toggleActiveChatTool,
+    renameChat,
+    toggleChatPinned,
   };
 }

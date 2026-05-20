@@ -219,6 +219,7 @@ function buildPayload({
   userMessage,
   stream,
   tools,
+  settingsOverride,
 }: {
   provider: ProviderConfig;
   systemPrompt: string;
@@ -226,8 +227,12 @@ function buildPayload({
   userMessage?: string;
   stream: boolean;
   tools?: LoadedToolInfo[];
+  settingsOverride?: ProviderGenerationSettings;
 }) {
-  const settings = getActiveModelSettings(provider);
+  const settings = {
+    ...getActiveModelSettings(provider),
+    ...(settingsOverride ?? {}),
+  };
   const temperature = normalizeOptionalNumber(settings.temperature, 0, 2);
   const topP = normalizeOptionalNumber(settings.topP, 0, 1);
   const maxTokens = normalizeOptionalNumber(settings.maxTokens, 1, 1048576);
@@ -472,11 +477,13 @@ export async function sendProviderChat({
   systemPrompt,
   messages,
   userMessage,
+  settingsOverride,
 }: {
   provider: ProviderConfig;
   systemPrompt: string;
   messages: ChatMessage[];
   userMessage: string;
+  settingsOverride?: ProviderGenerationSettings;
 }): Promise<string> {
   if (!provider.baseUrl.trim()) {
     throw new Error("Provider base URL is required.");
@@ -494,7 +501,7 @@ export async function sendProviderChat({
     baseUrl: provider.baseUrl,
     apiKey: provider.apiKey,
     headers: provider.headers,
-    payload: buildPayload({ provider, systemPrompt, messages, userMessage, stream: false }),
+    payload: buildPayload({ provider, systemPrompt, messages, userMessage, stream: false, settingsOverride }),
   });
 
   const content = data?.choices?.[0]?.message?.content;
@@ -521,6 +528,7 @@ export async function streamProviderChat({
   userMessage,
   signal,
   tools,
+  settingsOverride,
   onContentDelta,
   onReasoningDelta,
 }: {
@@ -530,6 +538,7 @@ export async function streamProviderChat({
   userMessage?: string;
   signal?: AbortSignal;
   tools?: LoadedToolInfo[];
+  settingsOverride?: ProviderGenerationSettings;
   onContentDelta: (delta: string) => void;
   onReasoningDelta?: (delta: string) => void;
 }): Promise<StreamProviderChatResult> {
@@ -567,7 +576,7 @@ export async function streamProviderChat({
     baseUrl: provider.baseUrl,
     apiKey: provider.apiKey,
     headers: provider.headers,
-    payload: buildPayload({ provider, systemPrompt, messages, userMessage, stream: true, tools }),
+    payload: buildPayload({ provider, systemPrompt, messages, userMessage, stream: true, tools, settingsOverride }),
   });
 
   const abortHandler = () => {
