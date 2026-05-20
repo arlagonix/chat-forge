@@ -3,9 +3,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
   createId,
+  isAutoTitledChat,
   labelForError,
   titleFromMessage,
 } from "@/lib/ai-chat/chat-utils";
+import { generateTitleFromFirstExchange } from "@/lib/ai-chat/title-generation";
 import {
   ASK_USER_TOOL_NAME,
   CHECKLIST_WRITE_TOOL_NAME,
@@ -46,6 +48,7 @@ import type {
   AskUserResponse,
   ChatAssistantProcessStep,
   ChatAssistantVariant,
+  ChatTitleGenerationMode,
   ChatMessage,
   ChatSession,
   ChatToolCall,
@@ -69,6 +72,7 @@ export function useChatGeneration({
   chats,
   systemPrompt,
   toolsSettings,
+  chatTitleGenerationMode,
   loadedTools,
   availableToolsByName,
   autoScrollEnabledRef,
@@ -94,6 +98,7 @@ export function useChatGeneration({
   chats: ChatSession[];
   systemPrompt: string;
   toolsSettings: ToolsSettings;
+  chatTitleGenerationMode: ChatTitleGenerationMode;
   loadedTools: LoadedToolInfo[];
   availableToolsByName: Map<string, LoadedToolInfo>;
   autoScrollEnabledRef: MutableRefObject<boolean>;
@@ -465,6 +470,57 @@ export function useChatGeneration({
     return resolveProviderForChat({ chat, providers, activeProvider });
   }
 
+  function maybeGenerateAutomaticAiTitle({
+    chatId,
+    contextMessages,
+    userMessage,
+    assistantMessage,
+    providerForRun,
+  }: {
+    chatId: string;
+    contextMessages: ChatMessage[];
+    userMessage: string;
+    assistantMessage: string;
+    providerForRun: ProviderConfig;
+  }) {
+    if (chatTitleGenerationMode !== "ai") return;
+    if (contextMessages.length > 0) return;
+    if (!assistantMessage.trim()) return;
+
+    void (async () => {
+      try {
+        const title = await generateTitleFromFirstExchange({
+          provider: providerForRun,
+          userMessage,
+          assistantMessage,
+        });
+
+        if (!title) return;
+
+        updateChat(chatId, (chat) => {
+          if (!isAutoTitledChat(chat)) return chat;
+
+          const firstUserMessage = chat.messages[0];
+          const firstAssistantMessage = chat.messages[1];
+          if (
+            firstUserMessage?.role !== "user" ||
+            firstAssistantMessage?.role !== "assistant"
+          ) {
+            return chat;
+          }
+
+          return {
+            ...chat,
+            title,
+            titleMode: "auto",
+          };
+        });
+      } catch (error) {
+        console.error("Failed to generate chat title:", error);
+      }
+    })();
+  }
+
   function getToolsForChat(chat: ChatSession, oneShotToolNames: string[] = []) {
     return getEnabledToolsForChat({
       chat,
@@ -824,6 +880,14 @@ export function useChatGeneration({
             streamResult: lastStreamResult ?? {},
           }),
       );
+
+      maybeGenerateAutomaticAiTitle({
+        chatId,
+        contextMessages,
+        userMessage,
+        assistantMessage: accumulatedContent,
+        providerForRun,
+      });
     } catch (error) {
       const wasAborted = error instanceof DOMException && error.name === "AbortError";
 
@@ -910,9 +974,13 @@ export function useChatGeneration({
     updateChat(activeChat.id, (chat) => ({
       ...chat,
       title:
-        chat.messages.length === 0 && chat.title === "New chat"
+        chat.messages.length === 0 && isAutoTitledChat(chat)
           ? titleFromMessage(userMessage)
           : chat.title,
+      titleMode:
+        chat.messages.length === 0 && isAutoTitledChat(chat)
+          ? "auto"
+          : chat.titleMode,
       messages: nextMessages,
       providerId: providerForRun.id,
       model: providerForRun.model,
@@ -1056,7 +1124,14 @@ export function useChatGeneration({
 
     updateChat(activeChat.id, (chat) => ({
       ...chat,
-      title: userIndex === 0 ? titleFromMessage(userMessage) : chat.title,
+      title:
+        userIndex === 0 && isAutoTitledChat(chat)
+          ? titleFromMessage(userMessage)
+          : chat.title,
+      titleMode:
+        userIndex === 0 && isAutoTitledChat(chat)
+          ? "auto"
+          : chat.titleMode,
       messages: nextMessages,
       providerId: providerForRun.id,
       model: providerForRun.model,

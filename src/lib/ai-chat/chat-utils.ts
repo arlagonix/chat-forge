@@ -4,11 +4,14 @@ import type {
   ChatAssistantVariant,
   ChatMessage,
   ChatSession,
+  ChatTitleMode,
   ChatTokenUsage,
   ProviderConfig,
   ProviderGenerationSettings,
   ProviderModelConfig,
 } from "./types";
+
+export const DEFAULT_CHAT_TITLE = "New chat";
 
 export function createId() {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -345,11 +348,51 @@ export function getAssistantContent(message: ChatMessage) {
   return getActiveVariant(message)?.content ?? "";
 }
 
-export function titleFromMessage(message: string) {
-  const firstLine = message.replace(/\s+/g, " ").trim();
-  if (!firstLine) return "New chat";
+export function getChatTitleMode(chat: Pick<ChatSession, "titleMode">): ChatTitleMode {
+  return chat.titleMode ?? "manual";
+}
 
-  return firstLine.length > 44 ? `${firstLine.slice(0, 44)}...` : firstLine;
+export function isAutoTitledChat(chat: Pick<ChatSession, "titleMode">) {
+  return getChatTitleMode(chat) === "auto";
+}
+
+export function normalizeManualChatTitle(title: string) {
+  return title.replace(/\s+/g, " ").trim();
+}
+
+export function titleFromMessage(message: string) {
+  const firstLine = message
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find(Boolean)
+    ?.replace(/^#{1,6}\s+/, "")
+    .replace(/^[-*•>]\s+/, "")
+    .replace(/^[`'"“”‘’]+|[`'"“”‘’]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!firstLine) return DEFAULT_CHAT_TITLE;
+
+  const firstSentence = firstLine.match(/^(.{12,}?[.!?])\s+/)?.[1] ?? firstLine;
+  const cleanTitle = firstSentence.replace(/[.!?]+$/g, "").trim();
+  if (!cleanTitle) return DEFAULT_CHAT_TITLE;
+
+  return cleanTitle.length > 44 ? `${cleanTitle.slice(0, 44).trimEnd()}...` : cleanTitle;
+}
+
+export function cleanGeneratedChatTitle(title: string) {
+  const cleanTitle = title
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find(Boolean)
+    ?.replace(/^#{1,6}\s+/, "")
+    .replace(/^[`'"“”‘’]+|[`'"“”‘’]+$/g, "")
+    .replace(/[.!?]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!cleanTitle) return undefined;
+
+  return cleanTitle.length > 60 ? `${cleanTitle.slice(0, 60).trimEnd()}...` : cleanTitle;
 }
 
 function getValidDateTime(value?: string) {
@@ -472,6 +515,11 @@ export type ChatGroup = {
   chats: ChatSession[];
 };
 
+export type GroupedChatList = {
+  pinnedChats: ChatSession[];
+  groups: ChatGroup[];
+};
+
 export function groupChatsByActivityDate(chats: ChatSession[]) {
   const now = new Date();
   const groups: ChatGroup[] = [];
@@ -488,4 +536,15 @@ export function groupChatsByActivityDate(chats: ChatSession[]) {
   }
 
   return groups;
+}
+
+export function groupChatsByPinnedAndActivityDate(chats: ChatSession[]): GroupedChatList {
+  const sortedChats = sortChatsByUpdatedAt(chats);
+  const pinnedChats = sortedChats.filter((chat) => chat.isPinned === true);
+  const unpinnedChats = sortedChats.filter((chat) => chat.isPinned !== true);
+
+  return {
+    pinnedChats,
+    groups: groupChatsByActivityDate(unpinnedChats),
+  };
 }

@@ -1,56 +1,28 @@
 "use client";
 
 import { ChevronDown } from "lucide-react";
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { ChatMessageList } from "@/components/ai-chat/chat-message-list";
 import {
   ChatComposer,
   type ChatComposerHandle,
   type ToolMentionOption,
 } from "@/components/ai-chat/chat-composer";
-import { ToolExecutionBlock } from "@/components/ai-chat/tool-execution-block";
+import { ChatMessageList } from "@/components/ai-chat/chat-message-list";
 import { ComposerFooter } from "@/components/ai-chat/composer-footer";
 import { EmptyChatState } from "@/components/ai-chat/empty-chat-state";
 import { FindBar } from "@/components/ai-chat/find-bar";
+import { ToolExecutionBlock } from "@/components/ai-chat/tool-execution-block";
 import { ChatSidebar } from "@/components/chat-sidebar";
 import { SystemPromptDialog } from "@/components/dialogs/system-prompt-dialog";
 import { ProviderSettingsDialog } from "@/components/provider-settings-dialog";
 import { ToolsDialog } from "@/components/tools-dialog";
 import { Button } from "@/components/ui/button";
-import {
-  createNewProvider,
-  createProviderId,
-  getEffectiveModelContext,
-  getEnabledProviderModels,
-  getProviderFallbackModel,
-  groupChatsByActivityDate,
-  labelForError,
-  normalizeProviderForState,
-  providerDisplayName,
-  sortChatsByUpdatedAt,
-} from "@/lib/ai-chat/chat-utils";
-import { defaultProvider } from "@/lib/ai-chat/provider-presets";
-import {
-  createEmptyChat,
-  loadActiveChatId,
-  loadChats,
-  loadProvidersState,
-  loadSystemPrompt,
-  loadTools,
-  loadToolsSettings,
-  saveActiveChatId,
-  saveChat,
-  saveProvidersState,
-  saveSystemPrompt,
-  saveToolsSettings,
-} from "@/lib/ai-chat/storage";
+import { useChatActions } from "@/hooks/use-chat-actions";
+import { useChatAutoscroll } from "@/hooks/use-chat-autoscroll";
+import { useChatGeneration } from "@/hooks/use-chat-generation";
+import { useMessageContextMenu } from "@/hooks/use-message-context-menu";
+import { useStableCallback } from "@/hooks/use-stable-callback";
 import {
   ASK_USER_TOOL,
   ASK_USER_TOOL_NAME,
@@ -61,7 +33,42 @@ import {
   isBuiltInToolName,
   isValidToolName,
 } from "@/lib/ai-chat/builtin-tools";
+import {
+  createNewProvider,
+  createProviderId,
+  getEffectiveModelContext,
+  getEnabledProviderModels,
+  getProviderFallbackModel,
+  groupChatsByPinnedAndActivityDate,
+  labelForError,
+  normalizeProviderForState,
+  providerDisplayName,
+  sortChatsByUpdatedAt,
+} from "@/lib/ai-chat/chat-utils";
+import { defaultProvider } from "@/lib/ai-chat/provider-presets";
+import {
+  resolveProviderForChat,
+  validateProviderForGeneration,
+} from "@/lib/ai-chat/request-builder";
+import {
+  createEmptyChat,
+  loadActiveChatId,
+  loadAppSettings,
+  loadChats,
+  loadProvidersState,
+  loadSystemPrompt,
+  loadTools,
+  loadToolsSettings,
+  saveActiveChatId,
+  saveAppSettings,
+  saveChat,
+  saveProvidersState,
+  saveSystemPrompt,
+  saveToolsSettings,
+} from "@/lib/ai-chat/storage";
+import { generateTitleFromChatContext } from "@/lib/ai-chat/title-generation";
 import type {
+  AppSettings,
   ChatMessage,
   ChatSession,
   ChatToolCall,
@@ -72,11 +79,6 @@ import type {
   ToolExecutionStatus,
   ToolsSettings,
 } from "@/lib/ai-chat/types";
-import { useChatActions } from "@/hooks/use-chat-actions";
-import { useChatGeneration } from "@/hooks/use-chat-generation";
-import { useChatAutoscroll } from "@/hooks/use-chat-autoscroll";
-import { useMessageContextMenu } from "@/hooks/use-message-context-menu";
-import { useStableCallback } from "@/hooks/use-stable-callback";
 import { useTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -151,6 +153,9 @@ export default function Home() {
   const [toolsSettings, setToolsSettings] = useState<ToolsSettings>(
     DEFAULT_TOOLS_SETTINGS,
   );
+  const [appSettings, setAppSettings] = useState<AppSettings>({
+    chatTitleGenerationMode: "local",
+  });
   const [loadedTools, setLoadedTools] = useState<LoadedToolInfo[]>([]);
   const [chats, setChats] = useState<ChatSession[]>([]);
   const [activeChatId, setActiveChatId] = useState<string | undefined>();
@@ -162,6 +167,9 @@ export default function Home() {
   );
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [generatingChatIds, setGeneratingChatIds] = useState<string[]>([]);
+  const [titleGenerationChatIds, setTitleGenerationChatIds] = useState<
+    string[]
+  >([]);
   const [visualStreamingMessageIds, setVisualStreamingMessageIds] = useState<
     string[]
   >([]);
@@ -191,11 +199,8 @@ export default function Home() {
   const [collapsedToolStepIds, setCollapsedToolStepIds] = useState<
     Record<string, boolean>
   >({});
-  const {
-    messageContextMenu,
-    captureMessageContext,
-    closeMessageContextMenu,
-  } = useMessageContextMenu();
+  const { messageContextMenu, captureMessageContext, closeMessageContextMenu } =
+    useMessageContextMenu();
   const messageElementRefs = useRef(new Map<string, HTMLDivElement>());
   const messageElementRefCallbacks = useRef(
     new Map<string, (element: HTMLDivElement | null) => void>(),
@@ -284,7 +289,6 @@ export default function Home() {
     );
   }, [isSidebarCollapsed]);
 
-
   function runFindInPage(
     query: string,
     options: { forward?: boolean; findNext?: boolean } = {},
@@ -347,8 +351,8 @@ export default function Home() {
   }
 
   const sortedChats = useMemo(() => sortChatsByUpdatedAt(chats), [chats]);
-  const groupedChats = useMemo(
-    () => groupChatsByActivityDate(sortedChats),
+  const groupedChatList = useMemo(
+    () => groupChatsByPinnedAndActivityDate(sortedChats),
     [sortedChats],
   );
 
@@ -379,15 +383,21 @@ export default function Home() {
     ? generatingChatIds.includes(activeChat.id)
     : false;
   const latestContextUsage = useMemo(() => {
-    const context = getEffectiveModelContext(activeChatProvider, activeChatModel);
-    const assistantMessages = [...messages].reverse().filter(
-      (message) => message.role === "assistant",
+    const context = getEffectiveModelContext(
+      activeChatProvider,
+      activeChatModel,
     );
+    const assistantMessages = [...messages]
+      .reverse()
+      .filter((message) => message.role === "assistant");
 
     for (const message of assistantMessages) {
       if (message.role !== "assistant") continue;
       const variant = message.variants[message.activeVariantIndex];
-      if (variant?.metrics?.model && variant.metrics.model !== activeChatModel) {
+      if (
+        variant?.metrics?.model &&
+        variant.metrics.model !== activeChatModel
+      ) {
         continue;
       }
       const usage = variant?.metrics?.tokenUsage;
@@ -543,6 +553,7 @@ export default function Home() {
           loadedChats,
           loadedActiveChatId,
           loadedToolsSettings,
+          loadedAppSettings,
           loadedToolManifests,
         ] = await Promise.all([
           loadProvidersState(),
@@ -550,6 +561,7 @@ export default function Home() {
           loadChats(),
           loadActiveChatId(),
           loadToolsSettings(),
+          loadAppSettings(),
           loadTools(),
         ]);
 
@@ -602,6 +614,7 @@ export default function Home() {
         });
         setSystemPrompt(loadedSystemPrompt);
         setToolsSettings(loadedToolsSettings);
+        setAppSettings(loadedAppSettings);
         setLoadedTools(loadedToolManifests);
         savedChatSnapshotsRef.current = Object.fromEntries(
           nextChats.map((chat) => [chat.id, JSON.stringify(chat)]),
@@ -694,6 +707,13 @@ export default function Home() {
   }, [toolsSettings]);
 
   useEffect(() => {
+    if (!didHydrateRef.current) return;
+    saveAppSettings(appSettings).catch((error) =>
+      console.error("Failed to save app settings:", error),
+    );
+  }, [appSettings]);
+
+  useEffect(() => {
     if (!didHydrateRef.current || !activeChatId) return;
     saveActiveChatId(activeChatId).catch((error) =>
       console.error("Failed to save active chat id:", error),
@@ -774,8 +794,6 @@ export default function Home() {
 
     return window.chatForgeTools;
   }
-
-
 
   function isToolExecutionCollapsed(stepId: string) {
     const manualState = collapsedToolStepIds[stepId];
@@ -871,8 +889,6 @@ export default function Home() {
     [activeChatId],
   );
 
-
-
   const {
     sendMessage,
     regenerateAssistantMessage,
@@ -891,6 +907,7 @@ export default function Home() {
     chats,
     systemPrompt,
     toolsSettings,
+    chatTitleGenerationMode: appSettings.chatTitleGenerationMode,
     loadedTools,
     availableToolsByName,
     autoScrollEnabledRef,
@@ -1055,6 +1072,8 @@ export default function Home() {
     clearCurrentChat,
     removeChat,
     toggleActiveChatTool,
+    renameChat,
+    toggleChatPinned,
   } = useChatActions({
     activeChat,
     activeChatId,
@@ -1079,12 +1098,74 @@ export default function Home() {
     updateChat,
   });
 
+  async function generateChatTitle(chatId: string) {
+    const chat = chats.find((item) => item.id === chatId);
+    if (!chat) return;
+
+    if (isChatGenerating(chatId) || titleGenerationChatIds.includes(chatId)) {
+      showInfo("Wait until generation finishes before generating a title.");
+      return;
+    }
+
+    if (chat.messages.length === 0) {
+      showInfo("Send a message before generating a title.");
+      return;
+    }
+
+    const providerForRun = resolveProviderForChat({
+      chat,
+      providers,
+      activeProvider,
+    });
+    const validation = validateProviderForGeneration(providerForRun);
+
+    if (!validation.ok) {
+      showError(validation.message, validation.description);
+      if (validation.shouldOpenSettings) setSettingsOpen(true);
+      return;
+    }
+
+    setTitleGenerationChatIds((currentChatIds) => [
+      ...new Set([...currentChatIds, chatId]),
+    ]);
+
+    try {
+      const title = await generateTitleFromChatContext({
+        provider: providerForRun,
+        messages: chat.messages,
+      });
+
+      if (!title) {
+        showError("Failed to generate title.");
+        return;
+      }
+
+      updateChat(chatId, (currentChat) => ({
+        ...currentChat,
+        title,
+        titleMode: "manual",
+        updatedAt: new Date().toISOString(),
+      }));
+      showSuccess("Title generated.");
+    } catch (error) {
+      console.error("Failed to generate chat title:", error);
+      showError("Failed to generate title", labelForError(error));
+    } finally {
+      setTitleGenerationChatIds((currentChatIds) =>
+        currentChatIds.filter((currentChatId) => currentChatId !== chatId),
+      );
+    }
+  }
+
   const handleProvidersStateChange = useStableCallback(updateProvidersState);
   const handleProviderSettingChange = useStableCallback(updateProviderSetting);
   const handleAddProvider = useStableCallback(addProvider);
   const handleDuplicateProvider = useStableCallback(duplicateProvider);
   const handleDeleteProvider = useStableCallback(deleteProvider);
   const handleSaveSettingsChanges = useStableCallback(saveSettingsChanges);
+  const stableRenameChat = useStableCallback(renameChat);
+  const stableToggleChatPinned = useStableCallback(toggleChatPinned);
+  const stableGenerateChatTitle = useStableCallback(generateChatTitle);
   const stableShowSuccess = useStableCallback(showSuccess);
   const stableShowError = useStableCallback(showError);
   const toolDisplayKey = useMemo(
@@ -1094,24 +1175,38 @@ export default function Home() {
         .join("\n"),
     [loadedTools],
   );
-  const stableRegisterMessageElement = useStableCallback(registerMessageElement);
-  const stableRenderToolExecutionBlock = useStableCallback(renderToolExecutionBlock);
-  const stableCanSubmitAskUserResponse = useStableCallback(canSubmitAskUserResponse);
+  const stableRegisterMessageElement = useStableCallback(
+    registerMessageElement,
+  );
+  const stableRenderToolExecutionBlock = useStableCallback(
+    renderToolExecutionBlock,
+  );
+  const stableCanSubmitAskUserResponse = useStableCallback(
+    canSubmitAskUserResponse,
+  );
   const stableCaptureMessageContext = useStableCallback(captureMessageContext);
-  const stableCloseMessageContextMenu = useStableCallback(closeMessageContextMenu);
+  const stableCloseMessageContextMenu = useStableCallback(
+    closeMessageContextMenu,
+  );
   const stableCopyLinkHref = useStableCallback(copyLinkHref);
   const stableCopyMessageContent = useStableCallback(copyMessageContent);
   const stableRegenerateAssistantMessage = useStableCallback(
     regenerateAssistantMessage,
   );
-  const stableStartEditingUserMessage = useStableCallback(startEditingUserMessage);
+  const stableStartEditingUserMessage = useStableCallback(
+    startEditingUserMessage,
+  );
   const stableDeleteMessage = useStableCallback(deleteMessage);
   const stableCancelEditingUserMessage = useStableCallback(
     cancelEditingUserMessage,
   );
   const stableSaveEditedUserMessage = useStableCallback(saveEditedUserMessage);
-  const stableSubmitEditedUserMessage = useStableCallback(submitEditedUserMessage);
-  const stableSelectAssistantVariant = useStableCallback(selectAssistantVariant);
+  const stableSubmitEditedUserMessage = useStableCallback(
+    submitEditedUserMessage,
+  );
+  const stableSelectAssistantVariant = useStableCallback(
+    selectAssistantVariant,
+  );
   const stableToggleToolExecutionCollapsed = useStableCallback(
     toggleToolExecutionCollapsed,
   );
@@ -1140,17 +1235,30 @@ export default function Home() {
       <ChatSidebar
         appName={APP_NAME}
         appVersionLabel={APP_VERSION_LABEL}
-        groupedChats={groupedChats}
+        pinnedChats={groupedChatList.pinnedChats}
+        groupedChats={groupedChatList.groups}
         activeChatId={activeChat?.id}
         isCollapsed={isSidebarCollapsed}
+        chatTitleGenerationMode={appSettings.chatTitleGenerationMode}
+        generatingChatIds={generatingChatIds}
+        titleGenerationChatIds={titleGenerationChatIds}
         resolvedTheme={resolvedTheme}
         onCollapsedChange={setIsSidebarCollapsed}
         onSwitchChat={switchChat}
+        onRenameChat={stableRenameChat}
+        onToggleChatPinned={stableToggleChatPinned}
+        onGenerateChatTitle={stableGenerateChatTitle}
         onRemoveChat={removeChat}
         onCreateNewChat={createNewChat}
         onOpenProviders={() => setSettingsOpen(true)}
         onOpenTools={() => setToolsOpen(true)}
         onOpenSystemPrompt={() => setSystemPromptOpen(true)}
+        onToggleAiTitleGeneration={(checked) =>
+          setAppSettings((currentSettings) => ({
+            ...currentSettings,
+            chatTitleGenerationMode: checked ? "ai" : "local",
+          }))
+        }
         onSetTheme={setTheme}
         onClearCurrentChat={clearCurrentChat}
       />
@@ -1210,18 +1318,24 @@ export default function Home() {
                   onCloseMessageContextMenu={stableCloseMessageContextMenu}
                   onCopyLinkHref={stableCopyLinkHref}
                   onCopyMessageContent={stableCopyMessageContent}
-                  onRegenerateAssistantMessage={stableRegenerateAssistantMessage}
+                  onRegenerateAssistantMessage={
+                    stableRegenerateAssistantMessage
+                  }
                   onStartEditingUserMessage={stableStartEditingUserMessage}
                   onDeleteMessage={stableDeleteMessage}
                   onCancelEditingUserMessage={stableCancelEditingUserMessage}
                   onSaveEditedUserMessage={stableSaveEditedUserMessage}
                   onSubmitEditedUserMessage={stableSubmitEditedUserMessage}
                   onSelectAssistantVariant={stableSelectAssistantVariant}
-                  onToggleToolExecutionCollapsed={stableToggleToolExecutionCollapsed}
+                  onToggleToolExecutionCollapsed={
+                    stableToggleToolExecutionCollapsed
+                  }
                   onSubmitAskUserResponse={stableSubmitAskUserResponse}
                   onCancelAskUserRequest={stableCancelAskUserRequest}
                   onAskUserLayoutChange={stableHandleAskUserLayoutChange}
-                  onAssistantVisualProgress={stableHandleAssistantVisualProgress}
+                  onAssistantVisualProgress={
+                    stableHandleAssistantVisualProgress
+                  }
                   onAssistantVisualStreamingChange={
                     stableHandleAssistantVisualStreamingChange
                   }
@@ -1267,25 +1381,27 @@ export default function Home() {
           onSend={sendMessage}
           onStop={stopGeneration}
           contextUsage={latestContextUsage}
-          footerStart={<ComposerFooter
-            activeChatExists={Boolean(activeChat)}
-            isSending={isSending}
-            activeChatProvider={activeChatProvider}
-            activeChatModel={activeChatModel}
-            visibleProviderGroups={visibleProviderGroups}
-            isModelPickerOpen={isSidebarModelComboboxOpen}
-            onModelPickerOpenChange={setIsSidebarModelComboboxOpen}
-            modelSearchValue={sidebarModelSearchValue}
-            onModelSearchValueChange={setSidebarModelSearchValue}
-            onSelectProviderModel={selectActiveChatProviderModel}
-            visibleChatTools={visibleChatTools}
-            selectedToolNames={activeChatEnabledToolNames}
-            isToolPickerOpen={isChatToolPickerOpen}
-            onToolPickerOpenChange={setIsChatToolPickerOpen}
-            toolSearchValue={chatToolSearchValue}
-            onToolSearchValueChange={setChatToolSearchValue}
-            onToggleTool={toggleActiveChatTool}
-          />}
+          footerStart={
+            <ComposerFooter
+              activeChatExists={Boolean(activeChat)}
+              isSending={isSending}
+              activeChatProvider={activeChatProvider}
+              activeChatModel={activeChatModel}
+              visibleProviderGroups={visibleProviderGroups}
+              isModelPickerOpen={isSidebarModelComboboxOpen}
+              onModelPickerOpenChange={setIsSidebarModelComboboxOpen}
+              modelSearchValue={sidebarModelSearchValue}
+              onModelSearchValueChange={setSidebarModelSearchValue}
+              onSelectProviderModel={selectActiveChatProviderModel}
+              visibleChatTools={visibleChatTools}
+              selectedToolNames={activeChatEnabledToolNames}
+              isToolPickerOpen={isChatToolPickerOpen}
+              onToolPickerOpenChange={setIsChatToolPickerOpen}
+              toolSearchValue={chatToolSearchValue}
+              onToolSearchValueChange={setChatToolSearchValue}
+              onToggleTool={toggleActiveChatTool}
+            />
+          }
           toolMentionOptions={toolMentionOptions}
         />
       </section>

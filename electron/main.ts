@@ -109,6 +109,10 @@ type ToolsSettings = {
   checklistWriteEnabled: boolean;
 };
 
+type AppSettings = {
+  chatTitleGenerationMode: "local" | "ai";
+};
+
 type ToolLoadError = {
   source: string;
   message: string;
@@ -150,6 +154,9 @@ const DEFAULT_TOOLS_SETTINGS: ToolsSettings = {
   enabled: true,
   askUserEnabled: true,
   checklistWriteEnabled: true,
+};
+const DEFAULT_APP_SETTINGS: AppSettings = {
+  chatTitleGenerationMode: "local",
 };
 const DEFAULT_TOOL_TIMEOUT_MS = 30_000;
 const TOOL_NAME_PATTERN = /^[a-zA-Z0-9_-]{1,64}$/;
@@ -364,6 +371,15 @@ function normalizeToolsSettings(value: unknown): ToolsSettings {
       typeof value.askUserEnabled === "boolean" ? value.askUserEnabled : true,
     checklistWriteEnabled:
       typeof value.checklistWriteEnabled === "boolean" ? value.checklistWriteEnabled : true,
+  };
+}
+
+function normalizeAppSettings(value: unknown): AppSettings {
+  if (!isPlainObject(value)) return DEFAULT_APP_SETTINGS;
+
+  return {
+    chatTitleGenerationMode:
+      value.chatTitleGenerationMode === "ai" ? "ai" : "local",
   };
 }
 
@@ -847,6 +863,7 @@ type StorageSnapshot = {
   systemPrompt?: unknown;
   activeChatId?: unknown;
   providerModelsCache?: Record<string, unknown>;
+  appSettings?: unknown;
   chats?: unknown[];
 };
 
@@ -1030,6 +1047,7 @@ async function initializeJsonStorageIfNeeded() {
     activeChatId: undefined,
     providerModelsCache: {},
     toolsSettings: DEFAULT_TOOLS_SETTINGS,
+    appSettings: DEFAULT_APP_SETTINGS,
   });
   await writeJsonAtomic(getStoragePaths().providers, null);
   await writeJsonAtomic(getStoragePaths().chatsIndex, { chats: [] });
@@ -1054,6 +1072,8 @@ function normalizeChatSummary(chat: unknown) {
     providerId:
       typeof chat.providerId === "string" ? chat.providerId : undefined,
     model: typeof chat.model === "string" ? chat.model : undefined,
+    titleMode: chat.titleMode === "auto" || chat.titleMode === "manual" ? chat.titleMode : undefined,
+    isPinned: chat.isPinned === true,
   };
 }
 
@@ -1223,6 +1243,7 @@ async function migrateFromIndexedDbSnapshot(snapshot: StorageSnapshot) {
         ? snapshot.providerModelsCache
         : {},
       toolsSettings: DEFAULT_TOOLS_SETTINGS,
+      appSettings: normalizeAppSettings(snapshot.appSettings),
     };
 
     await writeJsonAtomic(getStoragePaths().settings, settings);
@@ -1718,6 +1739,16 @@ ipcMain.handle("storage:tools-settings:load", async () => {
 
 ipcMain.handle("storage:tools-settings:save", async (_event, value: unknown) => {
   await writeSettingsPatch({ toolsSettings: normalizeToolsSettings(value) });
+});
+
+ipcMain.handle("storage:app-settings:load", async () => {
+  await initializeJsonStorageIfNeeded();
+  const settings = await readSettingsFile();
+  return normalizeAppSettings(settings.appSettings);
+});
+
+ipcMain.handle("storage:app-settings:save", async (_event, value: unknown) => {
+  await writeSettingsPatch({ appSettings: normalizeAppSettings(value) });
 });
 
 ipcMain.handle("storage:tools:load", async () => loadJsonTools());

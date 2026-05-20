@@ -1,6 +1,7 @@
 import { defaultGenerationSettings, defaultProvider } from "./provider-presets";
 import { normalizeProviderForState, sortChatsByUpdatedAt } from "./chat-utils";
 import type {
+  AppSettings,
   ChatSession,
   LoadedToolInfo,
   ProviderConfig,
@@ -21,6 +22,11 @@ const SYSTEM_PROMPT_KEY = "system-prompt";
 const ACTIVE_CHAT_ID_KEY = "active-chat-id";
 const MODEL_CACHE_KEY_PREFIX = "provider-models:";
 const TOOLS_SETTINGS_KEY = "tools-settings";
+const APP_SETTINGS_KEY = "app-settings";
+
+export const DEFAULT_APP_SETTINGS: AppSettings = {
+  chatTitleGenerationMode: "local",
+};
 
 const DEFAULT_SYSTEM_PROMPT = "You are a helpful assistant.";
 
@@ -33,6 +39,7 @@ type IndexedDbSnapshot = {
   providersState?: ProvidersState;
   systemPrompt?: string;
   activeChatId?: string;
+  appSettings?: AppSettings;
   providerModelsCache: Record<string, string[]>;
   chats: ChatSession[];
 };
@@ -48,6 +55,8 @@ type ChatForgeStorageApi = {
   saveActiveChatId: (chatId: string) => Promise<void>;
   loadToolsSettings: () => Promise<ToolsSettings | undefined>;
   saveToolsSettings: (value: ToolsSettings) => Promise<void>;
+  loadAppSettings: () => Promise<AppSettings | undefined>;
+  saveAppSettings: (value: AppSettings) => Promise<void>;
   loadTools: () => Promise<LoadedToolInfo[]>;
   saveTool: (tool: LoadedToolInfo) => Promise<LoadedToolInfo>;
   deleteTool: (toolId: string) => Promise<void>;
@@ -79,6 +88,8 @@ export function createEmptyChat(): ChatSession {
   return {
     id: createId(),
     title: defaultChatTitle(),
+    titleMode: "auto",
+    isPinned: false,
     messages: [],
     createdAt: now,
     updatedAt: now,
@@ -138,6 +149,13 @@ function normalizeToolsSettings(value: Partial<ToolsSettings> | undefined): Tool
       typeof value?.askUserEnabled === "boolean" ? value.askUserEnabled : true,
     checklistWriteEnabled:
       typeof value?.checklistWriteEnabled === "boolean" ? value.checklistWriteEnabled : true,
+  };
+}
+
+export function normalizeAppSettings(value: Partial<AppSettings> | undefined): AppSettings {
+  return {
+    chatTitleGenerationMode:
+      value?.chatTitleGenerationMode === "ai" ? "ai" : "local",
   };
 }
 
@@ -326,6 +344,7 @@ async function readIndexedDbSnapshot(): Promise<IndexedDbSnapshot> {
     providersState,
     systemPrompt: await legacyGetSetting(SYSTEM_PROMPT_KEY, DEFAULT_SYSTEM_PROMPT),
     activeChatId: await legacyGetSetting<string | undefined>(ACTIVE_CHAT_ID_KEY, undefined),
+    appSettings: await legacyGetSetting<AppSettings | undefined>(APP_SETTINGS_KEY, undefined),
     providerModelsCache: await collectLegacyModelCache(providersState),
     chats: await legacyLoadChats(),
   };
@@ -445,6 +464,28 @@ export async function saveToolsSettings(value: ToolsSettings): Promise<void> {
   }
 
   await legacySetSetting(TOOLS_SETTINGS_KEY, normalized);
+}
+
+export async function loadAppSettings(): Promise<AppSettings> {
+  const api = await ensureJsonStorageReady();
+
+  if (api) {
+    return normalizeAppSettings(await api.loadAppSettings());
+  }
+
+  return normalizeAppSettings(await legacyGetSetting<AppSettings | undefined>(APP_SETTINGS_KEY, undefined));
+}
+
+export async function saveAppSettings(value: AppSettings): Promise<void> {
+  const normalized = normalizeAppSettings(value);
+  const api = await ensureJsonStorageReady();
+
+  if (api) {
+    await api.saveAppSettings(normalized);
+    return;
+  }
+
+  await legacySetSetting(APP_SETTINGS_KEY, normalized);
 }
 
 

@@ -1,18 +1,24 @@
 import {
+  Edit3,
+  Loader2,
   MessageSquareText,
   Moon,
   MoreHorizontal,
   PanelLeftClose,
   PanelLeftOpen,
+  Pin,
+  PinOff,
   Plus,
   Settings,
+  Sparkles,
   Sun,
   Trash2,
   Wrench,
 } from "lucide-react";
-import { memo } from "react";
+import { memo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -20,7 +26,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import type { ChatSession } from "@/lib/ai-chat/types";
+import { Input } from "@/components/ui/input";
+import type { ChatSession, ChatTitleGenerationMode } from "@/lib/ai-chat/types";
 import { cn } from "@/lib/utils";
 
 type ChatSidebarGroup = {
@@ -31,17 +38,25 @@ type ChatSidebarGroup = {
 type ChatSidebarProps = {
   appName: string;
   appVersionLabel: string;
+  pinnedChats: ChatSession[];
   groupedChats: ChatSidebarGroup[];
   activeChatId?: string;
   isCollapsed: boolean;
+  chatTitleGenerationMode: ChatTitleGenerationMode;
+  generatingChatIds: string[];
+  titleGenerationChatIds: string[];
   resolvedTheme: "light" | "dark";
   onCollapsedChange: (isCollapsed: boolean) => void;
   onSwitchChat: (chatId: string) => void;
+  onRenameChat: (chatId: string, title: string) => void;
+  onToggleChatPinned: (chatId: string) => void;
+  onGenerateChatTitle: (chatId: string) => void;
   onRemoveChat: (chatId: string) => void;
   onCreateNewChat: () => void;
   onOpenProviders: () => void;
   onOpenTools: () => void;
   onOpenSystemPrompt: () => void;
+  onToggleAiTitleGeneration: (checked: boolean) => void;
   onSetTheme: (theme: "light" | "dark") => void;
   onClearCurrentChat: () => void;
 };
@@ -49,20 +64,49 @@ type ChatSidebarProps = {
 export const ChatSidebar = memo(function ChatSidebar({
   appName,
   appVersionLabel,
+  pinnedChats,
   groupedChats,
   activeChatId,
   isCollapsed,
+  chatTitleGenerationMode,
+  generatingChatIds,
+  titleGenerationChatIds,
   resolvedTheme,
   onCollapsedChange,
   onSwitchChat,
+  onRenameChat,
+  onToggleChatPinned,
+  onGenerateChatTitle,
   onRemoveChat,
   onCreateNewChat,
   onOpenProviders,
   onOpenTools,
   onOpenSystemPrompt,
+  onToggleAiTitleGeneration,
   onSetTheme,
   onClearCurrentChat,
 }: ChatSidebarProps) {
+  const [renamingChatId, setRenamingChatId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+
+  function startRenamingChat(chat: ChatSession) {
+    setRenamingChatId(chat.id);
+    setRenameValue(chat.title);
+  }
+
+  function cancelRenamingChat() {
+    setRenamingChatId(null);
+    setRenameValue("");
+  }
+
+  function commitRenamingChat(chatId: string) {
+    const nextTitle = renameValue.trim();
+    if (nextTitle) {
+      onRenameChat(chatId, nextTitle);
+    }
+    cancelRenamingChat();
+  }
+
   function renderAppOptionsMenu(triggerClassName?: string) {
     return (
       <DropdownMenu>
@@ -100,6 +144,19 @@ export const ChatSidebar = memo(function ChatSidebar({
             System prompt
           </DropdownMenuItem>
           <DropdownMenuItem
+            onSelect={() =>
+              onToggleAiTitleGeneration(chatTitleGenerationMode !== "ai")
+            }
+          >
+            <Checkbox
+              checked={chatTitleGenerationMode === "ai"}
+              aria-hidden="true"
+              tabIndex={-1}
+              className="pointer-events-none"
+            />
+            Generate title
+          </DropdownMenuItem>
+          <DropdownMenuItem
             onClick={() =>
               onSetTheme(resolvedTheme === "dark" ? "light" : "dark")
             }
@@ -118,6 +175,151 @@ export const ChatSidebar = memo(function ChatSidebar({
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+    );
+  }
+
+  function renderChatRow(chat: ChatSession) {
+    const isActive = chat.id === activeChatId;
+    const isRenaming = renamingChatId === chat.id;
+    const isGenerating = generatingChatIds.includes(chat.id);
+    const isGeneratingTitle = titleGenerationChatIds.includes(chat.id);
+
+    return (
+      <div
+        key={chat.id}
+        role="button"
+        tabIndex={0}
+        className={cn(
+          "group flex min-w-0 cursor-pointer items-center gap-1 rounded-lg border px-2 py-1 outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          isActive
+            ? "border-primary/30 bg-accent text-accent-foreground"
+            : "border-transparent hover:border-border hover:bg-muted/60",
+        )}
+        onClick={() => {
+          if (!isRenaming) onSwitchChat(chat.id);
+        }}
+        onKeyDown={(event) => {
+          if (isRenaming) return;
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            onSwitchChat(chat.id);
+          }
+        }}
+        title={chat.title}
+      >
+        <div className="min-w-0 flex-1 text-left">
+          {isRenaming ? (
+            <Input
+              value={renameValue}
+              autoFocus
+              className="h-7 rounded-md px-2 py-1 text-base leading-6"
+              onChange={(event) => setRenameValue(event.target.value)}
+              onClick={(event) => event.stopPropagation()}
+              onFocus={(event) => event.currentTarget.select()}
+              onBlur={() => commitRenamingChat(chat.id)}
+              onKeyDown={(event) => {
+                event.stopPropagation();
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  commitRenamingChat(chat.id);
+                }
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  cancelRenamingChat();
+                }
+              }}
+            />
+          ) : (
+            <div className="truncate text-base leading-6">{chat.title}</div>
+          )}
+        </div>
+
+        {!isRenaming ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                className="h-7 w-7 shrink-0 rounded-lg opacity-0 group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100"
+                onClick={(event) => event.stopPropagation()}
+                title="Chat options"
+              >
+                <MoreHorizontal className="size-3.5" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="end"
+              className="rounded-lg"
+              onCloseAutoFocus={(event) => event.preventDefault()}
+            >
+              <DropdownMenuItem
+                onClick={(event) => {
+                  event.stopPropagation();
+                  startRenamingChat(chat);
+                }}
+              >
+                <Edit3 className="size-4" />
+                Rename
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                disabled={
+                  isGenerating ||
+                  isGeneratingTitle ||
+                  chat.messages.length === 0
+                }
+                onSelect={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  onGenerateChatTitle(chat.id);
+                }}
+              >
+                {isGeneratingTitle ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <Sparkles className="size-4" />
+                )}
+                Generate title
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onToggleChatPinned(chat.id);
+                }}
+              >
+                {chat.isPinned ? (
+                  <PinOff className="size-4" />
+                ) : (
+                  <Pin className="size-4" />
+                )}
+                {chat.isPinned ? "Unpin" : "Pin"}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                variant="destructive"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onRemoveChat(chat.id);
+                }}
+              >
+                <Trash2 className="size-4" />
+                Delete
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : null}
+      </div>
+    );
+  }
+
+  function renderChatSection(label: string, chats: ChatSession[]) {
+    return (
+      <section key={label} className="grid gap-1.5">
+        <div className="px-2 pt-1 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+          {label}
+        </div>
+        <div className="grid gap-[1px]">{chats.map(renderChatRow)}</div>
+      </section>
     );
   }
 
@@ -158,55 +360,12 @@ export const ChatSidebar = memo(function ChatSidebar({
 
         <div className="min-h-0 flex-1 overflow-y-auto p-2 chat-scrollbar">
           <div className="grid gap-3">
-            {groupedChats.map((group) => (
-              <section key={group.label} className="grid gap-1.5">
-                <div className="px-2 pt-1 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-                  {group.label}
-                </div>
-                <div className="grid gap-[1px]">
-                  {group.chats.map((chat) => (
-                    <div
-                      key={chat.id}
-                      role="button"
-                      tabIndex={0}
-                      className={cn(
-                        "group flex min-w-0 cursor-pointer items-center gap-1 border rounded-lg px-2 py-1 outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                        chat.id === activeChatId
-                          ? "border-primary/30 bg-accent text-accent-foreground"
-                          : "border-transparent hover:border-border hover:bg-muted/60",
-                      )}
-                      onClick={() => onSwitchChat(chat.id)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter" || event.key === " ") {
-                          event.preventDefault();
-                          onSwitchChat(chat.id);
-                        }
-                      }}
-                      title={chat.title}
-                    >
-                      <div className="min-w-0 flex-1 text-left">
-                        <div className="truncate text-base leading-6 ">
-                          {chat.title}
-                        </div>
-                      </div>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon-sm"
-                        className="h-7 w-7 shrink-0 rounded-lg opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          onRemoveChat(chat.id);
-                        }}
-                        title="Delete chat"
-                      >
-                        <Trash2 className="size-3.5" />
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              </section>
-            ))}
+            {pinnedChats.length > 0
+              ? renderChatSection("PINNED", pinnedChats)
+              : null}
+            {groupedChats.map((group) =>
+              renderChatSection(group.label, group.chats),
+            )}
           </div>
         </div>
 

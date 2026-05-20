@@ -1,4 +1,5 @@
 import type {
+  AppSettings,
   ChatTokenUsage,
   LoadedToolInfo,
   ToolCommandResult,
@@ -62,6 +63,7 @@ type ChatForgeIndexedDbSnapshot = {
   systemPrompt?: string;
   activeChatId?: string;
   providerModelsCache: Record<string, string[]>;
+  appSettings?: AppSettings;
   chats: unknown[];
 };
 
@@ -84,6 +86,8 @@ declare global {
       deleteAllChats: () => Promise<void>;
       loadToolsSettings: () => Promise<ToolsSettings | undefined>;
       saveToolsSettings: (value: ToolsSettings) => Promise<void>;
+      loadAppSettings: () => Promise<AppSettings | undefined>;
+      saveAppSettings: (value: AppSettings) => Promise<void>;
       loadTools: () => Promise<LoadedToolInfo[]>;
       saveTool: (tool: LoadedToolInfo) => Promise<LoadedToolInfo>;
       deleteTool: (toolId: string) => Promise<void>;
