@@ -56,7 +56,10 @@ export type ChatToolCall = {
   function: {
     name: string;
     arguments: string;
+    [key: string]: unknown;
   };
+  /** Provider-specific metadata required by some OpenAI-compatible APIs. */
+  [key: string]: unknown;
 };
 
 export type ToolExecutionPreview = {

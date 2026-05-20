@@ -1,5 +1,6 @@
 import {
   Check,
+  Copy,
   Download,
   FolderOpen,
   ListTodo,
@@ -637,6 +638,19 @@ function formatToolImportSummary(result: ToolImportResult) {
   ].join(" · ");
 }
 
+function createUniqueToolCloneName(baseName: string, tools: LoadedToolInfo[]) {
+  const existingNames = new Set(tools.map((tool) => tool.name));
+  const normalizedBase = baseName.trim() || "tool";
+
+  for (let index = 1; index < 1000; index += 1) {
+    const suffix = `_${index}`;
+    const candidate = `${normalizedBase.slice(0, 64 - suffix.length)}${suffix}`;
+    if (!existingNames.has(candidate)) return candidate;
+  }
+
+  return `${normalizedBase.slice(0, 55)}_${createId().slice(0, 8)}`;
+}
+
 export const ToolsDialog = memo(function ToolsDialog({
   open,
   onOpenChange,
@@ -864,6 +878,32 @@ export const ToolsDialog = memo(function ToolsDialog({
       );
     } catch (error) {
       showError("Failed to export tools", labelForError(error));
+    }
+  }
+
+  async function cloneCurrentTool() {
+    if (!toolDraft) return;
+
+    try {
+      const clonedDraft = {
+        ...toolDraft,
+        id: createId(),
+        name: createUniqueToolCloneName(toolDraft.name, loadedTools),
+      };
+      const clonedTool = draftToTool(clonedDraft);
+      validateToolDraft(clonedTool);
+      const savedTool = await saveTool(clonedTool);
+
+      onLoadedToolsChange((current) => {
+        const next = current.filter((item) => item.id !== savedTool.id);
+        next.push(savedTool);
+        return next.sort((left, right) => left.name.localeCompare(right.name));
+      });
+      setSelectedToolName(savedTool.name);
+      setToolDraft(toolToDraft(savedTool));
+      showSuccess("Tool cloned", savedTool.name);
+    } catch (error) {
+      showError("Failed to clone tool", labelForError(error));
     }
   }
 
@@ -1129,11 +1169,6 @@ export const ToolsDialog = memo(function ToolsDialog({
                     </span>
                     <Lock className="size-3 shrink-0 text-muted-foreground" />
                   </div>
-                  <div className="truncate text-sm leading-5 text-muted-foreground">
-                    {toolsSettings.askUserEnabled
-                      ? "Enabled · Built-in"
-                      : "Disabled · Built-in"}
-                  </div>
                 </div>
                 <Switch
                   checked={toolsSettings.askUserEnabled}
@@ -1181,11 +1216,6 @@ export const ToolsDialog = memo(function ToolsDialog({
                     </span>
                     <Lock className="size-3 shrink-0 text-muted-foreground" />
                   </div>
-                  <div className="truncate text-sm leading-5 text-muted-foreground">
-                    {toolsSettings.checklistWriteEnabled
-                      ? "Enabled · Built-in"
-                      : "Disabled · Built-in"}
-                  </div>
                 </div>
                 <Switch
                   checked={toolsSettings.checklistWriteEnabled}
@@ -1228,9 +1258,6 @@ export const ToolsDialog = memo(function ToolsDialog({
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-base leading-6">
                       {tool.name}
-                    </div>
-                    <div className="truncate text-sm leading-5 text-muted-foreground">
-                      {tool.enabled ? "Enabled" : "Disabled"} · {tool.command}
                     </div>
                   </div>
                   <Switch
@@ -1321,28 +1348,23 @@ export const ToolsDialog = memo(function ToolsDialog({
                       </p>
                     </div>
 
-                    {!toolsSettings.enabled && toolsSettings.askUserEnabled && (
-                      <div className="rounded-lg border border-dashed bg-muted/30 px-3 py-2 text-sm leading-5 text-muted-foreground">
-                        Global tools are disabled, so ask_user is currently not sent
-                        to the model even though this built-in tool is enabled.
-                      </div>
-                    )}
-
                     <div className="grid gap-2 rounded-lg border bg-muted/20 p-3">
                       <Label>Behavior</Label>
                       <div className="grid gap-2 text-base leading-6 text-muted-foreground">
                         <p>
-                          The assistant can call this tool when it needs a decision
-                          before continuing. The response pauses, shows one compact
-                          form, and resumes after you submit the answers.
+                          The assistant can call this tool when it needs a
+                          decision before continuing. The response pauses, shows
+                          one compact form, and resumes after you submit the
+                          answers.
                         </p>
                         <p>
-                          It supports up to 5 questions per form. Questions can be
-                          single-choice, multi-select, or text-only. Choice
-                          questions support up to 8 model-provided options, and each
-                          option should include a short label plus a gray helper
-                          description when useful. Chat Forge always adds a custom
-                          “Type your answer” option to choice questions.
+                          It supports up to 5 questions per form. Questions can
+                          be single-choice, multi-select, or text-only. Choice
+                          questions support up to 8 model-provided options, and
+                          each option should include a short label plus a gray
+                          helper description when useful. Chat Forge always adds
+                          a custom “Type your answer” option to choice
+                          questions.
                         </p>
                       </div>
                     </div>
@@ -1350,7 +1372,11 @@ export const ToolsDialog = memo(function ToolsDialog({
                     <div className="grid gap-2">
                       <Label>Parameters JSON schema</Label>
                       {renderJsonCodeBlock(
-                        JSON.stringify(BUILTIN_ASK_USER_TOOL_PARAMETERS, null, 2),
+                        JSON.stringify(
+                          BUILTIN_ASK_USER_TOOL_PARAMETERS,
+                          null,
+                          2,
+                        ),
                       )}
                     </div>
                   </div>
@@ -1382,26 +1408,18 @@ export const ToolsDialog = memo(function ToolsDialog({
                       </p>
                     </div>
 
-                    {!toolsSettings.enabled &&
-                      toolsSettings.checklistWriteEnabled && (
-                        <div className="rounded-lg border border-dashed bg-muted/30 px-3 py-2 text-sm leading-5 text-muted-foreground">
-                          Global tools are disabled, so checklist_write is currently
-                          not sent to the model even though this built-in tool is
-                          enabled.
-                        </div>
-                      )}
-
                     <div className="grid gap-2 rounded-lg border bg-muted/20 p-3">
                       <Label>Behavior</Label>
                       <div className="grid gap-2 text-base leading-6 text-muted-foreground">
                         <p>
-                          The assistant can call this tool during complex work to
-                          show a concise progress checklist in the chat. It
+                          The assistant can call this tool during complex work
+                          to show a concise progress checklist in the chat. It
                           completes immediately and does not pause generation.
                         </p>
                         <p>
-                          Each call creates a checklist snapshot. It supports up to
-                          10 short items. Each item has only content and done.
+                          Each call creates a checklist snapshot. It supports up
+                          to 10 short items. Each item has only content and
+                          done.
                         </p>
                       </div>
                     </div>
@@ -1440,6 +1458,12 @@ export const ToolsDialog = memo(function ToolsDialog({
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-44">
+                          <DropdownMenuItem
+                            onSelect={() => void cloneCurrentTool()}
+                          >
+                            <Copy className="size-4" />
+                            Clone
+                          </DropdownMenuItem>
                           <DropdownMenuItem
                             onSelect={() => void exportCurrentTool()}
                           >
@@ -1483,7 +1507,7 @@ export const ToolsDialog = memo(function ToolsDialog({
                           updateToolDraft({ description: event.target.value })
                         }
                         placeholder="Describe when the model should use this tool."
-                        className="min-h-20 resize-y"
+                        className="min-h-40 resize-y"
                       />
                     </div>
 
@@ -1500,12 +1524,16 @@ export const ToolsDialog = memo(function ToolsDialog({
                     </div>
 
                     <div className="grid gap-2">
-                      <Label htmlFor="tool-schema">Parameters JSON schema</Label>
+                      <Label htmlFor="tool-schema">
+                        Parameters JSON schema
+                      </Label>
                       <Textarea
                         id="tool-schema"
                         value={toolDraft.parametersText}
                         onChange={(event) =>
-                          updateToolDraft({ parametersText: event.target.value })
+                          updateToolDraft({
+                            parametersText: event.target.value,
+                          })
                         }
                         className="min-h-64 resize-y font-mono text-sm"
                         spellCheck={false}
@@ -1527,9 +1555,9 @@ export const ToolsDialog = memo(function ToolsDialog({
                         spellCheck={false}
                       />
                       <p className="text-sm leading-5 text-muted-foreground">
-                        Use <code>{"{{fieldName}}"}</code> placeholders for existing
-                        CLIs. Every placeholder must exist in schema.properties and
-                        schema.required.
+                        Use <code>{"{{fieldName}}"}</code> placeholders for
+                        existing CLIs. Every placeholder must exist in
+                        schema.properties and schema.required.
                       </p>
                     </div>
 
@@ -1551,13 +1579,15 @@ export const ToolsDialog = memo(function ToolsDialog({
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="json-stdin">JSON stdin</SelectItem>
+                            <SelectItem value="json-stdin">
+                              JSON stdin
+                            </SelectItem>
                             <SelectItem value="none">None</SelectItem>
                           </SelectContent>
                         </Select>
                         <p className="text-sm leading-5 text-muted-foreground">
-                          JSON stdin is best for scripts you write. None is best for
-                          existing CLI flags/placeholders.
+                          JSON stdin is best for scripts you write. None is best
+                          for existing CLI flags/placeholders.
                         </p>
                       </div>
                       <div className="grid gap-2 content-start">
@@ -1577,8 +1607,8 @@ export const ToolsDialog = memo(function ToolsDialog({
                       <div>
                         <Label>Execution limits</Label>
                         <p className="text-sm leading-5 text-muted-foreground">
-                          Leave concurrency empty for the current parallel behavior.
-                          Use 1 plus a delay for rate-limited tools.
+                          Leave concurrency empty for the current parallel
+                          behavior. Use 1 plus a delay for rate-limited tools.
                         </p>
                       </div>
                       <div className="grid gap-4 md:grid-cols-2">
@@ -1636,7 +1666,8 @@ export const ToolsDialog = memo(function ToolsDialog({
                         <div>
                           <Label>Test tool</Label>
                           <p className="text-sm leading-5 text-muted-foreground">
-                            Run this manifest locally with sample model arguments.
+                            Run this manifest locally with sample model
+                            arguments.
                           </p>
                         </div>
                         <div className="flex shrink-0 items-center gap-2">
@@ -1645,7 +1676,9 @@ export const ToolsDialog = memo(function ToolsDialog({
                             variant="secondary"
                             className="rounded-lg"
                             onClick={clearCurrentToolTest}
-                            disabled={!currentToolTestState || isTestingCurrentTool}
+                            disabled={
+                              !currentToolTestState || isTestingCurrentTool
+                            }
                           >
                             Clear test
                           </Button>
@@ -1680,7 +1713,8 @@ export const ToolsDialog = memo(function ToolsDialog({
                           <div className="flex items-center justify-between gap-3 text-sm text-muted-foreground">
                             {currentToolTestResult ? (
                               <span>
-                                Exit: {currentToolTestResult.exitCode ?? "null"} ·{" "}
+                                Exit: {currentToolTestResult.exitCode ?? "null"}{" "}
+                                ·{" "}
                                 {currentToolTestResult.timedOut
                                   ? "Timed out"
                                   : "Completed"}
@@ -1722,7 +1756,9 @@ export const ToolsDialog = memo(function ToolsDialog({
                               <div className="text-sm font-medium uppercase tracking-wide text-muted-foreground/80">
                                 Output
                               </div>
-                              {renderJsonCodeBlock(currentToolTestResult.content)}
+                              {renderJsonCodeBlock(
+                                currentToolTestResult.content,
+                              )}
                             </div>
                           )}
                         </div>
