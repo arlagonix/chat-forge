@@ -52,7 +52,9 @@ type ToolCall = {
   function: {
     name: string;
     arguments: string;
+    [key: string]: unknown;
   };
+  [key: string]: unknown;
 };
 
 type StreamResult = {
@@ -657,6 +659,16 @@ async function executeToolManifest(name: unknown, args: unknown) {
   };
 }
 
+function copyObjectFields(
+  source: Record<string, unknown>,
+  ignoredKeys: string[] = [],
+): Record<string, unknown> {
+  const ignored = new Set(ignoredKeys);
+  return Object.fromEntries(
+    Object.entries(source).filter(([key]) => !ignored.has(key)),
+  );
+}
+
 function normalizeToolCallFromChoice(value: unknown): ToolCall[] {
   if (!Array.isArray(value)) return [];
 
@@ -668,10 +680,13 @@ function normalizeToolCallFromChoice(value: unknown): ToolCall[] {
       const name = typeof fn?.name === "string" ? fn.name : "";
       const args = typeof fn?.arguments === "string" ? fn.arguments : "";
       if (!id || !name) return undefined;
+
       return {
+        ...copyObjectFields(item, ["function", "index"]),
         id,
         type: "function",
         function: {
+          ...copyObjectFields(fn ?? {}, ["name", "arguments"]),
           name,
           arguments: args,
         },
@@ -709,9 +724,13 @@ function mergeToolCallDelta(current: Map<number, ToolCall>, data: unknown) {
     const fn = isPlainObject(rawCall.function) ? rawCall.function : undefined;
 
     current.set(index, {
+      ...existing,
+      ...copyObjectFields(rawCall, ["function", "index"]),
       id: typeof rawCall.id === "string" && rawCall.id ? rawCall.id : existing.id,
       type: "function",
       function: {
+        ...existing.function,
+        ...copyObjectFields(fn ?? {}, ["name", "arguments"]),
         name: typeof fn?.name === "string" && fn.name ? fn.name : existing.function.name,
         arguments: `${existing.function.arguments}${typeof fn?.arguments === "string" ? fn.arguments : ""}`,
       },

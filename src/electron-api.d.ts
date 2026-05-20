@@ -21,7 +21,9 @@ type AiToolCall = {
   function: {
     name: string;
     arguments: string;
+    [key: string]: unknown;
   };
+  [key: string]: unknown;
 };
 
 type AiStreamDeltaEvent =
