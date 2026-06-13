@@ -883,14 +883,14 @@ export function useChatGeneration({
 
   function getLoadSkillToolCallPermission(
     toolCall: ChatToolCall,
-    chat: ChatSession,
+    chat: ChatSession | undefined,
   ) {
     const skillName = getLoadSkillNameFromToolCall(toolCall);
     if (!skillName) return "allow" as Permission;
     return getEffectiveSkillPermission({
       skillName,
       skillsSettings,
-      mode: getModeForChat(chat),
+      mode: chat ? getModeForChat(chat) : undefined,
       modeCapabilityContext,
     });
   }
@@ -944,13 +944,13 @@ export function useChatGeneration({
   function requiresApprovalForToolCall(
     toolCall: ChatToolCall,
     tool: LoadedToolInfo | undefined,
-    chat: ChatSession,
+    chat: ChatSession | undefined,
   ) {
     if (toolCall.function.name === LOAD_SKILL_TOOL_NAME) {
       const loaderPermission = getEffectiveToolPermission({
         toolName: LOAD_SKILL_TOOL_NAME,
         toolsSettings,
-        mode: getModeForChat(chat),
+        mode: chat ? getModeForChat(chat) : undefined,
         modeCapabilityContext,
       });
       if (loaderPermission === "ask") return true;
@@ -963,7 +963,7 @@ export function useChatGeneration({
   function toolForExecution(
     toolCall: ChatToolCall,
     tool: LoadedToolInfo | undefined,
-    chat: ChatSession,
+    chat: ChatSession | undefined,
   ) {
     if (!tool) return undefined;
     if (toolCall.function.name !== LOAD_SKILL_TOOL_NAME) return tool;
