@@ -1093,14 +1093,7 @@ export const ChatSidebar = memo(function ChatSidebar({
               <span
                 className="inline-flex shrink-0 items-center justify-center text-primary"
                 aria-hidden="true"
-              >
-                <img
-                  src="/icon.png"
-                  alt=""
-                  aria-hidden="true"
-                  className="size-6 shrink-0 rounded-sm"
-                />
-              </span>
+              ></span>
               <h1 className="flex min-w-0 items-baseline gap-1 truncate text-base font-semibold leading-6">
                 <span className="truncate">{appName}</span>
                 <span className="shrink-0 text-muted-foreground">
