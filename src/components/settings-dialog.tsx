@@ -9,6 +9,7 @@ import {
   MessageSquareText,
   Moon,
   Layers3,
+  Maximize2,
   Network,
   SlidersHorizontal,
   Sun,
@@ -37,6 +38,7 @@ import type { ThemePreference } from "@/lib/theme";
 import type {
   AppFontFamily,
   ChatTitleGenerationMode,
+  ChatWidth,
 } from "@/lib/ai-chat/types";
 
 function SettingsSwitchRow({
@@ -108,7 +110,7 @@ function SettingsSelectRow({
         </div>
       </div>
       <Select value={value} onValueChange={onValueChange}>
-        <SelectTrigger className="h-8 w-[6.25rem] shrink-0" aria-label={title}>
+        <SelectTrigger className="h-8 w-[7.5rem] shrink-0" aria-label={title}>
           <SelectValue />
         </SelectTrigger>
         <SelectContent align="end">
@@ -161,6 +163,7 @@ type SettingsDialogProps = {
   appFontFamily: AppFontFamily;
   thinkingAutoCollapse: boolean;
   renderMarkdownWhileStreaming: boolean;
+  chatWidth: ChatWidth;
   theme: ThemePreference;
   resolvedTheme: "light" | "dark";
   onToggleAiTitleGeneration: (checked: boolean) => void;
@@ -168,6 +171,7 @@ type SettingsDialogProps = {
   onSetAppFontFamily: (fontFamily: AppFontFamily) => void;
   onThinkingAutoCollapseChange: (checked: boolean) => void;
   onRenderMarkdownWhileStreamingChange: (checked: boolean) => void;
+  onChatWidthChange: (chatWidth: ChatWidth) => void;
   onOpenProviders: () => void;
   onOpenTools: () => void;
   onOpenSkills: () => void;
@@ -184,6 +188,7 @@ export const SettingsDialog = memo(function SettingsDialog({
   appFontFamily,
   thinkingAutoCollapse,
   renderMarkdownWhileStreaming,
+  chatWidth,
   theme,
   resolvedTheme,
   onToggleAiTitleGeneration,
@@ -191,6 +196,7 @@ export const SettingsDialog = memo(function SettingsDialog({
   onSetAppFontFamily,
   onThinkingAutoCollapseChange,
   onRenderMarkdownWhileStreamingChange,
+  onChatWidthChange,
   onOpenProviders,
   onOpenTools,
   onOpenSkills,
@@ -305,6 +311,20 @@ export const SettingsDialog = memo(function SettingsDialog({
                   description="Render assistant text as Markdown before the response finishes. This looks better for live lists, links, and formatting, but can use more CPU on long or fast responses. Disable it if streaming feels laggy."
                   checked={renderMarkdownWhileStreaming}
                   onCheckedChange={onRenderMarkdownWhileStreamingChange}
+                />
+                <SettingsSelectRow
+                  icon={<Maximize2 className="size-4" />}
+                  title="Chat width"
+                  description="Set the maximum width of the message column and composer."
+                  value={chatWidth}
+                  onValueChange={(value) => onChatWidthChange(value as ChatWidth)}
+                  options={[
+                    { value: "720", label: "720 px" },
+                    { value: "768", label: "768 px" },
+                    { value: "896", label: "896 px" },
+                    { value: "1024", label: "1024 px" },
+                    { value: "full", label: "Full" },
+                  ]}
                 />
                 <SettingsSwitchRow
                   icon={<SlidersHorizontal className="size-4" />}

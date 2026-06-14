@@ -22,6 +22,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -590,11 +591,16 @@ const ChatMessageItem = memo(
     const toolCalls = activeVariant?.toolCalls ?? [];
     const toolResults = activeVariant?.toolResults ?? [];
     const processSteps = activeVariant?.processSteps ?? [];
-    const visibleProcessSteps = getVisibleAssistantProcessSteps(processSteps);
+    const visibleProcessSteps = useMemo(
+      () => getVisibleAssistantProcessSteps(processSteps),
+      [processSteps],
+    );
     const hasVisibleProcessSteps = visibleProcessSteps.length > 0;
     const latestProcessStepId = processSteps[processSteps.length - 1]?.id;
-    const assistantMessageProcessSteps = visibleProcessSteps.filter(
-      (step) => step.type === "assistant_message",
+    const assistantMessageProcessSteps = useMemo(
+      () =>
+        visibleProcessSteps.filter((step) => step.type === "assistant_message"),
+      [visibleProcessSteps],
     );
     const messageSourceContent =
       content ||
@@ -615,8 +621,10 @@ const ChatMessageItem = memo(
     const activeVariantNumber =
       message.role === "assistant" ? message.activeVariantIndex + 1 : 0;
 
-    const processStepGroups =
-      groupVisibleAssistantProcessSteps(visibleProcessSteps);
+    const processStepGroups = useMemo(
+      () => groupVisibleAssistantProcessSteps(visibleProcessSteps),
+      [visibleProcessSteps],
+    );
 
     const renderProcessStep = (step: VisibleAssistantProcessStep) => {
       const isLatestProcessStep = step.sourceStepIds.includes(
@@ -1043,7 +1051,9 @@ const ChatMessageItem = memo(
                       messageId={`${message.id}:content`}
                       isApiStreaming={status === "streaming"}
                       skipSyntaxHighlight={status === "streaming"}
-                      renderMarkdownWhileStreaming={renderMarkdownWhileStreaming}
+                      renderMarkdownWhileStreaming={
+                        renderMarkdownWhileStreaming
+                      }
                       flushVersion={visualFlushRequests[message.id] ?? 0}
                       onVisualProgress={() =>
                         onAssistantVisualProgress(activeChatId)
@@ -1554,16 +1564,62 @@ const ChatMessageItem = memo(
 // virtualizer since the items are absolutely positioned.
 const MESSAGE_GAP_PX = 20;
 const VIRTUAL_MESSAGE_OVERSCAN = 6;
+const ESTIMATED_TEXT_CHARS_PER_LINE = 80;
+const ESTIMATED_LINE_HEIGHT_PX = 22;
+const ESTIMATED_COLLAPSED_BLOCK_HEIGHT_PX = 54;
+
+function estimateTextHeight(text: string) {
+  const lines = Math.max(
+    1,
+    Math.ceil(text.length / ESTIMATED_TEXT_CHARS_PER_LINE),
+  );
+  return lines * ESTIMATED_LINE_HEIGHT_PX;
+}
+
+function estimateProcessStepHeight(step: VisibleAssistantProcessStep) {
+  if (step.type === "assistant_message") {
+    return 24 + estimateTextHeight(step.content);
+  }
+
+  // Thinking, tool, agent, approval, and task blocks are collapsed/header-only
+  // by default. Keep their initial estimates close to that stable height so
+  // streaming updates cause fewer virtualizer measurement corrections.
+  return ESTIMATED_COLLAPSED_BLOCK_HEIGHT_PX;
+}
 
 function estimateMessageHeight(message: ChatMessage) {
-  const text =
-    message.role === "user"
-      ? message.content
-      : (getActiveVariant(message)?.content ?? "");
-  const lines = Math.max(1, Math.ceil(text.length / 80));
+  if (message.role === "user") {
+    return Math.min(4000, 80 + estimateTextHeight(message.content));
+  }
+
+  const activeVariant = getActiveVariant(message);
+  const content = activeVariant?.content ?? "";
+  const processSteps = activeVariant?.processSteps ?? [];
+  const visibleProcessSteps = getVisibleAssistantProcessSteps(processSteps);
+  const processStepsHeight = visibleProcessSteps.reduce(
+    (total, step) => total + estimateProcessStepHeight(step),
+    0,
+  );
+  const legacyReasoningHeight =
+    visibleProcessSteps.length === 0 && activeVariant?.reasoning?.trim()
+      ? ESTIMATED_COLLAPSED_BLOCK_HEIGHT_PX
+      : 0;
+  const legacyToolHeight =
+    visibleProcessSteps.length === 0
+      ? (activeVariant?.toolCalls?.length ?? 0) *
+        ESTIMATED_COLLAPSED_BLOCK_HEIGHT_PX
+      : 0;
+
   // A rough starting estimate only — the virtualizer measures the real height
   // once each item mounts and corrects the layout.
-  return Math.min(4000, 120 + lines * 22);
+  return Math.min(
+    5000,
+    72 +
+      estimateTextHeight(content) +
+      processStepsHeight +
+      legacyReasoningHeight +
+      legacyToolHeight,
+  );
 }
 
 export const ChatMessageList = memo(function ChatMessageList({

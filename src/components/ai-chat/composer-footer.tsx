@@ -77,7 +77,7 @@ export const ComposerFooter = memo(function ComposerFooter({
             role="combobox"
             disabled={!activeChatExists || isSending}
             aria-expanded={isModePickerOpen}
-            className="h-9 w-full max-w-[8rem] justify-between overflow-hidden px-3 text-left font-normal"
+            className="h-9 w-[9rem] max-w-full shrink-0 justify-between overflow-hidden px-3 text-left font-normal"
             title={
               isSending
                 ? "Wait until this chat finishes generating"
@@ -144,7 +144,7 @@ export const ComposerFooter = memo(function ComposerFooter({
             role="combobox"
             disabled={!activeChatExists || isSending}
             aria-expanded={isModelPickerOpen}
-            className="h-9 w-full max-w-[14rem] justify-between overflow-hidden px-3 text-left font-normal"
+            className="h-9 w-[9rem] max-w-full shrink-0 justify-between overflow-hidden px-3 text-left font-normal"
             title={
               isSending
                 ? "Wait until this chat finishes generating"

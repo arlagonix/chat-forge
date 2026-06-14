@@ -143,6 +143,7 @@ import type {
   ChatThinkingMode,
   ChatToolCall,
   ChatToolResult,
+  ChatWidth,
   ChatWorkspaceRoot,
   LoadedAgentInfo,
   LoadedSkillInfo,
@@ -159,7 +160,16 @@ import type {
 } from "@/lib/ai-chat/types";
 import { useTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
+
 import { toast } from "sonner";
+
+const CHAT_WIDTH_CLASS_NAMES: Record<ChatWidth, string> = {
+  "720": "max-w-[720px]",
+  "768": "max-w-3xl",
+  "896": "max-w-4xl",
+  "1024": "max-w-5xl",
+  full: "max-w-none",
+};
 
 const APP_NAME = "Molten Forge";
 const APP_VERSION_LABEL = `v${__APP_VERSION__}`;
@@ -340,6 +350,7 @@ export default function Home() {
     chatFolders: [],
     thinkingAutoCollapse: false,
     renderMarkdownWhileStreaming: true,
+    chatWidth: "896",
   });
   const [mcpSettings, setMcpSettings] =
     useState<McpSettings>(DEFAULT_MCP_SETTINGS);
@@ -2769,6 +2780,8 @@ export default function Home() {
   );
 
   const showChatSwitchLoading = Boolean(chatSwitchLoadingChatId);
+  const chatWidth = appSettings.chatWidth ?? "896";
+  const chatWidthClassName = CHAT_WIDTH_CLASS_NAMES[chatWidth];
 
   if (!mounted) {
     return (
@@ -2874,7 +2887,8 @@ export default function Home() {
             <div
               ref={chatContentRef}
               className={cn(
-                "mx-auto flex w-full min-w-0 max-w-4xl   flex-col [overflow-anchor:none]",
+                "mx-auto flex w-full min-w-0 flex-col [overflow-anchor:none]",
+                chatWidthClassName,
                 hasMessages ? "gap-5" : "h-full",
               )}
             >
@@ -2965,7 +2979,12 @@ export default function Home() {
                   isSending ? "bottom-8 md:bottom-9" : "bottom-0",
                 )}
               >
-                <div className="mx-auto flex w-full max-w-4xl justify-end">
+                <div
+                  className={cn(
+                    "mx-auto flex w-full justify-end",
+                    chatWidthClassName,
+                  )}
+                >
                   <Button
                     type="button"
                     variant="secondary"
@@ -2986,7 +3005,7 @@ export default function Home() {
               className="pointer-events-none shrink-0 px-3 pb-1 md:px-4"
               aria-live="polite"
             >
-              <div className="mx-auto flex w-full max-w-4xl">
+              <div className={cn("mx-auto flex w-full", chatWidthClassName)}>
                 <div className="inline-flex select-none items-center gap-1.5 text-sm text-muted-foreground">
                   <RadixSpinner
                     aria-hidden="true"
@@ -3052,6 +3071,7 @@ export default function Home() {
               onOpenCapabilities={() => setIsChatCapabilitiesDialogOpen(true)}
             />
           }
+          contentWidthClassName={chatWidthClassName}
           toolMentionOptions={toolMentionOptions}
           skillMentionOptions={skillMentionOptions}
           agentMentionOptions={agentMentionOptions}
@@ -3092,6 +3112,7 @@ export default function Home() {
         renderMarkdownWhileStreaming={
           appSettings.renderMarkdownWhileStreaming ?? true
         }
+        chatWidth={appSettings.chatWidth ?? "896"}
         theme={theme}
         resolvedTheme={resolvedTheme}
         onToggleAiTitleGeneration={(checked) =>
@@ -3117,6 +3138,12 @@ export default function Home() {
           setAppSettings((currentSettings) => ({
             ...currentSettings,
             renderMarkdownWhileStreaming: checked,
+          }))
+        }
+        onChatWidthChange={(chatWidth) =>
+          setAppSettings((currentSettings) => ({
+            ...currentSettings,
+            chatWidth,
           }))
         }
         onOpenProviders={() => setProviderSettingsOpen(true)}

@@ -46,4 +46,22 @@ describe("ThinkingBlock", () => {
       "hidden markdown body",
     );
   });
+
+  it("does not start an idle header-line interval for completed thinking", () => {
+    const setIntervalSpy = vi.spyOn(window, "setInterval");
+
+    render(
+      <ThinkingBlock
+        {...baseProps}
+        status="complete"
+        completedAt="2026-01-01T00:00:02.000Z"
+        isStreaming={false}
+        isCollapsed
+        renderMarkdownWhileStreaming
+      />,
+    );
+
+    expect(setIntervalSpy).not.toHaveBeenCalled();
+    setIntervalSpy.mockRestore();
+  });
 });

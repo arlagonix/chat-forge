@@ -260,6 +260,66 @@ function PermissionSelect({
   );
 }
 
+type SkillListRowProps = {
+  skill: LoadedSkillInfo;
+  selected: boolean;
+  permission: Permission;
+  permissionDisabled: boolean;
+  onSelectSkill: (skill: LoadedSkillInfo) => void;
+  onPermissionChange: (skillName: string, permission: Permission) => void;
+};
+
+const SkillListRow = memo(function SkillListRow({
+  skill,
+  selected,
+  permission,
+  permissionDisabled,
+  onSelectSkill,
+  onPermissionChange,
+}: SkillListRowProps) {
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      className={cn(
+        "group flex min-w-0 cursor-pointer select-none items-start gap-2 border px-2 py-2 outline-none transition-colors",
+        selected
+          ? "border-primary/30 bg-accent text-accent-foreground"
+          : "border-transparent hover:border-border hover:bg-muted/60",
+        (skill.shadowed || skill.conflict) && "opacity-70",
+      )}
+      onClick={() => onSelectSkill(skill)}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onSelectSkill(skill);
+        }
+      }}
+      title={formatSkillLocation(skill)}
+    >
+      <BookOpen className="mt-[5px] size-4 shrink-0 text-muted-foreground" />
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-base leading-6">{skill.name}</div>
+        <div className="line-clamp-2 text-sm leading-5 text-muted-foreground">
+          {skill.conflict || skill.description || "No description."}
+        </div>
+        {skill.shadowed ? (
+          <div className="mt-1 text-xs leading-4 text-muted-foreground">
+            Overridden by workspace skill with the same name
+          </div>
+        ) : null}
+      </div>
+      <PermissionSelect
+        value={permission}
+        disabled={permissionDisabled}
+        onChange={(nextPermission) =>
+          onPermissionChange(skill.name, nextPermission)
+        }
+      />
+    </div>
+  );
+});
+
 function MasterPermissionSelect({
   value,
   onChange,
@@ -585,14 +645,17 @@ export const SkillsDialog = memo(function SkillsDialog({
     wasOpenRef.current = open;
   }, [open, reloadSkillList]);
 
-  function requestWithUnsavedCheck(action: () => void) {
-    if (hasChanges) {
-      setPendingAction(() => action);
-      setUnsavedChangesDialogOpen(true);
-      return;
-    }
-    action();
-  }
+  const requestWithUnsavedCheck = useCallback(
+    (action: () => void) => {
+      if (hasChanges) {
+        setPendingAction(() => action);
+        setUnsavedChangesDialogOpen(true);
+        return;
+      }
+      action();
+    },
+    [hasChanges],
+  );
 
   function discardCurrentDraftChanges() {
     if (draftMode === "new") {
@@ -622,12 +685,22 @@ export const SkillsDialog = memo(function SkillsDialog({
     if (action) action();
   }
 
-  function requestSelectSkill(skill: LoadedSkillInfo) {
-    requestWithUnsavedCheck(() => {
-      setDraftMode("existing");
-      setSelectedSkillKey(getSkillSelectionKey(skill));
-    });
-  }
+  const requestSelectSkill = useCallback(
+    (skill: LoadedSkillInfo) => {
+      requestWithUnsavedCheck(() => {
+        setDraftMode("existing");
+        setSelectedSkillKey(getSkillSelectionKey(skill));
+      });
+    },
+    [requestWithUnsavedCheck],
+  );
+
+  const handleSkillPermissionChange = useCallback(
+    (skillName: string, permission: Permission) => {
+      setSkillPermission(onSkillsSettingsChange, skillName, permission);
+    },
+    [onSkillsSettingsChange],
+  );
 
   function requestCreateSkill() {
     requestWithUnsavedCheck(() => {
@@ -942,67 +1015,24 @@ export const SkillsDialog = memo(function SkillsDialog({
                           const selected =
                             draftMode === "existing" &&
                             getSkillSelectionKey(skill) === selectedSkillKey;
+
                           return (
-                            <div
+                            <SkillListRow
                               key={`${skill.name}:${skill.manifestPath ?? ""}`}
-                              role="button"
-                              tabIndex={0}
-                              className={cn(
-                                "group flex min-w-0 cursor-pointer select-none items-start gap-2 border px-2 py-2 outline-none transition-colors",
-                                selected
-                                  ? "border-primary/30 bg-accent text-accent-foreground"
-                                  : "border-transparent hover:border-border hover:bg-muted/60",
-                                (skill.shadowed || skill.conflict) &&
-                                  "opacity-70",
+                              skill={skill}
+                              selected={selected}
+                              permission={getDisplayedSkillPermission(
+                                skillsSettings,
+                                skill.name,
                               )}
-                              onClick={() => requestSelectSkill(skill)}
-                              onKeyDown={(event) => {
-                                if (
-                                  event.key === "Enter" ||
-                                  event.key === " "
-                                ) {
-                                  event.preventDefault();
-                                  requestSelectSkill(skill);
-                                }
-                              }}
-                              title={formatSkillLocation(skill)}
-                            >
-                              <BookOpen className="mt-[5px] size-4 shrink-0 text-muted-foreground" />
-                              <div className="min-w-0 flex-1">
-                                <div className="truncate text-base leading-6">
-                                  {skill.name}
-                                </div>
-                                <div className="line-clamp-2 text-sm leading-5 text-muted-foreground">
-                                  {skill.conflict ||
-                                    skill.description ||
-                                    "No description."}
-                                </div>
-                                {skill.shadowed ? (
-                                  <div className="mt-1 text-xs leading-4 text-muted-foreground">
-                                    Overridden by workspace skill with the same
-                                    name
-                                  </div>
-                                ) : null}
-                              </div>
-                              <PermissionSelect
-                                value={getDisplayedSkillPermission(
-                                  skillsSettings,
-                                  skill.name,
-                                )}
-                                disabled={Boolean(
-                                  skill.shadowed ||
-                                  skill.conflict ||
-                                  childPermissionsLocked,
-                                )}
-                                onChange={(permission) =>
-                                  setSkillPermission(
-                                    onSkillsSettingsChange,
-                                    skill.name,
-                                    permission,
-                                  )
-                                }
-                              />
-                            </div>
+                              permissionDisabled={Boolean(
+                                skill.shadowed ||
+                                skill.conflict ||
+                                childPermissionsLocked,
+                              )}
+                              onSelectSkill={requestSelectSkill}
+                              onPermissionChange={handleSkillPermissionChange}
+                            />
                           );
                         })}
                       </div>

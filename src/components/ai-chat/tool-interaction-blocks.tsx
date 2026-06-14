@@ -150,6 +150,62 @@ export const AskUserBlock = memo(function AskUserBlock({
     onLayoutChange,
   ]);
 
+  function isQuestionAnswered(question: AskUserQuestion) {
+    const questionType = getAskUserQuestionType(question);
+
+    if (questionType === "text") {
+      return Boolean(answers[question.id]?.trim());
+    }
+
+    if (questionType === "multi_select") {
+      const selectedIds = multiAnswers[question.id] ?? [];
+      return selectedIds.some((optionId) => {
+        if (optionId !== ASK_USER_CUSTOM_ANSWER_ID) return true;
+        return Boolean(customAnswers[question.id]?.trim());
+      });
+    }
+
+    const selectedOptionId = answers[question.id] ?? "";
+    if (!selectedOptionId) return false;
+    if (selectedOptionId !== ASK_USER_CUSTOM_ANSWER_ID) return true;
+
+    return Boolean(customAnswers[question.id]?.trim());
+  }
+
+  const canSendAnswers =
+    canSubmit &&
+    isWaiting &&
+    request.questions.length > 0 &&
+    request.questions.every(isQuestionAnswered);
+
+  function goToPreviousQuestion() {
+    setActiveQuestionIndex((currentIndex) => Math.max(0, currentIndex - 1));
+  }
+
+  function goToNextQuestion() {
+    if (!activeQuestion || !isQuestionAnswered(activeQuestion)) return;
+
+    setActiveQuestionIndex((currentIndex) =>
+      Math.min(activeQuestionCount - 1, currentIndex + 1),
+    );
+  }
+
+  function handleTextareaAnswerKeyDown(
+    event: ReactKeyboardEvent<HTMLTextAreaElement>,
+  ) {
+    if (event.key !== "Enter" || (!event.ctrlKey && !event.metaKey)) return;
+    if (event.nativeEvent.isComposing) return;
+
+    event.preventDefault();
+
+    if (activeQuestionCount > 1 && activeQuestionIndex < activeQuestionCount - 1) {
+      goToNextQuestion();
+      return;
+    }
+
+    handleSubmit();
+  }
+
   function getSelectedOptionLabel(questionId: string, optionId?: string) {
     const question = request.questions.find((item) => item.id === questionId);
     if (optionId === ASK_USER_CUSTOM_ANSWER_ID) {
@@ -174,124 +230,6 @@ export const AskUserBlock = memo(function AskUserBlock({
     return optionIds
       .map((optionId) => getSelectedOptionLabel(question.id, optionId))
       .filter(Boolean);
-  }
-
-  function getAnswerSummary(question: AskUserQuestion) {
-    const questionType = getAskUserQuestionType(question);
-    const responseLabel = response?.answerLabels?.[question.id];
-
-    if (Array.isArray(responseLabel)) {
-      return responseLabel.join(", ");
-    }
-
-    if (typeof responseLabel === "string" && responseLabel.trim()) {
-      return responseLabel.trim();
-    }
-
-    if (questionType === "multi_select") {
-      const selectedIds = response?.multiAnswers?.[question.id] ?? [];
-      return getMultiAnswerLabels(question, selectedIds).join(", ");
-    }
-
-    if (questionType === "text") {
-      return response?.answers[question.id] ?? answers[question.id] ?? "";
-    }
-
-    const selectedOptionId =
-      response?.answers[question.id] ?? answers[question.id];
-    if (selectedOptionId === ASK_USER_CUSTOM_ANSWER_ID) {
-      return (
-        response?.customAnswers?.[question.id] ??
-        customAnswers[question.id] ??
-        "Type your answer"
-      );
-    }
-
-    return getSelectedOptionLabel(question.id, selectedOptionId);
-  }
-
-  function isQuestionAnswered(question: AskUserQuestion | undefined) {
-    if (!question) return false;
-
-    const questionType = getAskUserQuestionType(question);
-    if (questionType === "text") {
-      return Boolean(answers[question.id]?.trim());
-    }
-
-    if (questionType === "multi_select") {
-      const selectedIds = multiAnswers[question.id] ?? [];
-      return selectedIds.some((optionId) => {
-        if (optionId !== ASK_USER_CUSTOM_ANSWER_ID) return true;
-        return Boolean(customAnswers[question.id]?.trim());
-      });
-    }
-
-    const selectedAnswer = answers[question.id];
-    if (selectedAnswer === ASK_USER_CUSTOM_ANSWER_ID) {
-      return Boolean(customAnswers[question.id]?.trim());
-    }
-
-    return question.options.some((option) => option.id === selectedAnswer);
-  }
-
-  const allQuestionsAnswered = request.questions.every((question) =>
-    isQuestionAnswered(question),
-  );
-  const canSendAnswers = isWaiting && canSubmit && allQuestionsAnswered;
-
-  function goToPreviousQuestion() {
-    setActiveQuestionIndex((current) => Math.max(0, current - 1));
-  }
-
-  function goToNextQuestion() {
-    if (!isQuestionAnswered(activeQuestion)) return;
-    setActiveQuestionIndex((current) =>
-      Math.min(activeQuestionCount - 1, current + 1),
-    );
-  }
-
-  function advanceOrSubmitActiveQuestion() {
-    if (!isQuestionAnswered(activeQuestion)) return;
-
-    if (activeQuestionIndex < activeQuestionCount - 1) {
-      goToNextQuestion();
-      return;
-    }
-
-    handleSubmit();
-  }
-
-  function handleTextareaAnswerKeyDown(
-    event: ReactKeyboardEvent<HTMLTextAreaElement>,
-  ) {
-    if (event.key !== "Enter" || (!event.ctrlKey && !event.metaKey)) return;
-
-    event.preventDefault();
-    advanceOrSubmitActiveQuestion();
-  }
-
-  function renderCompletedAnswerList() {
-    if (!response) return null;
-
-    return (
-      <div className="mt-2 grid gap-2 text-sm normal-case leading-5 tracking-normal">
-        {request.questions.length > 0 && (
-          <dl className="grid gap-2 text-sm leading-5 normal-case tracking-normal">
-            {request.questions.map((question) => (
-              <div key={question.id} className="grid">
-                <dt className="font-medium text-muted-foreground">
-                  <span className="font-normal">Q:</span> {question.question}
-                </dt>
-                <dd className="text-foreground/85">
-                  <span className="font-normal">A:</span>{" "}
-                  {getAnswerSummary(question)}
-                </dd>
-              </div>
-            ))}
-          </dl>
-        )}
-      </div>
-    );
   }
 
   function renderTextAnswer(question: AskUserQuestion, readOnly = false) {
@@ -860,23 +798,19 @@ export const AskUserBlock = memo(function AskUserBlock({
               <ChevronDown className="size-3.5 shrink-0" />
             )}
           </div>
-          {(request.title?.trim() || request.description?.trim()) && (
-            <div className="mt-2 grid gap-1 text-sm normal-case leading-5 tracking-normal text-muted-foreground/85">
-              {request.title?.trim() && (
-                <div className="font-medium text-foreground/80">
-                  {request.title.trim()}
-                </div>
-              )}
-              {request.description?.trim() && (
-                <div>{request.description.trim()}</div>
-              )}
-            </div>
-          )}
-
-          {isCollapsed &&
-            response &&
-            effectiveStatus !== "waiting" &&
-            renderCompletedAnswerList()}
+          {!isCollapsed &&
+            (request.title?.trim() || request.description?.trim()) && (
+              <div className="mt-2 grid gap-1 text-sm normal-case leading-5 tracking-normal text-muted-foreground/85">
+                {request.title?.trim() && (
+                  <div className="font-medium text-foreground/80">
+                    {request.title.trim()}
+                  </div>
+                )}
+                {request.description?.trim() && (
+                  <div>{request.description.trim()}</div>
+                )}
+              </div>
+            )}
         </button>
 
         {!isCollapsed && (

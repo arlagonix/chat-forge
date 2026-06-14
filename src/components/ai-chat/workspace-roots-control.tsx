@@ -54,7 +54,7 @@ export const WorkspaceRootsControl = memo(function WorkspaceRootsControl({
           disabled={!activeChatExists || disabled}
           aria-expanded={open}
           className={cn(
-            "h-9 max-w-[13rem] shrink-0 gap-2 px-3 font-normal",
+            "h-9 w-[9rem] max-w-full shrink-0 justify-start gap-2 px-3 font-normal",
             visibleRoots.length === 0 && "text-muted-foreground",
           )}
           title={

@@ -12,6 +12,7 @@ import type {
   AgentsSettings,
   AppSettings,
   ChatFolder,
+  ChatWidth,
   ChatSession,
   ChatWorkspaceRoot,
   FeaturePermission,
@@ -54,7 +55,18 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   chatFolders: [],
   thinkingAutoCollapse: false,
   renderMarkdownWhileStreaming: true,
+  chatWidth: "896",
 };
+
+function normalizeChatWidth(value: unknown): ChatWidth {
+  return value === "720" ||
+    value === "768" ||
+    value === "896" ||
+    value === "1024" ||
+    value === "full"
+    ? value
+    : "896";
+}
 
 export const DEFAULT_MCP_SETTINGS: McpSettings = {
   enabled: true,
@@ -526,6 +538,7 @@ export function normalizeAppSettings(
     chatFolders: normalizeChatFolders(value?.chatFolders),
     thinkingAutoCollapse: value?.thinkingAutoCollapse ?? true,
     renderMarkdownWhileStreaming: value?.renderMarkdownWhileStreaming ?? true,
+    chatWidth: normalizeChatWidth(value?.chatWidth),
   };
 }
 

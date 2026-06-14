@@ -12,7 +12,7 @@ import {
   Wand2,
   X,
 } from "lucide-react";
-import { memo, type ReactNode } from "react";
+import { memo, useMemo, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -243,6 +243,11 @@ export const McpDialog = memo(function McpDialog({
     showSuccess,
     showError,
   });
+
+  const activeServerTools = useMemo(
+    () => sortTools(activeServer?.tools),
+    [activeServer?.tools],
+  );
 
   return (
     <>
@@ -699,7 +704,7 @@ export const McpDialog = memo(function McpDialog({
                           </Button>
                         </div>
 
-                        {sortTools(activeServer.tools).length > 0 ? (
+                        {activeServerTools.length > 0 ? (
                           <div className="border bg-muted/20 px-3 py-2 text-sm leading-5 text-muted-foreground">
                             Tool switches here control whether MCP tools are
                             visible in Tools settings and model context. Ask,
@@ -709,13 +714,13 @@ export const McpDialog = memo(function McpDialog({
                         ) : null}
 
                         <div className="grid gap-2">
-                          {sortTools(activeServer.tools).length === 0 ? (
+                          {activeServerTools.length === 0 ? (
                             <div className="border border-dashed px-3 py-4 text-center text-base text-muted-foreground">
                               No tools discovered yet. Use Load tools after
                               configuring the server.
                             </div>
                           ) : (
-                            sortTools(activeServer.tools).map((tool) => (
+                            activeServerTools.map((tool) => (
                               <div
                                 key={tool.originalName}
                                 role="button"

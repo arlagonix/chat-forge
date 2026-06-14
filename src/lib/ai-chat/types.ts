@@ -493,12 +493,15 @@ export type ChatFolder = {
   workspaceRoots?: ChatWorkspaceRoot[];
 };
 
+export type ChatWidth = "720" | "768" | "896" | "1024" | "full";
+
 export type AppSettings = {
   chatTitleGenerationMode: ChatTitleGenerationMode;
   fontFamily: AppFontFamily;
   chatFolders: ChatFolder[];
   thinkingAutoCollapse?: boolean;
   renderMarkdownWhileStreaming?: boolean;
+  chatWidth?: ChatWidth;
 };
 
 export type ChatWorkspaceRoot = {

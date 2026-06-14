@@ -233,52 +233,6 @@
     height: 0;
   }
 
-  .molten-forge-title {
-    background-image: radial-gradient(
-      circle,
-      #ffcc70 0%,
-      #f6a85f 24%,
-      #e17349 46%,
-      #c84830 72%,
-      #c84830 100%
-    );
-    background-size: 240% 240%;
-    background-position: 20% 50%;
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
-    -webkit-text-fill-color: transparent;
-    animation: molten-forge-lava-flow 15s linear infinite;
-  }
-
-  @keyframes molten-forge-lava-flow {
-    0% {
-      background-position: 20% 50%;
-    }
-
-    25% {
-      background-position: 50% 20%;
-    }
-
-    50% {
-      background-position: 80% 50%;
-    }
-
-    75% {
-      background-position: 50% 80%;
-    }
-
-    100% {
-      background-position: 20% 50%;
-    }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .molten-forge-title {
-      animation: none;
-    }
-  }
-
   .chat-message-scrollbar {
     scrollbar-width: thin;
     scrollbar-color: color-mix(in oklab, currentColor 18%, transparent)

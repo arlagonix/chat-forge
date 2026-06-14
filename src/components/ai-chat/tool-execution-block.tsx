@@ -7,8 +7,9 @@ import {
   Terminal,
   Wrench,
   X,
+  type LucideIcon,
 } from "lucide-react";
-import { useState } from "react";
+import { memo, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { MarkdownMessage } from "@/components/ai-chat/markdown-message";
@@ -356,6 +357,19 @@ function getLoadSkillName(toolCall: ChatToolCall, toolResult?: ChatToolResult) {
   }
 }
 
+function getLoadSkillLocation(toolResult?: ChatToolResult) {
+  if (!toolResult || toolResult.toolName !== LOAD_SKILL_TOOL_NAME) return "";
+
+  try {
+    const parsed = JSON.parse(toolResult.content || "{}") as {
+      location?: unknown;
+    };
+    return typeof parsed.location === "string" ? parsed.location : "";
+  } catch {
+    return "";
+  }
+}
+
 function getLoadSkillDetails(toolResult?: ChatToolResult) {
   if (!toolResult || toolResult.toolName !== LOAD_SKILL_TOOL_NAME) {
     return {
@@ -579,7 +593,168 @@ function getToolHeaderDetail(toolCall: ChatToolCall) {
   return "";
 }
 
-export function ToolExecutionBlock({
+type ToolExecutionDetailsDialogProps = {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  toolCall: ChatToolCall;
+  toolResult?: ChatToolResult;
+  loadedTools: LoadedToolInfo[];
+  effectiveStatus: ToolExecutionStatus;
+  ToolIcon: LucideIcon;
+  toolHeaderDetail: string;
+  generatedFiles: GeneratedFileArtifact[];
+  onDownloadGeneratedFile: (file: GeneratedFileArtifact) => void;
+};
+
+const ToolExecutionDetailsDialog = memo(function ToolExecutionDetailsDialog({
+  open,
+  onOpenChange,
+  toolCall,
+  toolResult,
+  loadedTools,
+  effectiveStatus,
+  ToolIcon,
+  toolHeaderDetail,
+  generatedFiles,
+  onDownloadGeneratedFile,
+}: ToolExecutionDetailsDialogProps) {
+  const executionPreview = useMemo(
+    () => buildToolExecutionPreviewForCall(toolCall, loadedTools, toolResult),
+    [loadedTools, toolCall, toolResult],
+  );
+  const loadSkillDetails = useMemo(
+    () => getLoadSkillDetails(toolResult),
+    [toolResult],
+  );
+  const isLoadSkillTool = toolCall.function.name === LOAD_SKILL_TOOL_NAME;
+  const isTaskTool = isTaskToolName(toolCall.function.name);
+  const isTerminalTool =
+    toolCall.function.name === TERMINAL_EXEC_TOOL_NAME ||
+    toolCall.function.name === BASH_TOOL_NAME;
+  const toolDescription = useMemo(
+    () => getToolDescription(toolCall.function.name, loadedTools),
+    [loadedTools, toolCall.function.name],
+  );
+  const showToolInput =
+    hasMeaningfulToolInput(toolCall.function.arguments || "") &&
+    (isTaskTool || !executionPreview || executionPreview.usesStdin);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent
+        className="flex h-[min(1000px,calc(100dvh-2rem))] max-h-none max-w-[min(96vw,56rem)] flex-col overflow-hidden p-0 text-base leading-6"
+        overlayStyle={{ zIndex: 200 }}
+        style={{ zIndex: 201 }}
+      >
+        <DialogHeader className="border-b px-5 py-4">
+          <DialogTitle className="flex min-w-0 items-center gap-2 pr-8 text-sm font-medium uppercase tracking-wide text-muted-foreground">
+            <ToolIcon className="size-4 shrink-0" />
+            <span className="min-w-0 truncate shrink-0">
+              {toolCall.function.name}
+            </span>
+            <span className="text-muted-foreground/60">·</span>
+            {renderToolStatus(effectiveStatus)}
+            {toolHeaderDetail ? (
+              <>
+                <span className="text-muted-foreground/60">·</span>
+                <span className="min-w-0 truncate normal-case tracking-normal text-muted-foreground/85">
+                  {toolHeaderDetail}
+                </span>
+              </>
+            ) : null}
+          </DialogTitle>
+        </DialogHeader>
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+          <div className="grid gap-3 text-sm leading-5 text-muted-foreground">
+            {toolDescription ? (
+              <div className="grid gap-1.5">
+                <div className="text-sm font-medium uppercase tracking-wide text-muted-foreground/80">
+                  Description
+                </div>
+                <div>{toolDescription}</div>
+              </div>
+            ) : null}
+            {!isTaskTool && renderToolExecutionPreview(executionPreview)}
+            {showToolInput && (
+              <div className="grid gap-1.5">
+                <div className="text-sm font-medium uppercase tracking-wide text-muted-foreground/80">
+                  Input
+                </div>
+                {renderJsonCodeBlock(toolCall.function.arguments || "{}")}
+              </div>
+            )}
+            {generatedFiles.length > 0 ? (
+              <div className="grid gap-1.5">
+                <div className="text-sm font-medium uppercase tracking-wide text-muted-foreground/80">
+                  Generated files
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {generatedFiles.map((file) => (
+                    <GeneratedFileChip
+                      key={file.id}
+                      file={file}
+                      onDownload={onDownloadGeneratedFile}
+                    />
+                  ))}
+                </div>
+              </div>
+            ) : null}
+            {isTerminalTool && toolResult?.terminal ? (
+              <div className="grid gap-1.5">
+                <div className="text-sm font-medium uppercase tracking-wide text-muted-foreground/80">
+                  Output
+                </div>
+                {renderTerminalOutput(toolResult)}
+              </div>
+            ) : null}
+            {toolResult?.content.trim() &&
+              (!isTerminalTool || !toolResult.terminal) && (
+                <div className="grid gap-1.5">
+                  <div className="text-sm font-medium uppercase tracking-wide text-muted-foreground/80">
+                    Output
+                  </div>
+                  {renderJsonCodeBlock(
+                    isLoadSkillTool
+                      ? loadSkillDetails.compactOutput
+                      : toolResult.content,
+                  )}
+                </div>
+              )}
+            {renderFileChangePreview(toolResult?.changePreview)}
+            {isLoadSkillTool && loadSkillDetails.instructions.trim() && (
+              <div className="grid gap-1.5">
+                <div className="text-sm font-medium uppercase tracking-wide text-muted-foreground/80">
+                  Instructions
+                </div>
+                {renderCodeBlock(loadSkillDetails.instructions, "markdown")}
+              </div>
+            )}
+            {isLoadSkillTool &&
+              loadSkillDetails.recommendedToolNames.length > 0 && (
+                <div className="grid gap-1.5">
+                  <div className="text-sm font-medium uppercase tracking-wide text-muted-foreground/80">
+                    Recommended tools
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {loadSkillDetails.recommendedToolNames.map((toolName) => (
+                      <code
+                        key={toolName}
+                        className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground"
+                      >
+                        {toolName}
+                      </code>
+                    ))}
+                  </div>
+                </div>
+              )}
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+});
+
+export const ToolExecutionBlock = memo(function ToolExecutionBlock({
   id,
   toolCall,
   toolResult,
@@ -596,34 +771,22 @@ export function ToolExecutionBlock({
 }) {
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
   const effectiveStatus = getEffectiveToolStatus(status, toolResult);
-  const executionPreview = buildToolExecutionPreviewForCall(
-    toolCall,
-    loadedTools,
-    toolResult,
-  );
-  const loadedSkillName = getLoadSkillName(toolCall, toolResult);
-  const loadSkillDetails = getLoadSkillDetails(toolResult);
   const isLoadSkillTool = toolCall.function.name === LOAD_SKILL_TOOL_NAME;
-  const isTaskTool = isTaskToolName(toolCall.function.name);
+  const loadedSkillName = isLoadSkillTool
+    ? getLoadSkillName(toolCall, toolResult)
+    : "";
   const isTerminalTool =
     toolCall.function.name === TERMINAL_EXEC_TOOL_NAME ||
     toolCall.function.name === BASH_TOOL_NAME;
   const ToolIcon = isTerminalTool ? Terminal : Wrench;
-  const toolDescription = getToolDescription(
-    toolCall.function.name,
-    loadedTools,
-  );
-  const showToolInput =
-    hasMeaningfulToolInput(toolCall.function.arguments || "") &&
-    (isTaskTool || !executionPreview || executionPreview.usesStdin);
   const toolHeaderDetail = isLoadSkillTool
-    ? [loadedSkillName, loadSkillDetails.location].filter(Boolean).join(" · ")
+    ? [loadedSkillName, getLoadSkillLocation(toolResult)]
+        .filter(Boolean)
+        .join(" · ")
     : getToolHeaderDetail(toolCall);
   const generatedFiles = toolResult?.generatedFiles ?? [];
 
-  async function handleDownloadGeneratedFile(
-    file: NonNullable<ChatToolResult["generatedFiles"]>[number],
-  ) {
+  async function handleDownloadGeneratedFile(file: GeneratedFileArtifact) {
     const storagePath = file.storagePath ?? file.workspacePath;
     if (!storagePath) {
       toast.error("Generated file is not available for download.");
@@ -713,119 +876,22 @@ export function ToolExecutionBlock({
         </div>
       </article>
 
-      <Dialog open={isDetailsOpen} onOpenChange={setIsDetailsOpen}>
-        <DialogContent
-          className="flex h-[min(1000px,calc(100dvh-2rem))] max-h-none max-w-[min(96vw,56rem)] flex-col overflow-hidden p-0 text-base leading-6"
-          overlayStyle={{ zIndex: 200 }}
-          style={{ zIndex: 201 }}
-        >
-          <DialogHeader className="border-b px-5 py-4">
-            <DialogTitle className="flex min-w-0 items-center gap-2 pr-8 text-sm font-medium uppercase tracking-wide text-muted-foreground">
-              <ToolIcon className="size-4 shrink-0" />
-              <span className="min-w-0 truncate shrink-0">
-                {toolCall.function.name}
-              </span>
-              <span className="text-muted-foreground/60">·</span>
-              {renderToolStatus(effectiveStatus)}
-              {toolHeaderDetail ? (
-                <>
-                  <span className="text-muted-foreground/60">·</span>
-                  <span className="min-w-0 truncate normal-case tracking-normal text-muted-foreground/85">
-                    {toolHeaderDetail}
-                  </span>
-                </>
-              ) : null}
-            </DialogTitle>
-          </DialogHeader>
-          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-            <div className="grid gap-3 text-sm leading-5 text-muted-foreground">
-              {toolDescription ? (
-                <div className="grid gap-1.5">
-                  <div className="text-sm font-medium uppercase tracking-wide text-muted-foreground/80">
-                    Description
-                  </div>
-                  <div>{toolDescription}</div>
-                </div>
-              ) : null}
-              {!isTaskTool && renderToolExecutionPreview(executionPreview)}
-              {showToolInput && (
-                <div className="grid gap-1.5">
-                  <div className="text-sm font-medium uppercase tracking-wide text-muted-foreground/80">
-                    Input
-                  </div>
-                  {renderJsonCodeBlock(toolCall.function.arguments || "{}")}
-                </div>
-              )}
-              {generatedFiles.length > 0 ? (
-                <div className="grid gap-1.5">
-                  <div className="text-sm font-medium uppercase tracking-wide text-muted-foreground/80">
-                    Generated files
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {generatedFiles.map((file) => (
-                      <GeneratedFileChip
-                        key={file.id}
-                        file={file}
-                        onDownload={(downloadFile) => {
-                          void handleDownloadGeneratedFile(downloadFile);
-                        }}
-                      />
-                    ))}
-                  </div>
-                </div>
-              ) : null}
-              {isTerminalTool && toolResult?.terminal ? (
-                <div className="grid gap-1.5">
-                  <div className="text-sm font-medium uppercase tracking-wide text-muted-foreground/80">
-                    Output
-                  </div>
-                  {renderTerminalOutput(toolResult)}
-                </div>
-              ) : null}
-              {toolResult?.content.trim() &&
-                (!isTerminalTool || !toolResult.terminal) && (
-                  <div className="grid gap-1.5">
-                    <div className="text-sm font-medium uppercase tracking-wide text-muted-foreground/80">
-                      Output
-                    </div>
-                    {renderJsonCodeBlock(
-                      isLoadSkillTool
-                        ? loadSkillDetails.compactOutput
-                        : toolResult.content,
-                    )}
-                  </div>
-                )}
-              {renderFileChangePreview(toolResult?.changePreview)}
-              {isLoadSkillTool && loadSkillDetails.instructions.trim() && (
-                <div className="grid gap-1.5">
-                  <div className="text-sm font-medium uppercase tracking-wide text-muted-foreground/80">
-                    Instructions
-                  </div>
-                  {renderCodeBlock(loadSkillDetails.instructions, "markdown")}
-                </div>
-              )}
-              {isLoadSkillTool &&
-                loadSkillDetails.recommendedToolNames.length > 0 && (
-                  <div className="grid gap-1.5">
-                    <div className="text-sm font-medium uppercase tracking-wide text-muted-foreground/80">
-                      Recommended tools
-                    </div>
-                    <div className="flex flex-wrap gap-1.5">
-                      {loadSkillDetails.recommendedToolNames.map((toolName) => (
-                        <code
-                          key={toolName}
-                          className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground"
-                        >
-                          {toolName}
-                        </code>
-                      ))}
-                    </div>
-                  </div>
-                )}
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+      {isDetailsOpen ? (
+        <ToolExecutionDetailsDialog
+          open={isDetailsOpen}
+          onOpenChange={setIsDetailsOpen}
+          toolCall={toolCall}
+          toolResult={toolResult}
+          loadedTools={loadedTools}
+          effectiveStatus={effectiveStatus}
+          ToolIcon={ToolIcon}
+          toolHeaderDetail={toolHeaderDetail}
+          generatedFiles={generatedFiles}
+          onDownloadGeneratedFile={(file) => {
+            void handleDownloadGeneratedFile(file);
+          }}
+        />
+      ) : null}
     </>
   );
-}
+});

@@ -44,6 +44,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { GroupHeading } from "@/components/ui/group-heading";
 import { Input } from "@/components/ui/input";
+import { useRelativeTimeNow } from "@/hooks/use-relative-time-now";
 import {
   formatChatActivityDate,
   formatRelativeChatActivityDate,
@@ -168,6 +169,23 @@ type NewFolderDraftRowProps = {
   onCancel: () => void;
 };
 
+const ChatActivityTimeLabel = memo(function ChatActivityTimeLabel({
+  value,
+}: {
+  value: string;
+}) {
+  const relativeTimeNow = useRelativeTimeNow();
+
+  return (
+    <span
+      className="pointer-events-none absolute right-1 top-1/2 z-0 -translate-y-1/2 text-sm leading-none text-muted-foreground/50 transition-none group-hover:opacity-0"
+      title={formatChatActivityDate(value)}
+    >
+      {formatRelativeChatActivityDate(value, relativeTimeNow)}
+    </span>
+  );
+});
+
 const NewFolderDraftRow = memo(function NewFolderDraftRow({
   onCreate,
   onCancel,
@@ -242,7 +260,6 @@ export const ChatSidebar = memo(function ChatSidebar({
   >(null);
   const [visibleChatLimit, setVisibleChatLimit] =
     useState(CHAT_LIST_BATCH_SIZE);
-  const [relativeTimeNow, setRelativeTimeNow] = useState(() => Date.now());
   const [visibleFolderLimit, setVisibleFolderLimit] =
     useState(FOLDER_BATCH_SIZE);
   const [collapsedFolderIds, setCollapsedFolderIds] = useState<
@@ -265,18 +282,6 @@ export const ChatSidebar = memo(function ChatSidebar({
     useState<ChatFolder | null>(null);
   const normalizedChatSearchQuery = chatSearchQuery.trim().toLocaleLowerCase();
   const isSearching = normalizedChatSearchQuery.length > 0;
-
-  useEffect(() => {
-    const interval = window.setInterval(() => {
-      setRelativeTimeNow(Date.now());
-    }, 60_000);
-
-    return () => window.clearInterval(interval);
-  }, []);
-
-  useEffect(() => {
-    setRelativeTimeNow(Date.now());
-  }, [chats]);
 
   useEffect(() => {
     if (!activeChatFolderId) return;
@@ -577,11 +582,7 @@ export const ChatSidebar = memo(function ChatSidebar({
     const isChatOptionsActive = isChatOptionsOpen || isChatOptionsFocused;
     const showStatusIndicator =
       !isChatOptionsActive && (isGenerating || hasCompletedGeneration);
-    const relativeTimeLabel = formatRelativeChatActivityDate(
-      getChatActivityDate(chat),
-      relativeTimeNow,
-    );
-    const fullDateLabel = formatChatActivityDate(getChatActivityDate(chat));
+    const activityDate = getChatActivityDate(chat);
     const moveToFolderItems = renderMoveToFolderItems(chat);
 
     return (
@@ -643,12 +644,7 @@ export const ChatSidebar = memo(function ChatSidebar({
             ) : showStatusIndicator && hasCompletedGeneration ? (
               <span className="pointer-events-none absolute left-1/2 top-1/2 z-0 size-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary transition-none group-hover:opacity-0" />
             ) : !isChatOptionsActive ? (
-              <span
-                className="pointer-events-none absolute right-1 top-1/2 z-0 -translate-y-1/2 text-sm leading-none text-muted-foreground/50 transition-none group-hover:opacity-0"
-                title={fullDateLabel}
-              >
-                {relativeTimeLabel}
-              </span>
+              <ChatActivityTimeLabel value={activityDate} />
             ) : null}
             <DropdownMenu
               open={isChatOptionsOpen}
@@ -1091,7 +1087,7 @@ export const ChatSidebar = memo(function ChatSidebar({
 
             <div className="flex min-w-0 flex-1 items-center gap-2">
               <h1 className="flex min-w-0 items-baseline gap-1 truncate text-base font-semibold leading-6">
-                <span className="molten-forge-title truncate">{appName}</span>
+                <span className="truncate">{appName}</span>
                 <span className="shrink-0 text-muted-foreground">
                   {appVersionLabel}
                 </span>

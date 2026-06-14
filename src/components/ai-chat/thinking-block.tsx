@@ -170,12 +170,28 @@ function ThinkingBlockComponent({
   lastContentLineRef.current = lastContentLine;
 
   useEffect(() => {
+    if (effectiveStatus === "in_progress") return;
+
+    setDisplayedLastLine(lastContentLine);
+  }, [effectiveStatus, lastContentLine]);
+
+  useEffect(() => {
+    if (effectiveStatus !== "in_progress" || !isCollapsed) return;
+
+    setDisplayedLastLine(lastContentLineRef.current);
+
     const intervalId = window.setInterval(() => {
-      setDisplayedLastLine(lastContentLineRef.current);
+      const nextLastLine = lastContentLineRef.current;
+      setDisplayedLastLine((currentLastLine) =>
+        currentLastLine === nextLastLine ? currentLastLine : nextLastLine,
+      );
     }, 1000);
 
     return () => window.clearInterval(intervalId);
-  }, []);
+  }, [effectiveStatus, isCollapsed]);
+
+  const shouldShowLastContentLine =
+    isCollapsed && effectiveStatus !== "complete" && displayedLastLine;
 
   return (
     <article className="flex w-full min-w-0 max-w-full justify-start">
@@ -202,7 +218,7 @@ function ThinkingBlockComponent({
                   </span>
                 </>
               ) : null}
-              {effectiveStatus !== "complete" && displayedLastLine ? (
+              {shouldShowLastContentLine ? (
                 <>
                   <span className="shrink-0 text-muted-foreground/60">•</span>
                   <span

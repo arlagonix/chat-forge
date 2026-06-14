@@ -137,4 +137,20 @@ describe("chat storage normalization", () => {
     ).toBe(true);
   });
 
+
+  it("defaults chat width to the current 896px layout", () => {
+    expect(normalizeAppSettings({}).chatWidth).toBe("896");
+  });
+
+  it("preserves valid persisted chat width", () => {
+    expect(normalizeAppSettings({ chatWidth: "720" }).chatWidth).toBe("720");
+    expect(normalizeAppSettings({ chatWidth: "full" }).chatWidth).toBe("full");
+  });
+
+  it("falls back to 896px for invalid chat width", () => {
+    expect(
+      normalizeAppSettings({ chatWidth: "wide" as never }).chatWidth,
+    ).toBe("896");
+  });
+
 });

@@ -215,6 +215,7 @@ export const ChatComposer = memo(
       footerStart?: ReactNode;
       contextUsage?: ContextUsageInfo;
       supportsVision?: boolean;
+      contentWidthClassName?: string;
       toolMentionOptions?: ToolMentionOption[];
       skillMentionOptions?: ToolMentionOption[];
       agentMentionOptions?: ToolMentionOption[];
@@ -233,6 +234,7 @@ export const ChatComposer = memo(
       footerStart,
       contextUsage,
       supportsVision = false,
+      contentWidthClassName,
       toolMentionOptions = [],
       skillMentionOptions = [],
       agentMentionOptions = [],
@@ -606,7 +608,8 @@ export const ChatComposer = memo(
       >
         <div
           className={cn(
-            "mx-auto w-full max-w-4xl border bg-card p-3 pt-0 shadow-sm",
+            "mx-auto w-full border bg-card p-3 pt-0 shadow-sm",
+            contentWidthClassName,
             isDraggingAttachments && "border-primary bg-primary/5",
           )}
         >

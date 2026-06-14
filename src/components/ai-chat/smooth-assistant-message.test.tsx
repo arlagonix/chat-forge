@@ -1,5 +1,5 @@
-import { render } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { act, render } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/components/ai-chat/code-block-preview-dialog", () => ({
   CodeBlockDisplayMode: { Preview: "preview", Source: "source" },
@@ -11,6 +11,9 @@ vi.mock("@/components/ai-chat/code-block-preview-dialog", () => ({
 import { SmoothAssistantMessageContent } from "@/components/ai-chat/smooth-assistant-message";
 
 describe("SmoothAssistantMessageContent", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
   it("renders Markdown while streaming when enabled", () => {
     const { container } = render(
       <SmoothAssistantMessageContent
@@ -56,5 +59,37 @@ describe("SmoothAssistantMessageContent", () => {
     expect(container.querySelector("strong")?.textContent).toBe(
       "finished markdown",
     );
+  });
+
+  it("throttles Markdown updates while streaming", () => {
+    vi.useFakeTimers();
+
+    const { container, rerender } = render(
+      <SmoothAssistantMessageContent
+        content="**first**"
+        isApiStreaming
+        flushVersion={0}
+        renderMarkdownWhileStreaming
+      />,
+    );
+
+    expect(container.querySelector("strong")?.textContent).toBe("first");
+
+    rerender(
+      <SmoothAssistantMessageContent
+        content="**second**"
+        isApiStreaming
+        flushVersion={1}
+        renderMarkdownWhileStreaming
+      />,
+    );
+
+    expect(container.querySelector("strong")?.textContent).toBe("first");
+
+    act(() => {
+      vi.advanceTimersByTime(120);
+    });
+
+    expect(container.querySelector("strong")?.textContent).toBe("second");
   });
 });

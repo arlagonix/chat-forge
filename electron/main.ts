@@ -300,12 +300,15 @@ type AgentsSettings = {
   enabled: boolean;
 };
 
+type ChatWidth = "720" | "768" | "896" | "1024" | "full";
+
 type AppSettings = {
   chatTitleGenerationMode: "local" | "ai";
   fontFamily: "sans" | "mono";
   chatFolders: ChatFolder[];
   thinkingAutoCollapse?: boolean;
   renderMarkdownWhileStreaming?: boolean;
+  chatWidth?: ChatWidth;
 };
 
 type ToolLoadError = {
@@ -431,7 +434,18 @@ const DEFAULT_APP_SETTINGS: AppSettings = {
   chatFolders: [],
   thinkingAutoCollapse: false,
   renderMarkdownWhileStreaming: true,
+  chatWidth: "896",
 };
+
+function normalizeChatWidth(value: unknown): ChatWidth {
+  return value === "720" ||
+    value === "768" ||
+    value === "896" ||
+    value === "1024" ||
+    value === "full"
+    ? value
+    : "896";
+}
 const DEFAULT_MCP_SETTINGS: McpSettings = {
   enabled: true,
   servers: [],
@@ -819,6 +833,7 @@ function normalizeAppSettings(value: unknown): AppSettings {
       typeof value.renderMarkdownWhileStreaming === "boolean"
         ? value.renderMarkdownWhileStreaming
         : true,
+    chatWidth: normalizeChatWidth(value.chatWidth),
   };
 }
 
