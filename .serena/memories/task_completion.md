@@ -1,35 +1,33 @@
-# Molten Forge — Task Completion
+# Task Completion — Verification Steps
 
-When a coding task is considered done, run the following checks:
+Run these commands before marking any coding task as done:
 
-## TypeScript type check
+1. **TypeScript check**
+   ```
+   npx tsc --noEmit
+   ```
+   (or `npm run build:renderer` which includes `tsc`)
 
-```bash
-npx tsc --noEmit
-```
+2. **Lint**
+   ```
+   npm run lint
+   ```
+   Must pass with zero warnings (`--max-warnings 0` in config).
 
-This checks all files included in `tsconfig.json` (`src/` + `electron/`). The build command (`npm run build:renderer`) also runs `tsc` first.
+3. **Tests**
+   ```
+   npm run test
+   ```
+   All tests must pass. Uses Vitest with jsdom environment.
 
-## Lint
+4. **Build** (optional, for packaging tasks)
+   ```
+   npm run build:renderer
+   ```
+   Verifies Vite build succeeds.
 
-```bash
-npm run lint
-```
-
-Uses ESLint with @typescript-eslint and react-hooks plugins. `--max-warnings 0` means zero warnings allowed.
-
-## Verification
-
-- Run `npm run dev` (or a targeted Vite build) to verify the app starts without runtime errors
-- If making UI changes, visually check both light and dark themes
-- If changing IPC or Electron code, verify the app launches and the feature works end-to-end
-
-## Memory checklist
-
-After completing work, optionally run from project root:
-
-```bash
-serena memories check
-```
-
-This verifies all `mem:` references in memories are valid and there are no stale references.
+## Notes
+- There is no formatter step (no Prettier).
+- `npm run build` (full pipeline) is only needed for release/packaging; `npm run build:renderer` suffices for code verification.
+- `npm run lint` runs before build in CI; fix all warnings.
+- Tests use `@testing-library/jest-dom/vitest` matchers. Mock `ResizeObserver` is set up globally.

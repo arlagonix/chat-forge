@@ -72,9 +72,12 @@ describe("MCP settings helpers", () => {
   });
 
   it("loads only globally enabled, server enabled, and tool enabled MCP tools", () => {
-    expect(buildLoadedMcpTools(settings).map((tool) => tool.name)).toEqual([
+    const loadedTools = buildLoadedMcpTools(settings);
+
+    expect(loadedTools.map((tool) => tool.name)).toEqual([
       "mcp_serena_edit_memory",
     ]);
+    expect(loadedTools[0]?.description).toBe("Edit memory");
 
     expect(buildLoadedMcpTools({ ...settings, enabled: false })).toEqual([]);
     expect(

@@ -1,5 +1,7 @@
 import { ATTACHMENT_LIMITS } from "./attachment-limits";
 import { mergeReasoningMetadata } from "./chat-utils";
+import { stripToolCallUiMetadataForProvider } from "./tool-call-metadata";
+import { getToolResultsForToolCalls } from "./tool-history";
 import { defaultGenerationSettings } from "./provider-presets";
 import type {
   ApiChatMessage,
@@ -388,6 +390,14 @@ export async function buildApiMessages({
     const reasoningContent =
       reasoningMetadata?.reasoningContent ?? legacyReasoningContent;
 
+    const persistedToolCalls = variant.toolCalls ?? [];
+    const toolCalls = persistedToolCalls.map(stripToolCallUiMetadataForProvider);
+    const toolResults = getToolResultsForToolCalls({
+      toolCalls: persistedToolCalls,
+      toolResults: variant.toolResults,
+      fillMissingWithCancelled: true,
+    });
+
     apiMessages.push({
       role: "assistant",
       content: variant.content,
@@ -395,10 +405,10 @@ export async function buildApiMessages({
       ...(reasoningMetadata?.reasoningDetails?.length
         ? { reasoning_details: reasoningMetadata.reasoningDetails }
         : {}),
-      ...(variant.toolCalls?.length ? { tool_calls: variant.toolCalls } : {}),
+      ...(toolCalls.length ? { tool_calls: toolCalls } : {}),
     });
 
-    for (const result of variant.toolResults ?? []) {
+    for (const result of toolResults) {
       const images = readToolResultImages(result);
       apiMessages.push({
         role: "tool",

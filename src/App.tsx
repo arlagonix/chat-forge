@@ -2229,14 +2229,19 @@ export default function Home() {
     setModeSearchValue("");
   }
 
-  async function saveSettingsChanges() {
+  async function saveSettingsChanges(providersStateOverride?: ProvidersState) {
+    const nextProvidersState = providersStateOverride ?? providersState;
+
+    if (providersStateOverride) {
+      setProvidersState(providersStateOverride);
+    }
+
     try {
       await Promise.all([
-        saveProvidersState(providersState),
+        saveProvidersState(nextProvidersState),
         saveSystemPrompt(systemPrompt),
       ]);
       showSuccess("Providers saved.");
-      setProviderSettingsOpen(false);
     } catch (error) {
       console.error("Failed to save providers:", error);
       showError("Failed to save providers", labelForError(error));

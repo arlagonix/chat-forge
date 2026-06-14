@@ -1,83 +1,49 @@
-# Molten Forge — Coding Conventions
+# Code Conventions
 
-## Import style
+## Naming
+- **Files**: camelCase for regular modules (`chat-utils.ts`), kebab-case for components (`chat-message-list.tsx`). Test files: `*.test.ts`/`*.test.tsx`.
+- **Functions**: camelCase. React components PascalCase. Hooks prefixed `use`.
+- **TypeScript types**: PascalCase interfaces/types. Type exports explicit.
 
-- Always use the `@/` path alias for `src/` imports (e.g. `import { cn } from "@/lib/utils"`)
-- Use relative imports only _within_ `src/lib/ai-chat/` (e.g. `import { createId } from "./chat-utils"`)
-- Group imports: React → external libs → `@/` aliases → sonner → types
-- Always use the `import type` syntax for type-only imports
+## Imports
+- Path alias `@/` maps to `src/` (e.g. `import { cn } from "@/lib/utils"`).
+- Group order: external deps (blank line), internal (`@/`), relative (`./`).
+- Type-only imports use `type` keyword inline (`import { ..., type X } from "..."`).
 
-## React patterns
+## CSS & Styling
+- **Tailwind CSS 4** with `@import "tailwindcss"` syntax (no `@tailwind` directives).
+- Utility class merging: `cn()` from `clsx` + `tailwind-merge` (`src/lib/utils.ts`).
+- Radix Themes with CSS variables: `--font-sans`, `--font-mono`.
+- Fonts: JetBrains Mono (mono), IBM Plex Sans (sans), IBM Plex Mono (mono fallback).
+- Animation: `tw-animate-css` 1.3.3.
 
-- **Function components only** (no class components)
-- **Hooks naming**: `use<Verb>`, e.g. `useChatActions`, `useChatGeneration`
-- **State pattern**: `const [state, setState] = useState<T>(initial)`
-- **Boolean naming**: prefix with `is-` or `has-`:
-  - `isNewChatDraft`, `hasMessages`, `isSending`, `isChatGenerating`
-  - `settingsOpen`, `providerSettingsOpen` → these are boolean state variables for dialog visibility
-- **Update pattern**: `updateChat(id, updater)` / `updateChatMessages(id, updater)` / `updateActiveChatMessages(updater)` where updater is `(prev: T) => T`
-- **Ref naming**: always `.current` with meaningful suffix, e.g. `didHydrateRef`, `chatSaveTimeoutRef`, `pendingChatSwitchTargetRef`
-- **Hydration guard**: effects that persist state must check `didHydrateRef.current` first to prevent overwriting stored data before initial load completes
-- **Callback stability**: use `useStableCallback` (a ref-based wrapper) instead of `useCallback` for callbacks passed to async/event-heavy APIs
+## React Patterns
+- Functional components with hooks. No class components.
+- `useCallback` / `useMemo` for stable references.
+- `useRef` for mutable values that shouldn't trigger re-renders (e.g. `didHydrateRef`, `composerDraftsRef`).
+- `useStableCallback` hook for callbacks that need stable identity.
+- State lifting: `App.tsx` is single source of truth for most app state; child components receive data/callbacks.
+- Auto-save via debounced `useEffect` watching state changes (hydration guard via `didHydrateRef`).
 
-## TypeScript conventions
+## State Management
+- No external state library (no Redux, Zustand, etc.). All state in `App.tsx` via `useState`.
+- Persistence: IndexedDB with snapshot diffing to avoid redundant writes.
+- Chat messages are immutable slices; updater functions receive current state and return next state.
 
-- **Type exports**: types are defined in `src/lib/ai-chat/types.ts` (the canonical version). The older `src/lib/types.ts` is deprecated and should not be extended.
-- **Discriminated unions** for message variants, tool call status, etc.
-- **Readonly arrays**: prefer `T[]` (mutable) for state, but use `readonly T[]` in pure utility signatures where appropriate.
-- **Memoization**: heavy computed values (available tools, permissions, filtered lists) use `useMemo` with explicit deps. See `src/App.tsx` for patterns.
+## IPC Architecture
+- Renderer never accesses Electron/node APIs directly. All communication via `contextBridge` in `electron/preload.ts`.
+- Bridges: `moltenForgeAI`, `moltenForgeStorage`, `moltenForgeWorkspace`, `moltenForgeTools`, `moltenForgeFind`, `moltenForgeMcp`.
+- Stream-based AI responses: renderer calls `streamChat()` which returns `{ id, cancel(), result(onDelta) }`.
 
-## CSS / Tailwind
+## Error Handling
+- `labelForError()` utility normalizes error to string message.
+- `toast()` via sonner for user-facing notifications. `showError`, `showSuccess`, `showInfo` wrappers.
+- Hydration errors gracefully degrade (don't persist placeholder state over on-disk data).
 
-- **Tailwind v4 syntax**: `@import "tailwindcss"` (no `@tailwind` directives)
-- **Custom variant**: `@custom-variant dark (&:is(.dark *));`
-- **CSS variables** for custom properties (fonts, Radix theme overrides)
-- **Dark mode**: `.dark` class toggled on `<html>` by `ThemeProvider`
-- **`cn()` utility** used everywhere for className composition (merges Tailwind classes via tailwind-merge)
-- **Component-level styles**: all styling via Tailwind utility classes (no CSS modules or styled-components)
-- **Radix Themes** provides base component styling; custom components extend with Tailwind
+## Testing
+- Vitest + Testing Library + jsdom.
+- `ResizeObserver` mocked globally in `src/test/setup.ts`.
+- Test files co-located with source, named `*.test.ts` or `*.test.tsx`.
 
-## File organization
-
-- **One component per file** (except small tightly-coupled helpers)
-- **UI primitives** go in `src/components/ui/` (shadcn-style, each wraps a Radix primitive)
-- **Chat-specific components** in `src/components/ai-chat/`
-- **Dialog components** are top-level in `src/components/` (settings, mcp, modes, etc.)
-- **Hooks** in `src/hooks/`
-- **Core chat modules** (types, storage, utils, modes, mcp, etc.) in `src/lib/ai-chat/`
-- **Electron main process** code in `electron/`
-
-## Key abstractions & patterns
-
-- **createId()**: `${Date.now()}-${Math.random().toString(16).slice(2)}` — used everywhere for entity IDs
-- **labelForError(error)**: extracts `error.message` or returns `"Unknown error."`
-- **Provider model**: `ProviderConfig` object with `baseUrl`, `model`, `apiKey`, model lists. Default is `LM Studio` at `http://localhost:1234/v1`
-- **Chat lifecycle**: unsaved draft → create + persist on first send → all subsequent saves debounced via `chatSaveTimeoutRef`
-- **Settings persistence pattern**: state + `useEffect` guarded by `didHydrateRef` → auto-saves on every change (debounced for chats)
-- **Tool permissions**: three-tier (global → mode → chat-level). Each level can be `allow`, `ask`, or `deny`. Mode-level uses `"global"` to fall through.
-- **Modes**: `normalizeModesState()` creates a normalized state from raw input. `resolveModeForChat(chatModeId, modesState)` picks the effective mode.
-- **Permission resolution**: cascade from most specific (chat) → mode → global. Helper functions in `request-builder.ts`: `getEffectiveToolPermission`, `getEffectiveSkillPermission`, `getEffectiveAgentPermission`.
-- **Electron IPC bridge namespaces** on `window`:
-  - `window.moltenForgeAI` — streaming chat, attachment processing
-  - `window.moltenForgeStorage` — indexeddb-like KV operations
-  - `window.moltenForgeWorkspace` — folder selection
-  - `window.moltenForgeTools` — file/bash tool execution
-  - `window.moltenForgeFind` — find-in-page
-  - `window.moltenForgeMcp` — MCP server tool calls
-- **Streaming pattern**: `window.moltenForgeAI.streamChat()` returns `{ id, cancel(), result(onDelta) }`. The main process emits deltas on IPC channel `ai:stream-delta:{streamId}`.
-- **Tool execution**: the renderer sends a request to the main process via IPC, main executes (bash/file/MCP), returns `ToolCommandResult`. Bash tools also stream terminal events.
-- **MCP tool naming**: tools exposed as `mcp_{serverName}_{toolName}`, sanitized to `[a-zA-Z0-9_-]{1,64}`.
-- **Error display**: `toast()` from sonner for success/error/info messages.
-
-## Dialog patterns
-
-- Each dialog has `<Name>Open` boolean state + `<name>Open` setter in App.tsx
-- Dialogs are rendered inside the main `Home()` component's return, gated by the open state
-- Pattern: `<Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>`
-
-## Storage (IndexedDB via Electron IPC)
-
-- **KV store** named `settings` in IndexedDB database `molten-forge`
-- **Chats store** named `chats` in same database
-- Migration from older IndexedDB schema via `migrateFromIndexedDb(snapshot)` IPC call
-- Key prefixes: `provider`, `providers-state`, `system-prompt`, `active-chat-id`, `tools-settings`, `skills-settings`, `agents-settings`, `app-settings`, `mcp-settings`, `modes-state`, `provider-models:${cacheKey}`
+## No Prettier
+- Formatting conventions enforced only by ESLint. No `.prettierrc` present.

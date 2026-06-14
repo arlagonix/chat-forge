@@ -23,7 +23,7 @@ vi.mock("sonner", () => ({
 
 import { ToolExecutionBlock } from "@/components/ai-chat/tool-execution-block";
 import { BASH_TOOL_NAME } from "@/lib/ai-chat/builtin-tools";
-import type { ChatToolCall } from "@/lib/ai-chat/types";
+import type { ChatToolCall, LoadedToolInfo } from "@/lib/ai-chat/types";
 
 const toolCall: ChatToolCall = {
   id: "tool-call-1",
@@ -54,4 +54,91 @@ describe("ToolExecutionBlock", () => {
 
     expect(mocks.buildToolExecutionPreviewForCall).toHaveBeenCalledTimes(1);
   });
+
+  it("shows persisted MCP descriptions in details when the tool is no longer loaded", () => {
+    const mcpToolCall: ChatToolCall = {
+      id: "mcp-tool-call-1",
+      type: "function",
+      function: {
+        name: "mcp_memory_search_memory",
+        arguments: JSON.stringify({ query: "project" }),
+      },
+      uiMetadata: {
+        displayName: "search_memory · memory",
+        description: "Search stored memories.",
+        source: "mcp",
+        mcp: {
+          serverId: "server-1",
+          serverName: "memory",
+          originalToolName: "search_memory",
+          exposedName: "mcp_memory_search_memory",
+          transport: "stdio",
+        },
+      },
+    };
+
+    render(
+      <ToolExecutionBlock
+        id="mcp-tool-call-1"
+        toolCall={mcpToolCall}
+        loadedTools={[]}
+        isCollapsed
+        onToggleCollapsed={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getAllByTitle("Open tool call details")[0]);
+
+    expect(screen.getByText("Search stored memories.")).toBeInTheDocument();
+    expect(screen.queryByText("Server: memory")).not.toBeInTheDocument();
+    expect(screen.queryByText("Original name: search_memory")).not.toBeInTheDocument();
+  });
+
+  it("shows current MCP descriptions in details before uiMetadata is persisted", () => {
+    const mcpToolCall: ChatToolCall = {
+      id: "mcp-tool-call-2",
+      type: "function",
+      function: {
+        name: "mcp_memory_search_memory",
+        arguments: JSON.stringify({ query: "project" }),
+      },
+    };
+    const loadedTools: LoadedToolInfo[] = [
+      {
+        id: "mcp:server-1:search_memory",
+        name: "mcp_memory_search_memory",
+        displayName: "search_memory · memory",
+        description: "Search stored memories.",
+        parameters: {},
+        command: "",
+        args: [],
+        input: "none",
+        timeoutMs: 30000,
+        source: "mcp",
+        mcp: {
+          serverId: "server-1",
+          serverName: "memory",
+          originalToolName: "search_memory",
+          exposedName: "mcp_memory_search_memory",
+          transport: "stdio",
+        },
+      },
+    ];
+
+    render(
+      <ToolExecutionBlock
+        id="mcp-tool-call-2"
+        toolCall={mcpToolCall}
+        loadedTools={loadedTools}
+        isCollapsed
+        onToggleCollapsed={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getAllByTitle("Open tool call details")[0]);
+
+    expect(screen.getByText("Search stored memories.")).toBeInTheDocument();
+    expect(screen.queryByText("Exposed name: mcp_memory_search_memory")).not.toBeInTheDocument();
+  });
+
 });

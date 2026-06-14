@@ -84,6 +84,13 @@ export type ChatMessageMetrics = {
   finishReason?: string;
 };
 
+export type ChatToolCallUiMetadata = {
+  displayName?: string;
+  description?: string;
+  source?: "custom" | "mcp";
+  mcp?: McpToolMetadata;
+};
+
 export type ChatToolCall = {
   id: string;
   type: "function";
@@ -92,6 +99,8 @@ export type ChatToolCall = {
     arguments: string;
     [key: string]: unknown;
   };
+  /** User-facing UI metadata persisted with saved chats for stable tool details. */
+  uiMetadata?: ChatToolCallUiMetadata;
   /** Provider-specific metadata required by some OpenAI-compatible APIs. */
   [key: string]: unknown;
 };

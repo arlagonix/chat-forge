@@ -1,34 +1,29 @@
-# Molten Forge — Suggested Commands
+# Suggested Commands
 
-## Development server
+All commands run from project root. Uses **npm** (no yarn/pnpm).
 
-| Command       | Description                                                     |
-| ------------- | --------------------------------------------------------------- |
-| `npm run dev` | Start Vite dev server + Electron in dev mode (HMR for renderer) |
+## Development
+- `npm run dev` — Start Vite dev server with Electron.
 
-## Build
+## Testing
+- `npm run test` — Run all tests (Vitest).
+- `npm run test:watch` — Watch mode.
 
-| Command                  | Description                                                  |
-| ------------------------ | ------------------------------------------------------------ |
-| `npm run build:renderer` | Type-check + build renderer only (tsc + vite build)          |
-| `npm run build:win`      | Full build → Windows NSIS installer + portable in `release/` |
-| `npm run build`          | Full cross-platform build (tsc + vite + electron-builder)    |
+## Building
+- `npm run build` — Full pipeline: `tsc` + `vite build` + `electron-builder` (cross-platform).
+- `npm run build:win` — Same but `--win --x64` only.
+- `npm run build:renderer` — `tsc` + `vite build` only (no packaging).
 
-## Code quality
-
-| Command        | Description                                                                          |
-| -------------- | ------------------------------------------------------------------------------------ |
-| `npm run lint` | ESLint (`eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0`) |
+## Linting
+- `npm run lint` — ESLint with `--max-warnings 0`.
 
 ## Preview
+- `npm run preview` — Vite preview (renderer only).
 
-| Command           | Description                             |
-| ----------------- | --------------------------------------- |
-| `npm run preview` | Vite preview (serve the built renderer) |
+## Release diff (example)
+- `npm run release:diff` — Generates `release-full.diff` from git (for changelog/review).
 
-## Windows-specific shell notes
-
-- File paths use backslashes (`\`), but Electron IPC and Vite resolve fine with forward slashes too.
-- `grep` → use `findstr` or `Select-String` (PowerShell).
-- `export` → use `$env:VAR="value"` in PowerShell or `set VAR=value` in cmd.
-- Project root on dev machine: `C:\Prime\GitHub\molten-forge`
+## Windows-specific notes
+- Paths use backslashes in Electron IPC; forward slashes work in Vite/TypeScript via `@/` alias.
+- `node_modules/.bin` tools resolved via npm scripts (no global install needed).
+- Tools like `7zip-bin`, `node-7z` used for archive handling (Windows-native 7z).

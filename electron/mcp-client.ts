@@ -291,7 +291,7 @@ export function buildLoadedMcpTools(settings: McpSettings): McpLoadedTool[] {
         id: `mcp:${server.id}:${tool.originalName}`,
         name: exposedName,
         displayName: `${tool.originalName} · ${server.name}`,
-        description: `[MCP: ${server.name}] ${description}`,
+        description,
         parameters: schemaAsObject(tool.inputSchema),
         command: "",
         args: [],

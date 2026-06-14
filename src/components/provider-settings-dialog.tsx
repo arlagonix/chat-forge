@@ -1,23 +1,30 @@
 "use client";
 
 import {
-  ChevronRight,
   Copy,
   Eye,
   EyeOff,
   MoreVertical,
   Plus,
   RefreshCcw,
+  Search,
   Trash2,
+  X,
 } from "lucide-react";
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import type { ComponentProps } from "react";
+import {
+  memo,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+} from "react";
 
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -31,7 +38,6 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Separator } from "@/components/ui/separator";
 import {
   Select,
   SelectContent,
@@ -39,8 +45,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
+import { UnsavedChangesDialog } from "@/components/unsaved-changes-dialog";
 import {
+  createNewProvider,
   formatOptionalNumber,
   getModelConfig,
   getProviderModelIds,
@@ -50,7 +59,6 @@ import {
   isProviderEnabled,
   normalizeProviderForState,
   normalizeProviderModels,
-  parseOptionalNumber,
   providerDisplayName,
   sanitizeGenerationSettings,
 } from "@/lib/ai-chat/chat-utils";
@@ -84,7 +92,7 @@ type ProviderSettingsDialogProps = {
   onAddProvider: () => void;
   onDuplicateProvider: (providerId: string) => void;
   onDeleteProvider: (providerId: string) => void;
-  onSave: () => void;
+  onSave: (providersStateOverride?: ProvidersState) => void;
   showSuccess: (message: string, description?: string) => void;
 };
 
@@ -97,6 +105,168 @@ function modelConfigWithPatch(
     ...patch,
   };
 }
+
+function providerDraftKey(provider: ProviderConfig) {
+  return JSON.stringify(normalizeProviderForState(provider));
+}
+
+function providerUniqueName(provider: ProviderConfig) {
+  return providerDisplayName(provider).trim().toLowerCase();
+}
+
+type BufferedTextInputProps = Omit<
+  ComponentProps<typeof Input>,
+  "value" | "onChange"
+> & {
+  value: string;
+  onValueChange: (value: string) => void;
+};
+
+const BufferedTextInput = memo(function BufferedTextInput({
+  value,
+  onValueChange,
+  ...props
+}: BufferedTextInputProps) {
+  const [draftValue, setDraftValue] = useState(value);
+  const [, startTransition] = useTransition();
+  useEffect(() => {
+    if (
+      typeof props.id === "string" &&
+      document.activeElement?.id === props.id
+    ) {
+      return;
+    }
+    setDraftValue(value);
+  }, [props.id, value]);
+
+  return (
+    <Input
+      {...props}
+      value={draftValue}
+      onChange={(event) => {
+        const nextValue = event.target.value;
+        setDraftValue(nextValue);
+        startTransition(() => onValueChange(nextValue));
+      }}
+    />
+  );
+});
+
+type PositiveIntegerInputProps = Omit<
+  ComponentProps<typeof Input>,
+  "value" | "onChange" | "type" | "inputMode" | "pattern"
+> & {
+  value: number | undefined;
+  onValueChange: (value: number | undefined) => void;
+};
+
+const PositiveIntegerInput = memo(function PositiveIntegerInput({
+  value,
+  onValueChange,
+  ...props
+}: PositiveIntegerInputProps) {
+  const [draftValue, setDraftValue] = useState(formatOptionalNumber(value));
+  const [, startTransition] = useTransition();
+  useEffect(() => {
+    if (
+      typeof props.id === "string" &&
+      document.activeElement?.id === props.id
+    ) {
+      return;
+    }
+    setDraftValue(formatOptionalNumber(value));
+  }, [props.id, value]);
+
+  return (
+    <Input
+      {...props}
+      type="text"
+      inputMode="numeric"
+      pattern="[0-9]*"
+      value={draftValue}
+      onChange={(event) => {
+        const nextValue = event.target.value.trim();
+        if (nextValue !== "" && !/^[1-9]\d*$/.test(nextValue)) return;
+
+        setDraftValue(nextValue);
+        startTransition(() => {
+          onValueChange(nextValue === "" ? undefined : Number(nextValue));
+        });
+      }}
+    />
+  );
+});
+
+type BoundedDecimalInputProps = Omit<
+  ComponentProps<typeof Input>,
+  "value" | "onChange" | "type" | "inputMode" | "pattern" | "min" | "max"
+> & {
+  value: number | undefined;
+  min: number;
+  max: number;
+  onValueChange: (value: number | undefined) => void;
+};
+
+const BoundedDecimalInput = memo(function BoundedDecimalInput({
+  value,
+  min,
+  max,
+  onValueChange,
+  ...props
+}: BoundedDecimalInputProps) {
+  const [draftValue, setDraftValue] = useState(formatOptionalNumber(value));
+  const [, startTransition] = useTransition();
+  useEffect(() => {
+    if (
+      typeof props.id === "string" &&
+      document.activeElement?.id === props.id
+    ) {
+      return;
+    }
+    setDraftValue(formatOptionalNumber(value));
+  }, [props.id, value]);
+
+  function commit(nextValue: string) {
+    if (nextValue === "") {
+      startTransition(() => onValueChange(undefined));
+      return;
+    }
+
+    if (nextValue.endsWith(".")) return;
+
+    const parsed = Number(nextValue);
+    if (!Number.isFinite(parsed) || parsed < min || parsed > max) return;
+    startTransition(() => onValueChange(parsed));
+  }
+
+  return (
+    <Input
+      {...props}
+      type="text"
+      inputMode="decimal"
+      value={draftValue}
+      onBlur={() => {
+        if (draftValue.endsWith(".")) {
+          const normalized = draftValue.slice(0, -1);
+          setDraftValue(normalized);
+          commit(normalized);
+        }
+      }}
+      onChange={(event) => {
+        const nextValue = event.target.value.trim();
+        if (nextValue !== "" && !/^\d+(?:\.\d*)?$/.test(nextValue)) return;
+
+        if (nextValue !== "") {
+          const parsed = Number(nextValue);
+          if (!Number.isFinite(parsed) || parsed < min || parsed > max) return;
+        }
+
+        setDraftValue(nextValue);
+        commit(nextValue);
+      }}
+    />
+  );
+});
 
 export const ProviderSettingsDialog = memo(function ProviderSettingsDialog({
   open,
@@ -115,16 +285,26 @@ export const ProviderSettingsDialog = memo(function ProviderSettingsDialog({
   const [isLoadingModels, setIsLoadingModels] = useState(false);
   const [modelLoadStatus, setModelLoadStatus] =
     useState<ModelLoadStatus>("idle");
-  const [expandedProviderIds, setExpandedProviderIds] = useState<
-    Record<string, boolean>
-  >({});
+  const [providerSearchQuery, setProviderSearchQuery] = useState("");
+  const [loadedModelSearchQuery, setLoadedModelSearchQuery] = useState("");
   const [selectedModelId, setSelectedModelId] = useState<string | undefined>();
+  const [newProviderDraft, setNewProviderDraft] =
+    useState<ProviderConfig | null>(null);
+  const [newProviderInitialDraft, setNewProviderInitialDraft] =
+    useState<ProviderConfig | null>(null);
+  const [editingProviderDraft, setEditingProviderDraft] =
+    useState<ProviderConfig>(() => normalizeProviderForState(activeProvider));
   const [customModelValue, setCustomModelValue] = useState("");
+  const [unsavedChangesDialogOpen, setUnsavedChangesDialogOpen] =
+    useState(false);
+  const [pendingAction, setPendingAction] = useState<(() => void) | null>(null);
   const modelLoadStatusTimerRef = useRef<number | null>(null);
   const activeProviderModelIds = useMemo(
-    () => getProviderModelIds(activeProvider),
-    [activeProvider],
+    () => getProviderModelIds(editingProviderDraft),
+    [editingProviderDraft],
   );
+  const editingProvider = newProviderDraft ?? editingProviderDraft;
+  const isCreatingProvider = newProviderDraft !== null;
 
   const selectedModel =
     selectedModelId && activeProviderModelIds.includes(selectedModelId)
@@ -133,13 +313,37 @@ export const ProviderSettingsDialog = memo(function ProviderSettingsDialog({
   const selectedModelSettings = useMemo(
     () =>
       selectedModel
-        ? getActiveModelSettings({ ...activeProvider, model: selectedModel })
+        ? getActiveModelSettings({
+            ...editingProviderDraft,
+            model: selectedModel,
+          })
         : undefined,
-    [activeProvider, selectedModel],
+    [editingProviderDraft, selectedModel],
   );
   const selectedModelConfig = selectedModel
-    ? getModelConfig(activeProvider, selectedModel)
+    ? getModelConfig(editingProviderDraft, selectedModel)
     : undefined;
+  const hasDraftChanges = newProviderDraft
+    ? !newProviderInitialDraft ||
+      providerDraftKey(newProviderDraft) !==
+        providerDraftKey(newProviderInitialDraft)
+    : providerDraftKey(editingProviderDraft) !==
+      providerDraftKey(activeProvider);
+  const duplicateProvider = useMemo(() => {
+    const draftName = providerUniqueName(editingProvider);
+    if (!draftName) return undefined;
+
+    return providers.find((provider) => {
+      if (providerUniqueName(provider) !== draftName) return false;
+      return isCreatingProvider || provider.id !== editingProvider.id;
+    });
+  }, [editingProvider, isCreatingProvider, providers]);
+  const providerNameValidationError = duplicateProvider
+    ? `A provider named "${providerDisplayName(editingProvider)}" already exists.`
+    : undefined;
+  const canSaveDraft = hasDraftChanges && !providerNameValidationError;
+  const canCreateProvider = !providerNameValidationError;
+
   useEffect(() => {
     return () => {
       if (modelLoadStatusTimerRef.current !== null) {
@@ -149,6 +353,11 @@ export const ProviderSettingsDialog = memo(function ProviderSettingsDialog({
   }, []);
 
   useEffect(() => {
+    if (!open) return;
+    setEditingProviderDraft(normalizeProviderForState(activeProvider));
+  }, [activeProvider.id, open]);
+
+  useEffect(() => {
     if (selectedModelId && !activeProviderModelIds.includes(selectedModelId)) {
       setSelectedModelId(undefined);
     }
@@ -156,7 +365,8 @@ export const ProviderSettingsDialog = memo(function ProviderSettingsDialog({
 
   useEffect(() => {
     setCustomModelValue("");
-  }, [activeProvider.id]);
+    setLoadedModelSearchQuery("");
+  }, [editingProvider.id]);
 
   function setTemporaryModelLoadStatus(
     status: Exclude<ModelLoadStatus, "idle">,
@@ -185,27 +395,127 @@ export const ProviderSettingsDialog = memo(function ProviderSettingsDialog({
     return "Load models";
   }
 
+  function discardCurrentDraftChanges() {
+    setPendingAction(null);
+    setNewProviderDraft(null);
+    setNewProviderInitialDraft(null);
+    setEditingProviderDraft(normalizeProviderForState(activeProvider));
+    setCustomModelValue("");
+    setLoadedModelSearchQuery("");
+  }
+
+  function requestWithUnsavedCheck(action: () => void) {
+    if (hasDraftChanges) {
+      setPendingAction(() => action);
+      setUnsavedChangesDialogOpen(true);
+      return;
+    }
+
+    action();
+  }
+
+  function confirmDiscardUnsavedChanges() {
+    const action = pendingAction;
+    setPendingAction(null);
+    setUnsavedChangesDialogOpen(false);
+    discardCurrentDraftChanges();
+    if (action) action();
+  }
+
+  function requestOpenChange(nextOpen: boolean) {
+    if (nextOpen) {
+      onOpenChange(true);
+      return;
+    }
+
+    requestWithUnsavedCheck(() => onOpenChange(false));
+  }
+
   function selectProvider(providerId: string) {
-    setSelectedModelId(undefined);
-    onProvidersStateChange((currentState) => ({
-      ...currentState,
-      activeProviderId: providerId,
-    }));
+    requestWithUnsavedCheck(() => {
+      setNewProviderDraft(null);
+      setNewProviderInitialDraft(null);
+      setSelectedModelId(undefined);
+      onProvidersStateChange((currentState) => ({
+        ...currentState,
+        activeProviderId: providerId,
+      }));
+    });
   }
 
   function selectModel(providerId: string, model: string) {
-    setSelectedModelId(model);
-    onProvidersStateChange((currentState) => ({
-      ...currentState,
-      activeProviderId: providerId,
-    }));
+    requestWithUnsavedCheck(() => {
+      setNewProviderDraft(null);
+      setNewProviderInitialDraft(null);
+      setSelectedModelId(model);
+      onProvidersStateChange((currentState) => ({
+        ...currentState,
+        activeProviderId: providerId,
+      }));
+    });
   }
 
-  function toggleProviderExpanded(providerId: string) {
-    setExpandedProviderIds((current) => ({
-      ...current,
-      [providerId]: !(current[providerId] ?? true),
+  function startCreateProvider() {
+    requestWithUnsavedCheck(() => {
+      const provider = createNewProvider();
+      setSelectedModelId(undefined);
+      setCustomModelValue("");
+      setLoadedModelSearchQuery("");
+      setNewProviderDraft(provider);
+      setNewProviderInitialDraft(provider);
+    });
+  }
+
+  function cancelCreateProvider() {
+    requestWithUnsavedCheck(() => {
+      setNewProviderDraft(null);
+      setNewProviderInitialDraft(null);
+      setCustomModelValue("");
+      setLoadedModelSearchQuery("");
+    });
+  }
+
+  function createProviderFromDraft() {
+    if (!newProviderDraft || !canCreateProvider) return;
+
+    const provider = normalizeProviderForState(newProviderDraft);
+    onProvidersStateChange((currentState) => ({
+      ...currentState,
+      providers: [...currentState.providers, provider],
+      activeProviderId: provider.id,
     }));
+    setNewProviderDraft(null);
+    setNewProviderInitialDraft(null);
+    setEditingProviderDraft(provider);
+    setSelectedModelId(undefined);
+  }
+
+  function buildProvidersStateWithProvider(
+    providerForSave: ProviderConfig,
+  ): ProvidersState {
+    const normalizedProvider = normalizeProviderForState(providerForSave);
+    const nextProviders = providers.map((provider) =>
+      provider.id === normalizedProvider.id ? normalizedProvider : provider,
+    );
+
+    return {
+      providers: nextProviders,
+      activeProviderId: normalizedProvider.id,
+    };
+  }
+
+  function resetEditingProvider() {
+    setEditingProviderDraft(normalizeProviderForState(activeProvider));
+    setCustomModelValue("");
+    setLoadedModelSearchQuery("");
+  }
+
+  function saveEditingProvider() {
+    if (!canSaveDraft) return;
+
+    const nextState = buildProvidersStateWithProvider(editingProviderDraft);
+    onProvidersStateChange(() => nextState);
+    onSave(nextState);
   }
 
   function updateProviderInState(
@@ -222,7 +532,41 @@ export const ProviderSettingsDialog = memo(function ProviderSettingsDialog({
     }));
   }
 
+  function updateEditingProvider(
+    updater: (provider: ProviderConfig) => ProviderConfig,
+  ) {
+    if (newProviderDraft) {
+      setNewProviderDraft((current) =>
+        current ? normalizeProviderForState(updater(current)) : current,
+      );
+      return;
+    }
+
+    setEditingProviderDraft((current) =>
+      normalizeProviderForState(updater(current)),
+    );
+  }
+
+  function updateEditingProviderSetting(patch: Partial<ProviderConfig>) {
+    if (newProviderDraft) {
+      setNewProviderDraft((current) =>
+        current ? normalizeProviderForState({ ...current, ...patch }) : current,
+      );
+      return;
+    }
+
+    setEditingProviderDraft((current) =>
+      normalizeProviderForState({ ...current, ...patch, id: current.id }),
+    );
+  }
+
   function toggleProvider(providerId: string, checked: boolean) {
+    if (!newProviderDraft && providerId === activeProvider.id) {
+      setEditingProviderDraft((current) =>
+        normalizeProviderForState({ ...current, enabled: checked }),
+      );
+    }
+
     updateProviderInState(providerId, (provider) => ({
       ...provider,
       enabled: checked,
@@ -230,23 +574,21 @@ export const ProviderSettingsDialog = memo(function ProviderSettingsDialog({
   }
 
   function toggleModel(providerId: string, model: string, checked: boolean) {
-    updateProviderInState(providerId, (provider) => {
-      const currentConfig = provider.modelConfigs?.[model] ?? {};
-      return {
-        ...provider,
-        modelConfigs: {
-          ...(provider.modelConfigs ?? {}),
-          [model]: modelConfigWithPatch(currentConfig, { enabled: checked }),
-        },
-      };
-    });
-  }
+    if (!newProviderDraft && providerId === activeProvider.id) {
+      setEditingProviderDraft((current) => {
+        const currentConfig = current.modelConfigs?.[model] ?? {};
+        return normalizeProviderForState({
+          ...current,
+          modelConfigs: {
+            ...(current.modelConfigs ?? {}),
+            [model]: modelConfigWithPatch(currentConfig, {
+              enabled: checked,
+            }),
+          },
+        });
+      });
+    }
 
-  function toggleModelShownInMenu(
-    providerId: string,
-    model: string,
-    checked: boolean,
-  ) {
     updateProviderInState(providerId, (provider) => {
       const currentConfig = provider.modelConfigs?.[model] ?? {};
       return {
@@ -255,6 +597,20 @@ export const ProviderSettingsDialog = memo(function ProviderSettingsDialog({
           ...(provider.modelConfigs ?? {}),
           [model]: modelConfigWithPatch(currentConfig, {
             enabled: checked,
+          }),
+        },
+      };
+    });
+  }
+
+  function toggleEditingModelShownInMenu(model: string, checked: boolean) {
+    updateEditingProvider((provider) => {
+      const currentConfig = provider.modelConfigs?.[model] ?? {};
+      return {
+        ...provider,
+        modelConfigs: {
+          ...(provider.modelConfigs ?? {}),
+          [model]: modelConfigWithPatch(currentConfig, {
             showInMenu: checked,
           }),
         },
@@ -262,7 +618,94 @@ export const ProviderSettingsDialog = memo(function ProviderSettingsDialog({
     });
   }
 
-  async function loadModelsFromProvider(providerForLoad = activeProvider) {
+  function applyLoadedModelsToProvider(
+    provider: ProviderConfig,
+    loadedModelIds: string[],
+    loadedModels: Awaited<ReturnType<typeof loadProviderModels>>,
+  ) {
+    const loadedModelIdSet = new Set(loadedModelIds);
+    const loadedModelsById = new Map(
+      loadedModels.map((loadedModel) => [loadedModel.id, loadedModel]),
+    );
+    const modelConfigs: Record<string, ProviderModelConfig> = {};
+
+    for (const loadedModelId of loadedModelIds) {
+      const loadedModel = loadedModelsById.get(loadedModelId);
+      const currentConfig = provider.modelConfigs?.[loadedModelId] ?? {};
+      const context = { ...(currentConfig.context ?? {}) };
+      if (loadedModel?.contextLength !== undefined) {
+        if (loadedModel.contextLengthSource === "detected") {
+          context.detectedContextLength = loadedModel.contextLength;
+        } else {
+          context.speculatedContextLength = loadedModel.contextLength;
+        }
+      }
+
+      const enabled =
+        typeof currentConfig.enabled === "boolean"
+          ? currentConfig.enabled
+          : false;
+      const showInMenu =
+        typeof currentConfig.showInMenu === "boolean"
+          ? currentConfig.showInMenu
+          : false;
+
+      modelConfigs[loadedModelId] = {
+        ...currentConfig,
+        enabled,
+        showInMenu,
+        context,
+      };
+    }
+
+    const customModelIds = normalizeProviderModels(
+      provider.customModels ?? [],
+    ).filter((modelId) => !loadedModelIdSet.has(modelId));
+
+    for (const customModelId of customModelIds) {
+      const currentConfig = provider.modelConfigs?.[customModelId] ?? {};
+      const enabled =
+        typeof currentConfig.enabled === "boolean"
+          ? currentConfig.enabled
+          : true;
+      const showInMenu =
+        typeof currentConfig.showInMenu === "boolean"
+          ? currentConfig.showInMenu
+          : enabled;
+
+      modelConfigs[customModelId] = {
+        ...currentConfig,
+        enabled,
+        showInMenu,
+      };
+    }
+
+    const availableModelIds = normalizeProviderModels([
+      ...loadedModelIds,
+      ...customModelIds,
+    ]);
+    const selectedModelStillExists = availableModelIds.includes(provider.model);
+    const fallbackModel =
+      (selectedModelStillExists ? provider.model : "") ||
+      availableModelIds.find((modelId) => {
+        const config = modelConfigs[modelId];
+        return config.enabled !== false && config.showInMenu !== false;
+      }) ||
+      provider.model ||
+      "";
+
+    return normalizeProviderForState({
+      ...provider,
+      model: fallbackModel,
+      models: loadedModelIds,
+      customModels: customModelIds,
+      modelConfigs,
+      enabledModelIds: [],
+      modelSettings: {},
+    });
+  }
+
+  async function loadModelsFromProvider(providerForLoad = editingProvider) {
     setIsLoadingModels(true);
     setModelLoadStatus("idle");
 
@@ -278,100 +721,20 @@ export const ProviderSettingsDialog = memo(function ProviderSettingsDialog({
       );
       await saveCachedProviderModels(providerForLoad, loadedModelIds);
 
-      onProvidersStateChange((currentState) => ({
-        ...currentState,
-        providers: currentState.providers.map((provider) => {
-          if (provider.id !== providerForLoad.id) return provider;
+      if (newProviderDraft?.id === providerForLoad.id) {
+        setNewProviderDraft((current) =>
+          current
+            ? applyLoadedModelsToProvider(current, loadedModelIds, loadedModels)
+            : current,
+        );
+      } else {
+        setEditingProviderDraft((current) =>
+          current.id === providerForLoad.id
+            ? applyLoadedModelsToProvider(current, loadedModelIds, loadedModels)
+            : current,
+        );
+      }
 
-          const loadedModelIdSet = new Set(loadedModelIds);
-          const loadedModelsById = new Map(
-            loadedModels.map((loadedModel) => [loadedModel.id, loadedModel]),
-          );
-          const modelConfigs: Record<string, ProviderModelConfig> = {};
-
-          for (const loadedModelId of loadedModelIds) {
-            const loadedModel = loadedModelsById.get(loadedModelId);
-            const currentConfig = provider.modelConfigs?.[loadedModelId] ?? {};
-            const context = { ...(currentConfig.context ?? {}) };
-            if (loadedModel?.contextLength !== undefined) {
-              if (loadedModel.contextLengthSource === "detected") {
-                context.detectedContextLength = loadedModel.contextLength;
-              } else {
-                context.speculatedContextLength = loadedModel.contextLength;
-              }
-            }
-
-            const enabled =
-              typeof currentConfig.enabled === "boolean"
-                ? currentConfig.enabled
-                : false;
-            const showInMenu =
-              typeof currentConfig.showInMenu === "boolean"
-                ? currentConfig.showInMenu
-                : false;
-
-            modelConfigs[loadedModelId] = {
-              ...currentConfig,
-              enabled,
-              showInMenu,
-              context,
-            };
-          }
-
-          const customModelIds = normalizeProviderModels(
-            provider.customModels ?? [],
-          ).filter((modelId) => !loadedModelIdSet.has(modelId));
-
-          for (const customModelId of customModelIds) {
-            const currentConfig = provider.modelConfigs?.[customModelId] ?? {};
-            const enabled =
-              typeof currentConfig.enabled === "boolean"
-                ? currentConfig.enabled
-                : true;
-            const showInMenu =
-              typeof currentConfig.showInMenu === "boolean"
-                ? currentConfig.showInMenu
-                : enabled;
-
-            modelConfigs[customModelId] = {
-              ...currentConfig,
-              enabled,
-              showInMenu,
-            };
-          }
-
-          const availableModelIds = normalizeProviderModels([
-            ...loadedModelIds,
-            ...customModelIds,
-          ]);
-          const selectedModelStillExists = availableModelIds.includes(
-            provider.model,
-          );
-          const fallbackModel =
-            (selectedModelStillExists ? provider.model : "") ||
-            availableModelIds.find((modelId) => {
-              const config = modelConfigs[modelId];
-              return config.enabled !== false && config.showInMenu !== false;
-            }) ||
-            provider.model ||
-            "";
-
-          return normalizeProviderForState({
-            ...provider,
-            model: fallbackModel,
-            models: loadedModelIds,
-            customModels: customModelIds,
-            modelConfigs,
-            enabledModelIds: [],
-            modelSettings: {},
-          });
-        }),
-      }));
-
-      setExpandedProviderIds((current) => ({
-        ...current,
-        [providerForLoad.id]: true,
-      }));
       setTemporaryModelLoadStatus(loadedModelIds.length ? "success" : "empty");
     } catch (error) {
       setTemporaryModelLoadStatus("error");
@@ -385,7 +748,7 @@ export const ProviderSettingsDialog = memo(function ProviderSettingsDialog({
     const model = customModelValue.trim();
     if (!model) return;
 
-    updateProviderInState(activeProvider.id, (provider) => {
+    updateEditingProvider((provider) => {
       const loadedModels = normalizeProviderModels(provider.models ?? []);
       const customModels = normalizeProviderModels(provider.customModels ?? []);
       const isLoadedModel = loadedModels.includes(model);
@@ -410,7 +773,7 @@ export const ProviderSettingsDialog = memo(function ProviderSettingsDialog({
   }
 
   function deleteCustomModel(model: string) {
-    updateProviderInState(activeProvider.id, (provider) => {
+    updateEditingProvider((provider) => {
       const normalizedModel = model.trim();
       const loadedModels = normalizeProviderModels(provider.models ?? []);
       const customModels = normalizeProviderModels(
@@ -434,7 +797,7 @@ export const ProviderSettingsDialog = memo(function ProviderSettingsDialog({
   function updateSelectedModelConfig(patch: Partial<ProviderModelConfig>) {
     if (!selectedModel) return;
 
-    updateProviderInState(activeProvider.id, (provider) => {
+    updateEditingProvider((provider) => {
       const currentConfig = provider.modelConfigs?.[selectedModel] ?? {};
       return {
         ...provider,
@@ -457,18 +820,51 @@ export const ProviderSettingsDialog = memo(function ProviderSettingsDialog({
     );
   }
 
-  function resetSelectedModelGenerationSettings() {
-    if (!selectedModel) return;
+  const filteredProviders = useMemo(() => {
+    const query = providerSearchQuery.trim().toLowerCase();
 
-    updateSelectedModelConfig({
-      temperature: undefined,
-      topP: undefined,
-      maxTokens: undefined,
-      reasoningMode: undefined,
-      reasoningEffort: undefined,
-      requestTimeoutMs: undefined,
-    });
-  }
+    return providers
+      .map((provider, index) => ({ provider, index }))
+      .filter(({ provider }) => {
+        if (!query) return true;
+        const name = providerDisplayName(provider).toLowerCase();
+        const baseUrl = provider.baseUrl.toLowerCase();
+        return name.includes(query) || baseUrl.includes(query);
+      })
+      .sort((first, second) => {
+        const firstEnabled = isProviderEnabled(first.provider);
+        const secondEnabled = isProviderEnabled(second.provider);
+        if (firstEnabled !== secondEnabled) return firstEnabled ? -1 : 1;
+        return first.index - second.index;
+      })
+      .map(({ provider }) => provider);
+  }, [providers, providerSearchQuery]);
+
+  const editingProviderEnabled = isProviderEnabled(editingProvider);
+  const editingProviderLoadedModels = useMemo(
+    () => normalizeProviderModels(editingProvider.models ?? []),
+    [editingProvider.models],
+  );
+  const filteredLoadedModels = useMemo(() => {
+    const query = loadedModelSearchQuery.trim().toLowerCase();
+    return editingProviderLoadedModels
+      .map((model, index) => ({ model, index }))
+      .filter(({ model }) =>
+        query ? model.toLowerCase().includes(query) : true,
+      )
+      .sort((first, second) => {
+        const firstShown = isModelShownInMenu(editingProvider, first.model);
+        const secondShown = isModelShownInMenu(editingProvider, second.model);
+        if (firstShown !== secondShown) return firstShown ? -1 : 1;
+        return first.index - second.index;
+      })
+      .map(({ model }) => model);
+  }, [
+    editingProvider.enabled,
+    editingProvider.modelConfigs,
+    editingProviderLoadedModels,
+    loadedModelSearchQuery,
+  ]);
 
   const selectedModelThinkingMode = (() => {
     if (selectedModelSettings?.reasoningMode === "off") return "off";
@@ -503,9 +899,14 @@ export const ProviderSettingsDialog = memo(function ProviderSettingsDialog({
     }
   }
 
-  function updateSelectedModelManualContext(value: string) {
+  function updateSelectedModelMaxTokens(maxTokens: number | undefined) {
+    updateSelectedModelGenerationSettings({ maxTokens });
+  }
+
+  function updateSelectedModelManualContext(
+    manualContextLength: number | undefined,
+  ) {
     if (!selectedModel) return;
-    const manualContextLength = parseOptionalNumber(value);
 
     updateSelectedModelConfig({
       context: {
@@ -516,624 +917,744 @@ export const ProviderSettingsDialog = memo(function ProviderSettingsDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex h-[min(1000px,calc(100dvh-2rem))] max-h-none flex-col gap-0 overflow-hidden p-0 sm:max-w-6xl">
-        <DialogHeader className="shrink-0 border-b px-5 py-4 pr-12">
-          <DialogTitle>Providers</DialogTitle>
-          <DialogDescription>
-            Manage provider connections and per-model settings.
-          </DialogDescription>
-        </DialogHeader>
+    <>
+      <Dialog open={open} onOpenChange={requestOpenChange}>
+        <DialogContent
+          className="flex h-[min(1000px,calc(100dvh-2rem))] max-h-none flex-col gap-0 overflow-hidden p-0 outline-none focus:outline-none focus-visible:ring-0 sm:max-w-6xl"
+          onOpenAutoFocus={(event) => event.preventDefault()}
+        >
+          <DialogHeader className="shrink-0 border-b p-4 pr-12">
+            <DialogTitle>Providers</DialogTitle>
+          </DialogHeader>
 
-        <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden md:grid-cols-[340px_minmax(0,1fr)]">
-          <aside className="min-h-0 overflow-y-auto border-b bg-card/70 p-3 md:border-b-0 md:border-r">
-            <div className="mb-3 flex items-center justify-between gap-2">
-              <Label className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
-                Providers
-              </Label>
-              <Button
-                type="button"
-                variant="secondary"
-                size="sm"
-                className="h-7  px-2 text-sm"
-                onClick={onAddProvider}
-              >
-                <Plus className="size-3.5" />
-                Add
-              </Button>
-            </div>
-
-            <div className="grid gap-1.5">
-              {providers.map((item) => {
-                const isExpanded = expandedProviderIds[item.id] ?? true;
-                const shownModels = getShownProviderModels(item);
-                const modelCount = shownModels.length;
-                const loadedModelCount = normalizeProviderModels(
-                  item.models ?? [],
-                ).length;
-                const customModelCount = normalizeProviderModels(
-                  item.customModels ?? [],
-                ).length;
-                const enabledModelCount = shownModels.filter((model) =>
-                  isModelEnabled(item, model),
-                ).length;
-                const providerSelected =
-                  item.id === activeProvider.id && !selectedModel;
-
-                return (
-                  <div key={item.id} className="grid gap-1">
-                    <div
-                      role="button"
-                      tabIndex={0}
-                      className={cn(
-                        "group flex min-w-0 cursor-pointer items-center gap-2  border px-2 py-2 outline-none",
-                        providerSelected
-                          ? "border-primary/30 bg-accent text-accent-foreground"
-                          : "border-transparent hover:border-border hover:bg-muted/60",
-                      )}
-                      onClick={() => selectProvider(item.id)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter" || event.key === " ") {
-                          event.preventDefault();
-                          selectProvider(item.id);
-                        }
-                      }}
+          <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden md:grid-cols-[400px_minmax(0,1fr)]">
+            <aside className="flex min-h-0 flex-col border-b bg-card/70 md:border-b-0 md:border-r">
+              <div className="shrink-0 border-b bg-card/90 p-2">
+                <div className="relative">
+                  <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    value={providerSearchQuery}
+                    onChange={(event) =>
+                      setProviderSearchQuery(event.target.value)
+                    }
+                    placeholder="Search providers"
+                    aria-label="Search providers by name or base URL"
+                    autoFocus={false}
+                    className="h-9 pl-8 pr-8"
+                  />
+                  {providerSearchQuery ? (
+                    <button
+                      type="button"
+                      className="absolute right-2 top-1/2 inline-flex size-5 -translate-y-1/2 items-center justify-center text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      onClick={() => setProviderSearchQuery("")}
+                      title="Clear search"
                     >
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon-sm"
-                        className="h-7 w-7 shrink-0 "
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          toggleProviderExpanded(item.id);
-                        }}
-                        title={isExpanded ? "Collapse models" : "Expand models"}
-                      >
-                        <ChevronRight
-                          className={cn(
-                            "size-4 transition-transform",
-                            isExpanded && "rotate-90",
-                          )}
-                        />
-                      </Button>
+                      <X className="size-3.5" />
+                    </button>
+                  ) : null}
+                </div>
+              </div>
 
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate text-base leading-6">
-                          {providerDisplayName(item)}
+              <div className="min-h-0 flex-1 overflow-y-auto">
+                <div>
+                  {filteredProviders.length > 0 ? (
+                    filteredProviders.map((item) => {
+                      const providerEnabled = isProviderEnabled(item);
+                      const shownModels = getShownProviderModels(item);
+                      const modelCount = shownModels.length;
+                      const providerSelected =
+                        !isCreatingProvider &&
+                        item.id === activeProvider.id &&
+                        !selectedModel;
+
+                      return (
+                        <div
+                          key={item.id}
+                          className="border-b last:border-b-0 pl-2 py-1"
+                        >
+                          <div
+                            role="button"
+                            tabIndex={0}
+                            className={cn(
+                              "group flex min-w-0 cursor-pointer items-center gap-2 px-2 py-2 outline-none",
+                              providerSelected
+                                ? "bg-accent text-accent-foreground"
+                                : "hover:bg-muted/60",
+                            )}
+                            onClick={() => selectProvider(item.id)}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter" || event.key === " ") {
+                                event.preventDefault();
+                                selectProvider(item.id);
+                              }
+                            }}
+                          >
+                            <div className="min-w-0 flex-1">
+                              <div className="truncate text-base font-medium leading-6">
+                                {providerDisplayName(item)}
+                              </div>
+                              <div className="truncate text-sm leading-5 text-muted-foreground">
+                                {item.baseUrl || "No base URL"}
+                              </div>
+                            </div>
+
+                            <Switch
+                              aria-label={`${providerDisplayName(item)} provider`}
+                              checked={providerEnabled}
+                              onClick={(event) => event.stopPropagation()}
+                              onCheckedChange={(checked) =>
+                                toggleProvider(item.id, checked)
+                              }
+                              title={
+                                providerEnabled
+                                  ? "Disable provider"
+                                  : "Enable provider"
+                              }
+                            />
+                          </div>
+
+                          <div className="grid gap-1 pl-4">
+                            {modelCount > 0 ? (
+                              shownModels.map((model) => {
+                                const modelSelected =
+                                  !isCreatingProvider &&
+                                  item.id === activeProvider.id &&
+                                  selectedModel === model;
+                                const checked =
+                                  providerEnabled &&
+                                  isModelEnabled(item, model);
+
+                                return (
+                                  <div
+                                    key={`${item.id}:${model}`}
+                                    role="button"
+                                    tabIndex={0}
+                                    className={cn(
+                                      "flex min-w-0 cursor-pointer items-center gap-2 px-2 py-1.5 outline-none",
+                                      modelSelected
+                                        ? "bg-accent text-accent-foreground"
+                                        : "hover:bg-muted/60",
+                                      !providerEnabled &&
+                                        "cursor-default opacity-50 hover:bg-transparent",
+                                    )}
+                                    onClick={() => selectModel(item.id, model)}
+                                    onKeyDown={(event) => {
+                                      if (
+                                        event.key === "Enter" ||
+                                        event.key === " "
+                                      ) {
+                                        event.preventDefault();
+                                        selectModel(item.id, model);
+                                      }
+                                    }}
+                                    title={model}
+                                  >
+                                    <span className="min-w-0 flex-1 truncate text-sm font-medium leading-5">
+                                      {model}
+                                    </span>
+                                    <Switch
+                                      aria-label={`${providerDisplayName(item)} ${model} model`}
+                                      checked={checked}
+                                      disabled={!providerEnabled}
+                                      onClick={(event) =>
+                                        event.stopPropagation()
+                                      }
+                                      onCheckedChange={(nextChecked) =>
+                                        toggleModel(item.id, model, nextChecked)
+                                      }
+                                      title={
+                                        checked
+                                          ? "Disable model"
+                                          : "Enable model"
+                                      }
+                                    />
+                                  </div>
+                                );
+                              })
+                            ) : (
+                              <p className="px-2 py-2 text-sm leading-5 text-muted-foreground">
+                                No models shown. Select models in provider
+                                settings.
+                              </p>
+                            )}
+                          </div>
                         </div>
-                        <div className="truncate text-sm leading-5 text-muted-foreground">
-                          {enabledModelCount}/{modelCount} shown ·{" "}
-                          {loadedModelCount} loaded
-                          {customModelCount > 0
-                            ? ` · ${customModelCount} custom`
-                            : ""}{" "}
-                          · {item.baseUrl || "No base URL"}
-                        </div>
+                      );
+                    })
+                  ) : (
+                    <div className="border border-dashed px-3 py-4 text-center text-base text-muted-foreground">
+                      {providers.length > 0
+                        ? "No providers match the search."
+                        : "No providers configured."}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex shrink-0 gap-2 border-t bg-card/90 p-2">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  className="h-[36px] flex-1"
+                  onClick={startCreateProvider}
+                >
+                  <Plus className="size-4" />
+                  Add provider
+                </Button>
+              </div>
+            </aside>
+
+            <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+              <div className="z-20 flex shrink-0 items-center border-b bg-background px-4 py-[10px]">
+                <div className="flex min-h-8 w-full items-center justify-between gap-4">
+                  <Label className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
+                    {isCreatingProvider
+                      ? "New provider"
+                      : selectedModel
+                        ? "Edit model"
+                        : "Edit provider"}
+                  </Label>
+                  {!isCreatingProvider && !selectedModel ? (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          title="Provider actions"
+                        >
+                          <MoreVertical className="size-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-44">
+                        <DropdownMenuItem
+                          onClick={() => onDuplicateProvider(activeProvider.id)}
+                        >
+                          <Copy className="size-4" />
+                          Duplicate
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          variant="destructive"
+                          disabled={providers.length <= 1}
+                          onClick={() => onDeleteProvider(activeProvider.id)}
+                        >
+                          <Trash2 className="size-4" />
+                          Delete
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  ) : null}
+                </div>
+              </div>
+
+              <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 chat-message-scrollbar">
+                {!selectedModel ? (
+                  <div className="grid gap-5 pb-1">
+                    <div className="grid gap-4">
+                      <div className="grid gap-2">
+                        <Label htmlFor="provider-name">Provider name</Label>
+                        <BufferedTextInput
+                          id="provider-name"
+                          value={editingProvider.name}
+                          onValueChange={(value) =>
+                            updateEditingProviderSetting({ name: value })
+                          }
+                          placeholder="Provider name"
+                          aria-invalid={
+                            providerNameValidationError ? true : undefined
+                          }
+                        />
+                        {providerNameValidationError ? (
+                          <p className="text-sm leading-5 text-destructive">
+                            {providerNameValidationError}
+                          </p>
+                        ) : null}
                       </div>
 
-                      <Switch
-                        checked={isProviderEnabled(item)}
-                        onClick={(event) => event.stopPropagation()}
-                        onCheckedChange={(checked) =>
-                          toggleProvider(item.id, checked)
-                        }
-                        title={
-                          isProviderEnabled(item)
-                            ? "Disable provider"
-                            : "Enable provider"
-                        }
-                      />
+                      <div className="grid gap-2">
+                        <Label htmlFor="provider-url">Base URL</Label>
+                        <BufferedTextInput
+                          id="provider-url"
+                          value={editingProvider.baseUrl}
+                          onValueChange={(value) =>
+                            updateEditingProviderSetting({ baseUrl: value })
+                          }
+                          placeholder="http://localhost:1234/v1"
+                        />
+                      </div>
+
+                      <div className="grid gap-2">
+                        <Label htmlFor="provider-api-key">API key</Label>
+                        <div className="relative">
+                          <BufferedTextInput
+                            id="provider-api-key"
+                            value={editingProvider.apiKey}
+                            onValueChange={(value) =>
+                              updateEditingProviderSetting({ apiKey: value })
+                            }
+                            placeholder="Provider API key"
+                            type={isApiKeyVisible ? "text" : "password"}
+                            className="pr-10"
+                          />
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon-sm"
+                            className="absolute right-1 top-1/2 h-7 w-7 -translate-y-1/2 text-muted-foreground"
+                            onClick={() =>
+                              setIsApiKeyVisible((current) => !current)
+                            }
+                            title={
+                              isApiKeyVisible ? "Hide API key" : "Show API key"
+                            }
+                          >
+                            {isApiKeyVisible ? (
+                              <EyeOff className="size-4" />
+                            ) : (
+                              <Eye className="size-4" />
+                            )}
+                          </Button>
+                        </div>
+                      </div>
                     </div>
 
-                    {isExpanded && (
-                      <div className="ml-9 grid gap-1">
-                        {modelCount > 0 ? (
-                          shownModels.map((model) => {
-                            const modelSelected =
-                              item.id === activeProvider.id &&
-                              selectedModel === model;
-                            const checked = isModelEnabled(item, model);
+                    <div className="grid gap-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <Label>Loaded models</Label>
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          size="sm"
+                          onClick={() =>
+                            loadModelsFromProvider(editingProvider)
+                          }
+                          disabled={
+                            isLoadingModels || !editingProvider.baseUrl.trim()
+                          }
+                        >
+                          <RefreshCcw
+                            className={cn(
+                              "size-4",
+                              isLoadingModels && "animate-spin",
+                            )}
+                          />
+                          {getLoadModelsButtonLabel(editingProvider)}
+                        </Button>
+                      </div>
+                      {editingProviderLoadedModels.length > 0 ? (
+                        <div className="relative">
+                          <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                          <Input
+                            value={loadedModelSearchQuery}
+                            onChange={(event) =>
+                              setLoadedModelSearchQuery(event.target.value)
+                            }
+                            placeholder="Search loaded models"
+                            aria-label="Search loaded models"
+                            autoFocus={false}
+                            className="h-9 pl-8 pr-8"
+                          />
+                          {loadedModelSearchQuery ? (
+                            <button
+                              type="button"
+                              className="absolute right-2 top-1/2 inline-flex size-5 -translate-y-1/2 items-center justify-center text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                              onClick={() => setLoadedModelSearchQuery("")}
+                              title="Clear loaded model search"
+                            >
+                              <X className="size-3.5" />
+                            </button>
+                          ) : null}
+                        </div>
+                      ) : null}
+
+                      {editingProviderLoadedModels.length > 0 ? (
+                        filteredLoadedModels.length > 0 ? (
+                          <div className="grid max-h-80 gap-1 overflow-y-auto">
+                            {filteredLoadedModels.map((model) => {
+                              const checked =
+                                editingProviderEnabled &&
+                                isModelShownInMenu(editingProvider, model);
+
+                              return (
+                                <div
+                                  key={`${editingProvider.id}:${model}:shown`}
+                                  role="button"
+                                  tabIndex={editingProviderEnabled ? 0 : -1}
+                                  className={cn(
+                                    "flex min-w-0 cursor-pointer items-center gap-2 px-2 py-1.5 text-sm leading-5 hover:bg-muted/60",
+                                    !editingProviderEnabled &&
+                                      "cursor-default opacity-50 hover:bg-transparent",
+                                  )}
+                                  title={model}
+                                  onClick={() => {
+                                    if (!editingProviderEnabled) return;
+                                    toggleEditingModelShownInMenu(
+                                      model,
+                                      !isModelShownInMenu(
+                                        editingProvider,
+                                        model,
+                                      ),
+                                    );
+                                  }}
+                                  onKeyDown={(event) => {
+                                    if (!editingProviderEnabled) return;
+                                    if (
+                                      event.key === "Enter" ||
+                                      event.key === " "
+                                    ) {
+                                      event.preventDefault();
+                                      toggleEditingModelShownInMenu(
+                                        model,
+                                        !isModelShownInMenu(
+                                          editingProvider,
+                                          model,
+                                        ),
+                                      );
+                                    }
+                                  }}
+                                >
+                                  <span className="min-w-0 flex-1 truncate font-medium">
+                                    {model}
+                                  </span>
+                                  <Switch
+                                    aria-label={`${model} selectable`}
+                                    checked={checked}
+                                    disabled={!editingProviderEnabled}
+                                    onClick={(event) => event.stopPropagation()}
+                                    onCheckedChange={(nextChecked) =>
+                                      toggleEditingModelShownInMenu(
+                                        model,
+                                        nextChecked,
+                                      )
+                                    }
+                                  />
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <p className="text-sm leading-5 text-muted-foreground">
+                            No loaded models match the search.
+                          </p>
+                        )
+                      ) : (
+                        <p className="text-sm leading-5 text-muted-foreground">
+                          No models loaded yet. Load models from the provider
+                          first.
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="grid gap-3">
+                      <div>
+                        <Label>Custom models</Label>
+                        <p className="mt-1 text-sm leading-5 text-muted-foreground">
+                          Add model IDs manually when they are not returned by
+                          the provider. Custom models are enabled immediately.
+                        </p>
+                      </div>
+
+                      <div className="flex min-w-0 flex-col gap-2 sm:flex-row">
+                        <Input
+                          value={customModelValue}
+                          onChange={(event) =>
+                            setCustomModelValue(event.target.value)
+                          }
+                          onKeyDown={(event) => {
+                            if (event.key !== "Enter") return;
+                            event.preventDefault();
+                            addCustomModel();
+                          }}
+                          placeholder="openai/gpt-4.1-mini"
+                          className="min-w-0 flex-1"
+                        />
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          className="shrink-0"
+                          disabled={!customModelValue.trim()}
+                          onClick={addCustomModel}
+                        >
+                          <Plus className="size-4" />
+                          Add model
+                        </Button>
+                      </div>
+
+                      {normalizeProviderModels(
+                        editingProvider.customModels ?? [],
+                      ).length > 0 ? (
+                        <div className="grid max-h-64 gap-1 overflow-y-auto">
+                          {normalizeProviderModels(
+                            editingProvider.customModels ?? [],
+                          ).map((model) => {
+                            const checked =
+                              editingProviderEnabled &&
+                              isModelShownInMenu(editingProvider, model);
 
                             return (
                               <div
-                                key={`${item.id}:${model}`}
+                                key={`${editingProvider.id}:${model}:custom`}
                                 role="button"
-                                tabIndex={0}
+                                tabIndex={editingProviderEnabled ? 0 : -1}
                                 className={cn(
-                                  "flex min-w-0 cursor-pointer items-center gap-2  border px-2 py-1.5 outline-none",
-                                  modelSelected
-                                    ? "border-primary/30 bg-accent text-accent-foreground"
-                                    : "border-transparent hover:border-border hover:bg-muted/60",
+                                  "flex min-w-0 cursor-pointer items-center gap-2 px-2 py-1.5 text-sm leading-5 hover:bg-muted/60",
+                                  !editingProviderEnabled &&
+                                    "cursor-default opacity-50 hover:bg-transparent",
                                 )}
-                                onClick={() => selectModel(item.id, model)}
+                                title={model}
+                                onClick={() => {
+                                  if (!editingProviderEnabled) return;
+                                  toggleEditingModelShownInMenu(
+                                    model,
+                                    !isModelShownInMenu(editingProvider, model),
+                                  );
+                                }}
                                 onKeyDown={(event) => {
+                                  if (!editingProviderEnabled) return;
                                   if (
                                     event.key === "Enter" ||
                                     event.key === " "
                                   ) {
                                     event.preventDefault();
-                                    selectModel(item.id, model);
+                                    toggleEditingModelShownInMenu(
+                                      model,
+                                      !isModelShownInMenu(
+                                        editingProvider,
+                                        model,
+                                      ),
+                                    );
                                   }
                                 }}
-                                title={model}
                               >
-                                <span className="min-w-0 flex-1 truncate text-sm leading-5">
+                                <span className="min-w-0 flex-1 truncate font-medium">
                                   {model}
                                 </span>
                                 <Switch
+                                  aria-label={`${model} selectable`}
                                   checked={checked}
+                                  disabled={!editingProviderEnabled}
                                   onClick={(event) => event.stopPropagation()}
                                   onCheckedChange={(nextChecked) =>
-                                    toggleModel(item.id, model, nextChecked)
-                                  }
-                                  title={
-                                    checked ? "Disable model" : "Enable model"
+                                    toggleEditingModelShownInMenu(
+                                      model,
+                                      nextChecked,
+                                    )
                                   }
                                 />
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon-sm"
+                                  className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    deleteCustomModel(model);
+                                  }}
+                                  title="Delete custom model"
+                                >
+                                  <Trash2 className="size-4" />
+                                </Button>
                               </div>
                             );
-                          })
-                        ) : (
-                          <p className=" px-2 py-2 text-sm leading-5 text-muted-foreground">
-                            No models shown. Select models in provider settings.
-                          </p>
-                        )}
+                          })}
+                        </div>
+                      ) : (
+                        <p className="text-sm leading-5 text-muted-foreground">
+                          No custom models yet.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="grid gap-5 pb-1">
+                    <div className="grid gap-4">
+                      <div className="grid gap-2">
+                        <Label htmlFor="model-name">Model name</Label>
+                        <Input
+                          id="model-name"
+                          value={selectedModel ?? ""}
+                          disabled
+                          readOnly
+                        />
                       </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </aside>
 
-          <div className="min-h-0 overflow-y-auto overscroll-contain px-5 py-4">
-            {!selectedModel ? (
-              <div className="grid gap-5 pb-1">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <h3 className="text-lg font-semibold leading-7">
-                      {providerDisplayName(activeProvider)}
-                    </h3>
-                    <p className="text-sm leading-5 text-muted-foreground">
-                      Provider connection settings.
-                    </p>
+                      <div className="grid gap-2">
+                        <Label htmlFor="manual-context-size">
+                          Context size
+                        </Label>
+                        <PositiveIntegerInput
+                          id="manual-context-size"
+                          className="w-full"
+                          value={
+                            selectedModelConfig?.context?.manualContextLength
+                          }
+                          onValueChange={updateSelectedModelManualContext}
+                          placeholder="No manual override"
+                        />
+                      </div>
+
+                      <div className="grid gap-2">
+                        <Label htmlFor="generation-temperature">
+                          Temperature
+                        </Label>
+                        <BoundedDecimalInput
+                          id="generation-temperature"
+                          min={0}
+                          max={2}
+                          value={selectedModelSettings?.temperature}
+                          onValueChange={(value) =>
+                            updateSelectedModelGenerationSettings({
+                              temperature: value,
+                            })
+                          }
+                          placeholder="Provider default"
+                        />
+                      </div>
+
+                      <div className="grid gap-2">
+                        <Label htmlFor="generation-top-p">Top P</Label>
+                        <BoundedDecimalInput
+                          id="generation-top-p"
+                          min={0}
+                          max={1}
+                          value={selectedModelSettings?.topP}
+                          onValueChange={(value) =>
+                            updateSelectedModelGenerationSettings({
+                              topP: value,
+                            })
+                          }
+                          placeholder="Provider default"
+                        />
+                      </div>
+
+                      <div className="grid gap-2">
+                        <Label htmlFor="generation-max-tokens">
+                          Max output tokens
+                        </Label>
+                        <PositiveIntegerInput
+                          id="generation-max-tokens"
+                          value={selectedModelSettings?.maxTokens}
+                          onValueChange={updateSelectedModelMaxTokens}
+                          placeholder="Provider default"
+                        />
+                      </div>
+
+                      <div className="grid gap-2">
+                        <Label htmlFor="generation-thinking-mode">
+                          Thinking mode
+                        </Label>
+                        <Select
+                          value={selectedModelThinkingMode}
+                          onValueChange={updateSelectedModelThinkingMode}
+                        >
+                          <SelectTrigger id="generation-thinking-mode">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="auto">Auto</SelectItem>
+                            <SelectItem value="off">No thinking</SelectItem>
+                            <SelectItem value="low">Low</SelectItem>
+                            <SelectItem value="medium">Medium</SelectItem>
+                            <SelectItem value="high">High</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      <div className="grid gap-2">
+                        <Label htmlFor="generation-timeout">
+                          Request timeout, ms
+                        </Label>
+                        <PositiveIntegerInput
+                          id="generation-timeout"
+                          value={selectedModelSettings?.requestTimeoutMs}
+                          onValueChange={(value) =>
+                            updateSelectedModelGenerationSettings({
+                              requestTimeoutMs: value,
+                            })
+                          }
+                          placeholder="30000"
+                        />
+                      </div>
+                    </div>
+
+                    <Separator />
+
+                    <div className="flex items-center justify-between gap-4">
+                      <div>
+                        <Label htmlFor="model-supports-vision">
+                          Vision input
+                        </Label>
+                        <p className="mt-1 text-sm leading-5 text-muted-foreground">
+                          Mark this model as able to receive image attachments.
+                        </p>
+                      </div>
+                      <Switch
+                        id="model-supports-vision"
+                        checked={selectedModelConfig?.supportsVision === true}
+                        onCheckedChange={(checked) =>
+                          updateSelectedModelConfig({ supportsVision: checked })
+                        }
+                      />
+                    </div>
                   </div>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
+                )}
+              </div>
+
+              <DialogFooter className="shrink-0 items-center border-t bg-background px-4 py-2 sm:justify-between">
+                <div />
+                <div className="flex gap-2">
+                  {isCreatingProvider ? (
+                    <>
                       <Button
                         type="button"
-                        variant="ghost"
-                        size="icon-sm"
-                        className="h-8 w-8 shrink-0 "
-                        title="Provider actions"
+                        variant="outline"
+                        onClick={cancelCreateProvider}
                       >
-                        <MoreVertical className="size-4" />
+                        Cancel
                       </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="">
-                      <DropdownMenuItem
-                        onClick={() => onDuplicateProvider(activeProvider.id)}
+                      <Button
+                        type="button"
+                        onClick={createProviderFromDraft}
+                        disabled={!canCreateProvider}
                       >
-                        <Copy className="size-4" />
-                        Duplicate
-                      </DropdownMenuItem>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem
-                        variant="destructive"
-                        disabled={providers.length <= 1}
-                        onClick={() => onDeleteProvider(activeProvider.id)}
-                      >
-                        <Trash2 className="size-4" />
-                        Delete
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
-
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="grid gap-2">
-                    <Label htmlFor="provider-name">Provider name</Label>
-                    <Input
-                      id="provider-name"
-                      value={activeProvider.name}
-                      onChange={(event) =>
-                        onProviderSettingChange({ name: event.target.value })
-                      }
-                      placeholder="Provider name"
-                    />
-                  </div>
-
-                  <div className="grid gap-2">
-                    <Label htmlFor="provider-url">Base URL</Label>
-                    <Input
-                      id="provider-url"
-                      value={activeProvider.baseUrl}
-                      onChange={(event) =>
-                        onProviderSettingChange({ baseUrl: event.target.value })
-                      }
-                      placeholder="http://localhost:1234/v1"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid gap-2">
-                  <Label htmlFor="provider-api-key">API key</Label>
-                  <div className="relative">
-                    <Input
-                      id="provider-api-key"
-                      value={activeProvider.apiKey}
-                      onChange={(event) =>
-                        onProviderSettingChange({ apiKey: event.target.value })
-                      }
-                      placeholder="Provider API key"
-                      type={isApiKeyVisible ? "text" : "password"}
-                      className="pr-10"
-                    />
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon-sm"
-                      className="absolute right-1 top-1/2 h-7 w-7 -translate-y-1/2  text-muted-foreground"
-                      onClick={() => setIsApiKeyVisible((current) => !current)}
-                      title={isApiKeyVisible ? "Hide API key" : "Show API key"}
-                    >
-                      {isApiKeyVisible ? (
-                        <EyeOff className="size-4" />
-                      ) : (
-                        <Eye className="size-4" />
-                      )}
-                    </Button>
-                  </div>
-                </div>
-
-                <div className="grid gap-3  border bg-card p-3">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <Label>Loaded models</Label>
-                      <p className="mt-1 text-sm leading-5 text-muted-foreground">
-                        Select which loaded models should appear in the left
-                        menu. Newly loaded models stay hidden by default.
-                      </p>
-                    </div>
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      size="sm"
-                      className=""
-                      onClick={() => loadModelsFromProvider(activeProvider)}
-                      disabled={
-                        isLoadingModels || !activeProvider.baseUrl.trim()
-                      }
-                    >
-                      <RefreshCcw
-                        className={cn(
-                          "size-4",
-                          isLoadingModels && "animate-spin",
-                        )}
-                      />
-                      {getLoadModelsButtonLabel(activeProvider)}
-                    </Button>
-                  </div>
-
-                  {normalizeProviderModels(activeProvider.models ?? []).length >
-                  0 ? (
-                    <div className="grid max-h-80 gap-1 overflow-y-auto  border bg-background/60 p-2">
-                      {normalizeProviderModels(activeProvider.models ?? []).map(
-                        (model) => {
-                          const checked = isModelShownInMenu(
-                            activeProvider,
-                            model,
-                          );
-
-                          return (
-                            <label
-                              key={`${activeProvider.id}:${model}:shown`}
-                              className="flex min-w-0 cursor-pointer items-center gap-2  px-2 py-1.5 text-sm leading-5 hover:bg-muted/60"
-                              title={model}
-                            >
-                              <Checkbox
-                                checked={checked}
-                                onCheckedChange={(nextChecked) =>
-                                  toggleModelShownInMenu(
-                                    activeProvider.id,
-                                    model,
-                                    nextChecked === true,
-                                  )
-                                }
-                              />
-                              <span className="min-w-0 flex-1 truncate">
-                                {model}
-                              </span>
-                            </label>
-                          );
-                        },
-                      )}
-                    </div>
+                        Create
+                      </Button>
+                    </>
                   ) : (
-                    <p className=" border border-dashed px-3 py-4 text-sm leading-5 text-muted-foreground">
-                      No models loaded yet. Load models from the provider first.
-                    </p>
+                    <>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={resetEditingProvider}
+                      >
+                        Reset
+                      </Button>
+                      <Button
+                        type="button"
+                        onClick={saveEditingProvider}
+                        disabled={!canSaveDraft}
+                      >
+                        Save
+                      </Button>
+                    </>
                   )}
                 </div>
-
-                <div className="grid gap-3  border bg-card p-3">
-                  <div>
-                    <Label>Custom models</Label>
-                    <p className="mt-1 text-sm leading-5 text-muted-foreground">
-                      Add model IDs manually when they are not returned by the
-                      provider. Custom models are shown immediately.
-                    </p>
-                  </div>
-
-                  <div className="flex min-w-0 flex-col gap-2 sm:flex-row">
-                    <Input
-                      value={customModelValue}
-                      onChange={(event) =>
-                        setCustomModelValue(event.target.value)
-                      }
-                      onKeyDown={(event) => {
-                        if (event.key !== "Enter") return;
-                        event.preventDefault();
-                        addCustomModel();
-                      }}
-                      placeholder="openai/gpt-4.1-mini"
-                      className="min-w-0 flex-1"
-                    />
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      className="shrink-0"
-                      disabled={!customModelValue.trim()}
-                      onClick={addCustomModel}
-                    >
-                      <Plus className="size-4" />
-                      Add model
-                    </Button>
-                  </div>
-
-                  {normalizeProviderModels(activeProvider.customModels ?? [])
-                    .length > 0 ? (
-                    <div className="grid max-h-64 gap-1 overflow-y-auto  border bg-background/60 p-2">
-                      {normalizeProviderModels(
-                        activeProvider.customModels ?? [],
-                      ).map((model) => {
-                        const checked = isModelShownInMenu(
-                          activeProvider,
-                          model,
-                        );
-
-                        return (
-                          <div
-                            key={`${activeProvider.id}:${model}:custom`}
-                            className="flex min-w-0 items-center gap-2  px-2 py-1.5 text-sm leading-5 hover:bg-muted/60"
-                            title={model}
-                          >
-                            <Checkbox
-                              checked={checked}
-                              onCheckedChange={(nextChecked) =>
-                                toggleModelShownInMenu(
-                                  activeProvider.id,
-                                  model,
-                                  nextChecked === true,
-                                )
-                              }
-                            />
-                            <span className="min-w-0 flex-1 truncate">
-                              {model}
-                            </span>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon-sm"
-                              className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
-                              onClick={() => deleteCustomModel(model)}
-                              title="Delete custom model"
-                            >
-                              <Trash2 className="size-4" />
-                            </Button>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <p className=" border border-dashed px-3 py-4 text-sm leading-5 text-muted-foreground">
-                      No custom models yet.
-                    </p>
-                  )}
-                </div>
-              </div>
-            ) : (
-              <div className="grid gap-5 pb-1">
-                <div>
-                  <h3 className="break-all text-lg font-semibold leading-7">
-                    {selectedModel}
-                  </h3>
-                  <p className="text-sm leading-5 text-muted-foreground">
-                    Per-model generation and context settings for{" "}
-                    {providerDisplayName(activeProvider)}.
-                  </p>
-                </div>
-
-                <div className="grid gap-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <Label>Generation settings</Label>
-                      <p className="mt-1 text-sm leading-5 text-muted-foreground">
-                        Applied only when this model is selected.
-                      </p>
-                    </div>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className=""
-                      onClick={resetSelectedModelGenerationSettings}
-                    >
-                      Reset
-                    </Button>
-                  </div>
-
-                  <div className="grid gap-4">
-                    <div className="grid gap-2">
-                      <Label htmlFor="generation-temperature">
-                        Temperature
-                      </Label>
-                      <Input
-                        id="generation-temperature"
-                        type="number"
-                        min="0"
-                        max="2"
-                        step="0.1"
-                        value={formatOptionalNumber(
-                          selectedModelSettings?.temperature,
-                        )}
-                        onChange={(event) =>
-                          updateSelectedModelGenerationSettings({
-                            temperature: parseOptionalNumber(
-                              event.target.value,
-                            ),
-                          })
-                        }
-                        placeholder="Provider default"
-                      />
-                    </div>
-
-                    <div className="grid gap-2">
-                      <Label htmlFor="generation-top-p">Top P</Label>
-                      <Input
-                        id="generation-top-p"
-                        type="number"
-                        min="0"
-                        max="1"
-                        step="0.05"
-                        value={formatOptionalNumber(
-                          selectedModelSettings?.topP,
-                        )}
-                        onChange={(event) =>
-                          updateSelectedModelGenerationSettings({
-                            topP: parseOptionalNumber(event.target.value),
-                          })
-                        }
-                        placeholder="Provider default"
-                      />
-                    </div>
-
-                    <div className="grid gap-2">
-                      <Label htmlFor="generation-max-tokens">
-                        Max output tokens
-                      </Label>
-                      <Input
-                        id="generation-max-tokens"
-                        type="number"
-                        min="1"
-                        step="1"
-                        value={formatOptionalNumber(
-                          selectedModelSettings?.maxTokens,
-                        )}
-                        onChange={(event) =>
-                          updateSelectedModelGenerationSettings({
-                            maxTokens: parseOptionalNumber(event.target.value),
-                          })
-                        }
-                        placeholder="Provider default"
-                      />
-                    </div>
-
-                    <div className="grid gap-2">
-                      <Label htmlFor="generation-thinking-mode">
-                        Thinking mode
-                      </Label>
-                      <Select
-                        value={selectedModelThinkingMode}
-                        onValueChange={updateSelectedModelThinkingMode}
-                      >
-                        <SelectTrigger id="generation-thinking-mode">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="auto">Auto</SelectItem>
-                          <SelectItem value="off">No thinking</SelectItem>
-                          <SelectItem value="low">Low</SelectItem>
-                          <SelectItem value="medium">Medium</SelectItem>
-                          <SelectItem value="high">High</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    <div className="grid gap-2">
-                      <Label htmlFor="generation-timeout">
-                        Request timeout, ms
-                      </Label>
-                      <Input
-                        id="generation-timeout"
-                        type="number"
-                        min="1000"
-                        step="1000"
-                        value={formatOptionalNumber(
-                          selectedModelSettings?.requestTimeoutMs,
-                        )}
-                        onChange={(event) =>
-                          updateSelectedModelGenerationSettings({
-                            requestTimeoutMs: parseOptionalNumber(
-                              event.target.value,
-                            ),
-                          })
-                        }
-                        placeholder="30000"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                <Separator />
-
-                <div className="flex items-center justify-between gap-4">
-                  <div>
-                    <Label htmlFor="model-supports-vision">Vision input</Label>
-                    <p className="mt-1 text-sm leading-5 text-muted-foreground">
-                      Mark this model as able to receive image attachments.
-                    </p>
-                  </div>
-                  <Switch
-                    id="model-supports-vision"
-                    checked={selectedModelConfig?.supportsVision === true}
-                    onCheckedChange={(checked) =>
-                      updateSelectedModelConfig({ supportsVision: checked })
-                    }
-                  />
-                </div>
-
-                <Separator />
-
-                <div className="grid gap-2">
-                  <Label htmlFor="manual-context-size">Context size</Label>
-                  <Input
-                    id="manual-context-size"
-                    type="number"
-                    min="1"
-                    step="1"
-                    className="w-full"
-                    value={formatOptionalNumber(
-                      selectedModelConfig?.context?.manualContextLength,
-                    )}
-                    onChange={(event) =>
-                      updateSelectedModelManualContext(event.target.value)
-                    }
-                    placeholder="No manual override"
-                  />
-                </div>
-              </div>
-            )}
+              </DialogFooter>
+            </main>
           </div>
-        </div>
+        </DialogContent>
+      </Dialog>
 
-        <DialogFooter className="h-[72px] shrink-0 items-center border-t px-5 py-3">
-          <Button type="button" className="" onClick={onSave}>
-            Save
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      <UnsavedChangesDialog
+        open={unsavedChangesDialogOpen}
+        onCancel={() => {
+          setPendingAction(null);
+          setUnsavedChangesDialogOpen(false);
+        }}
+        onDiscard={confirmDiscardUnsavedChanges}
+      />
+    </>
   );
 });

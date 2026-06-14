@@ -38,10 +38,11 @@ import type { StreamProviderChatResult } from "@/lib/ai-chat/direct-provider-cli
 import { streamProviderChat } from "@/lib/ai-chat/direct-provider-client";
 import {
   appendStreamEventsToAssistantVariant,
-  cancelUnfinishedTaskListSteps,
   createContinuationAssistantMessage,
   createStreamingAssistantMessage,
   createStreamingAssistantVariant,
+  finalizeCancelledAgentCall,
+  finalizeCancelledAssistantVariant,
   getVisualFlushKeysForGeneration,
   keepOnlyLatestTaskListStep,
   markAssistantVariantDone,
@@ -78,6 +79,7 @@ import {
   type StreamBufferEvent,
 } from "@/lib/ai-chat/stream-buffer";
 import { generateTitleFromFirstExchange } from "@/lib/ai-chat/title-generation";
+import { attachToolCallsUiMetadata } from "@/lib/ai-chat/tool-call-metadata";
 import {
   areToolBuildingVisibleMetadataEqual,
   getToolBuildingVisibleMetadata,
@@ -1699,14 +1701,7 @@ export function useChatGeneration({
       chatId,
       generation.assistantMessageId,
       generation.variantId,
-      (variant) => ({
-        ...variant,
-        processSteps: keepOnlyLatestTaskListStep(
-          cancelUnfinishedTaskListSteps(variant.processSteps ?? []).filter(
-            (step) => step.type !== "tool_building",
-          ),
-        ),
-      }),
+      (variant) => finalizeCancelledAssistantVariant(variant),
       { touch: false },
     );
     generation.controller.abort();
@@ -2482,7 +2477,10 @@ export function useChatGeneration({
           result.reasoningMetadata,
         );
 
-        const toolCalls = result.toolCalls ?? [];
+        const toolCalls = attachToolCallsUiMetadata(
+          result.toolCalls ?? [],
+          currentAgentToolsForRun,
+        );
         const childToolBatchId = toolCalls.length > 1 ? createId() : undefined;
         const childToolBatchIdsByToolCallId = new Map<string, string>();
         const callerTranscriptToolCallsForContext = toolCallsForContext;
@@ -2991,19 +2989,27 @@ export function useChatGeneration({
       const errorMessage = wasAborted
         ? "Agent call cancelled."
         : labelForError(error);
+      let finalizedAgentCall: ChatAgentCall | undefined;
       updateAssistantAgentCall(
         chatId,
         assistantMessageId,
         variantId,
         agentCall.id,
-        (call) => ({
-          ...call,
-          status: wasAborted ? "cancelled" : "failed",
-          completedAt,
-          output: accumulatedOutput,
-          reasoning: accumulatedReasoning,
-          error: errorMessage,
-        }),
+        (call) => {
+          const nextCall: ChatAgentCall = {
+            ...call,
+            status: wasAborted ? "cancelled" : "failed",
+            completedAt,
+            output: accumulatedOutput,
+            reasoning: accumulatedReasoning,
+            error: errorMessage,
+          };
+          const finalized = wasAborted
+            ? finalizeCancelledAgentCall(nextCall)
+            : nextCall;
+          finalizedAgentCall = finalized;
+          return finalized;
+        },
       );
       const toolResult = createAgentToolResult({
         toolCall: visibleToolCall,
@@ -3012,14 +3018,25 @@ export function useChatGeneration({
         isError: true,
       });
       return {
-        agentCall: {
-          ...agentCall,
-          status: wasAborted ? "cancelled" : "failed",
-          completedAt,
-          output: accumulatedOutput,
-          reasoning: accumulatedReasoning,
-          error: errorMessage,
-        },
+        agentCall:
+          finalizedAgentCall ??
+          (wasAborted
+            ? finalizeCancelledAgentCall({
+                ...agentCall,
+                status: "cancelled",
+                completedAt,
+                output: accumulatedOutput,
+                reasoning: accumulatedReasoning,
+                error: errorMessage,
+              })
+            : {
+                ...agentCall,
+                status: "failed",
+                completedAt,
+                output: accumulatedOutput,
+                reasoning: accumulatedReasoning,
+                error: errorMessage,
+              }),
         toolResult,
       };
     }
@@ -3761,7 +3778,10 @@ export function useChatGeneration({
         flushBufferedAssistantVariant(bufferKey);
         removeToolBuildingProcessSteps(chatId, assistantMessageId, variantId);
 
-        const toolCalls = streamResult.toolCalls ?? [];
+        const toolCalls = attachToolCallsUiMetadata(
+          streamResult.toolCalls ?? [],
+          toolsForRun,
+        );
         if (!toolCalls.length) break;
 
         if (toolRound >= MAX_TOOL_ROUNDS) {

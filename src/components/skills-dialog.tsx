@@ -8,6 +8,7 @@ import {
   MoreHorizontal,
   Plus,
   RefreshCw,
+  Search,
   Sparkles,
   Trash2,
   X,
@@ -947,6 +948,7 @@ export const SkillsDialog = memo(function SkillsDialog({
       <Dialog open={open} onOpenChange={requestClose}>
         <DialogContent
           className="flex h-[min(1000px,calc(100dvh-2rem))] max-h-none flex-col gap-0 overflow-hidden p-0 outline-none focus:outline-none focus-visible:ring-0 sm:max-w-6xl"
+          onOpenAutoFocus={(event) => event.preventDefault()}
           onInteractOutside={(event) => {
             const target = event.target as HTMLElement | null;
             if (target?.closest?.("[data-sonner-toaster]")) {
@@ -960,7 +962,33 @@ export const SkillsDialog = memo(function SkillsDialog({
 
           <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden md:grid-cols-[400px_minmax(0,1fr)]">
             <aside className="flex min-h-0 flex-col border-b bg-card/70 md:border-b-0 md:border-r">
-              <div className="min-h-0 flex-1 overflow-y-auto p-2 pr-0 [scrollbar-gutter:stable]">
+              <div className="shrink-0 border-b bg-card/90 p-2">
+                <div className="relative">
+                  <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    value={skillSearchQuery}
+                    onChange={(event) =>
+                      setSkillSearchQuery(event.target.value)
+                    }
+                    placeholder="Search skills"
+                    aria-label="Search skills by name or description"
+                    autoFocus={false}
+                    className="h-9 pl-8 pr-8"
+                  />
+                  {skillSearchQuery ? (
+                    <button
+                      type="button"
+                      className="absolute right-2 top-1/2 inline-flex size-5 -translate-y-1/2 items-center justify-center text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      onClick={() => setSkillSearchQuery("")}
+                      title="Clear search"
+                    >
+                      <X className="size-3.5" />
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+
+              <div className="min-h-0 flex-1 overflow-y-auto p-2 pr-0">
                 <div className="mb-2 flex items-start justify-between gap-3 border bg-background px-2 py-2 text-base">
                   <span className="min-w-0">
                     <span className="block font-medium">Skills</span>
@@ -980,28 +1008,6 @@ export const SkillsDialog = memo(function SkillsDialog({
                       }))
                     }
                   />
-                </div>
-
-                <div className="relative mb-2">
-                  <Input
-                    value={skillSearchQuery}
-                    onChange={(event) =>
-                      setSkillSearchQuery(event.target.value)
-                    }
-                    placeholder="Search skills"
-                    aria-label="Search skills by name or description"
-                    className="pr-8"
-                  />
-                  {skillSearchQuery ? (
-                    <button
-                      type="button"
-                      className="absolute right-2 top-1/2 inline-flex size-5 -translate-y-1/2 items-center justify-center text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                      onClick={() => setSkillSearchQuery("")}
-                      title="Clear search"
-                    >
-                      <X className="size-3.5" />
-                    </button>
-                  ) : null}
                 </div>
 
                 <div className="grid gap-1.5">
@@ -1094,7 +1100,7 @@ export const SkillsDialog = memo(function SkillsDialog({
             <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
               {draftMode === "new" || selectedSkill ? (
                 <>
-                  <div className="z-20 flex shrink-0 items-center border-b bg-background px-4 py-2">
+                  <div className="z-20 flex shrink-0 items-center border-b bg-background px-4 py-[10px]">
                     <div className="flex w-full items-center justify-between gap-4">
                       <Label className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
                         {activeTitle}
@@ -1147,7 +1153,7 @@ export const SkillsDialog = memo(function SkillsDialog({
                     </div>
                   </div>
 
-                  <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 [scrollbar-gutter:stable] chat-message-scrollbar">
+                  <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 chat-message-scrollbar">
                     <div className="grid gap-5 pb-1">
                       <div className="grid gap-4">
                         <SkillMetadataFields

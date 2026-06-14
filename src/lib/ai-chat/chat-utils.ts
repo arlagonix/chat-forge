@@ -189,6 +189,25 @@ function normalizePositiveOptionalNumber(value: unknown) {
     : undefined;
 }
 
+function normalizePositiveOptionalInteger(value: unknown) {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0
+    ? value
+    : undefined;
+}
+
+function normalizeBoundedOptionalNumber(
+  value: unknown,
+  min: number,
+  max: number,
+) {
+  return typeof value === "number" &&
+    Number.isFinite(value) &&
+    value >= min &&
+    value <= max
+    ? value
+    : undefined;
+}
+
 export function normalizeProviderForState(
   provider: ProviderConfig,
 ): ProviderConfig {
@@ -244,7 +263,7 @@ export function normalizeProviderForState(
           : undefined,
       context: {
         ...(existing.context ?? {}),
-        manualContextLength: normalizePositiveOptionalNumber(
+        manualContextLength: normalizePositiveOptionalInteger(
           existing.context?.manualContextLength,
         ),
         detectedContextLength: normalizePositiveOptionalNumber(
@@ -381,13 +400,26 @@ export function resolveChatThinkingSettings(
 export function sanitizeGenerationSettings(
   settings: ProviderGenerationSettings,
 ): ProviderGenerationSettings {
-  return Object.fromEntries(
-    Object.entries(settings).filter(([, value]) => {
-      if (value === undefined) return false;
-      if (typeof value === "string") return value.trim().length > 0;
-      return true;
-    }),
-  ) as ProviderGenerationSettings;
+  return {
+    temperature: normalizeBoundedOptionalNumber(settings.temperature, 0, 2),
+    topP: normalizeBoundedOptionalNumber(settings.topP, 0, 1),
+    maxTokens: normalizePositiveOptionalInteger(settings.maxTokens),
+    reasoningMode:
+      settings.reasoningMode === "auto" ||
+      settings.reasoningMode === "off" ||
+      settings.reasoningMode === "enabled"
+        ? settings.reasoningMode
+        : undefined,
+    reasoningEffort:
+      settings.reasoningEffort === "low" ||
+      settings.reasoningEffort === "medium" ||
+      settings.reasoningEffort === "high"
+        ? settings.reasoningEffort
+        : undefined,
+    requestTimeoutMs: normalizePositiveOptionalInteger(
+      settings.requestTimeoutMs,
+    ),
+  };
 }
 
 export function formatMetricDetails(

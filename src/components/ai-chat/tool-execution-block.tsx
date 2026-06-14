@@ -452,16 +452,31 @@ function getLoadSkillDetails(toolResult?: ChatToolResult) {
 }
 
 function normalizeToolDescription(description?: string) {
-  return description?.replace(/\s+/g, " ").trim() || "";
+  return (
+    description
+      ?.replace(/^\[MCP:[^\]]+\]\s*/i, "")
+      .replace(/\s+/g, " ")
+      .trim() || ""
+  );
 }
 
-function getToolDescription(toolName: string, loadedTools: LoadedToolInfo[]) {
-  const customDescription = loadedTools.find(
-    (candidate) => candidate.name === toolName,
+function getLoadedToolInfo(toolName: string, loadedTools: LoadedToolInfo[]) {
+  return loadedTools.find((candidate) => candidate.name === toolName);
+}
+
+function getToolDescription(
+  toolCall: ChatToolCall,
+  loadedTools: LoadedToolInfo[],
+) {
+  const loadedToolDescription = getLoadedToolInfo(
+    toolCall.function.name,
+    loadedTools,
   )?.description;
 
   return normalizeToolDescription(
-    customDescription || BUILTIN_TOOL_DESCRIPTIONS[toolName],
+    toolCall.uiMetadata?.description ||
+      loadedToolDescription ||
+      BUILTIN_TOOL_DESCRIPTIONS[toolCall.function.name],
   );
 }
 
@@ -632,8 +647,8 @@ const ToolExecutionDetailsDialog = memo(function ToolExecutionDetailsDialog({
     toolCall.function.name === TERMINAL_EXEC_TOOL_NAME ||
     toolCall.function.name === BASH_TOOL_NAME;
   const toolDescription = useMemo(
-    () => getToolDescription(toolCall.function.name, loadedTools),
-    [loadedTools, toolCall.function.name],
+    () => getToolDescription(toolCall, loadedTools),
+    [loadedTools, toolCall],
   );
   const showToolInput =
     hasMeaningfulToolInput(toolCall.function.arguments || "") &&

@@ -1,83 +1,44 @@
-# Molten Forge — Tech Stack
+# Tech Stack
 
-## Language & Runtime
+## Languages
+- **TypeScript** 5.7.3 (strict mode). JSX: `react-jsx`.
+- CSS: Tailwind CSS 4.2.0 + PostCSS + `tw-animate-css`.
 
-- **TypeScript 5.7.3** with strict mode enabled
-- **ES2020** target, **ESNext** module system, **bundler** module resolution
-- Path alias `@/*` → `src/*`
+## Frameworks & Libraries
+- **React** 19.2.4 (StrictMode enabled).
+- **Electron** 41.3.0 (main + renderer processes).
+- **Vite** 7.3.2 + **vite-plugin-electron** 0.28.6 + **vite-plugin-electron-renderer**.
+- **Radix UI Themes** 3.3.0 (gray accent, `"full"` radius, `"95%"` scaling).
+- **Radix UI primitives**: checkbox, dialog, dropdown-menu, label, popover, select, separator, slot, switch, tabs, tooltip, alert-dialog.
+- **TanStack React Virtual** 3.13.26 (virtualized chat message list).
+- **shadcn/ui** components — selectively added, not full catalog.
+- **AI SDK** (`ai` 6.0.193 + `@ai-sdk/openai-compatible` 2.0.48).
+- **MCP SDK** (`@modelcontextprotocol/sdk` 1.23.0).
+- **KaTeX** 0.16.0 + **Mermaid** 11.12.1 (rendering in markdown).
+- **react-markdown** 10.1.0 + remark-gfm, remark-math, rehype-highlight, rehype-katex, rehype-raw, rehype-sanitize.
+- **lucide-react** 0.564.0 (icons).
+- **cmdk** 1.1.1 (command palettes/search).
+- **sonner** 1.7.1 (toast notifications).
+- **dompurify** 3.3.0 (HTML sanitization).
 
-## Renderer (React)
+## Build & Packaging
+- **electron-builder** 26.8.1 (config: `electron-builder.json5`).
+- Build outputs: `dist/` (renderer), `dist-electron/` (main), `release/` (packaged installers).
+- Platform targets: NSIS + portable on Windows, DMG on macOS, AppImage on Linux.
 
-- **React 19.2.4** (with `react-jsx` transform, `use` hook available)
-- **ReactDOM 19.2.4**
-- React StrictMode enabled in dev
-- Hooks-only codebase (no class components)
+## Testing
+- **Vitest** 3.0.5 with **jsdom** environment.
+- **@testing-library/react** 16.2.0 + **@testing-library/jest-dom** 6.6.4 + **@testing-library/user-event** 14.6.1.
 
-## UI Framework
+## Tooling
+- **ESLint** 8.57.0 with TypeScript + react-hooks + react-refresh plugins.
+- **No Prettier** (no config file found). Formatting relies on ESLint.
 
-- **Tailwind CSS v4.2.0** via PostCSS (`@tailwindcss/postcss`)
-- **tw-animate-css** — Tailwind v4 animation utilities
-- **@radix-ui/themes v3.3.0** (Radix Themes: `<RadixTheme accentColor="gray" …>`, `isolation: isolate` on `.radix-themes`)
-- **Radix UI primitives** — selected set of @radix-ui/react-\* packages
-- **class-variance-authority (cva)** — component variant definitions
-- **clsx + tailwind-merge** — `cn()` utility in `src/lib/utils.ts`
-- **lucide-react** — icon set
-- **sonner** — toast notifications, mounted outside Radix stacking context
+## Package Manager
+- **npm** (no yarn/pnpm lockfile).
 
-## AI / Chat
+## Path Aliases
+- `@/` → `src/` (configured in `tsconfig.json`, `vite.config.ts`, `vitest.config.ts`).
 
-- **ai SDK v6.0.193** (Vercel AI SDK)
-- **@ai-sdk/openai-compatible v2** — OpenAI-compatible provider adapter
-- **@modelcontextprotocol/sdk v1.23.0** — MCP server lifecycle
-
-## Markdown / Content
-
-- **react-markdown v10** — Markdown rendering
-- **rehype-\* plugins** (highlight, katex, raw, sanitize)
-- **remark-\* plugins** (gfm, math)
-- **mermaid v11** — Mermaid diagram rendering
-- **katex v0.16** — LaTeX math rendering
-- **dompurify v3** — HTML sanitization
-
-## Rich Text / Virtualization
-
-- **cmdk** — Command menu (used in combobox pickers)
-- **@tanstack/react-virtual v3** — Virtualized message list
-
-## Build Tools
-
-- **Vite v7.3.2** with:
-  - `@vitejs/plugin-react` — React Fast Refresh
-  - `vite-plugin-electron` — Electron main + preload bundling
-  - Custom `transformIndexHtml` plugin for dynamic `<title>`
-- **PostCSS v8.5** — Tailwind processing
-- **TypeScript compiler (tsc)** — type checking before builds
-- **ESLint v8.57** with `@typescript-eslint/* v7`, `eslint-plugin-react-hooks`, `eslint-plugin-react-refresh`
-- **electron-builder v26.8.1** — packaging/distribution
-
-## Desktop
-
-- **Electron v41.3.0** (ships Node 24)
-- **IPC bridge** via `contextBridge.exposeInMainWorld` with 6 namespaces:
-  - `moltenForgeAI` — AI chat streaming, attachments
-  - `moltenForgeStorage` — KV store + chat CRUD
-  - `moltenForgeWorkspace` — folder picker
-  - `moltenForgeTools` — tool execution (file edit, bash, etc.)
-  - `moltenForgeFind` — find-in-page
-  - `moltenForgeMcp` — MCP tool refresh/execute
-- **System CA trust**: `electron/main.ts` loads system TLS certificates via `tls.getCACertificates`/`tls.setDefaultCACertificates` (Node 24 API)
-
-## Dependencies of note
-
-- **undici v6** — HTTP client (replaces Node built-in fetch in Electron main)
-- **node-7z + 7zip-bin** — 7z extraction (attachments)
-- **pdf-parse** — PDF text extraction
-- **officeparser** — Office document text extraction
-- **@fontsource/ibm-plex-sans, @fontsource/ibm-plex-mono, @fontsource/jetbrains-mono**
-
-## Build Targets
-
-- **Windows**: NSIS installer + portable, x64
-- **macOS**: DMG
-- **Linux**: AppImage
-- Build output goes to `release/`
+## Version Pin
+- Current: **1.15.1** (defined in `package.json`, exposed to app as `__APP_VERSION__` build-time constant).

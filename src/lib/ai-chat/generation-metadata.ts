@@ -14,6 +14,10 @@ import type {
   ProviderConfig,
 } from "@/lib/ai-chat/types";
 import type { StreamBufferEvent } from "@/lib/ai-chat/stream-buffer";
+import {
+  appendMissingCancelledToolResults,
+  createCancelledToolResult,
+} from "@/lib/ai-chat/tool-history";
 
 export type ActiveProcessStepRef = {
   type:
@@ -39,23 +43,47 @@ export function keepOnlyLatestTaskListStep<T extends ChatAssistantProcessStep>(
 
 export function cancelUnfinishedTaskListSteps(
   processSteps: ChatAssistantProcessStep[],
+  cancelledToolResultsById = new Map<
+    string,
+    ReturnType<typeof createCancelledToolResult>
+  >(),
 ): ChatAssistantProcessStep[] {
   return processSteps.map((step) => {
     if (step.type === "tool_execution") {
       if (step.status === "complete" || step.status === "failed") return step;
-      return { ...step, status: "failed" };
+      const toolResult =
+        step.toolResult ??
+        cancelledToolResultsById.get(step.toolCall.id) ??
+        createCancelledToolResult(step.toolCall);
+      return { ...step, status: "failed", toolResult };
     }
 
-    if (step.type === "user_input" || step.type === "approval" || step.type === "file_approval") {
-      if (step.status === "complete" || step.status === "failed" || step.status === "cancelled") {
+    if (
+      step.type === "user_input" ||
+      step.type === "approval" ||
+      step.type === "file_approval"
+    ) {
+      if (
+        step.status === "complete" ||
+        step.status === "failed" ||
+        step.status === "cancelled"
+      ) {
         return step;
       }
-      return { ...step, status: "cancelled" };
+      const toolResult =
+        step.toolResult ??
+        cancelledToolResultsById.get(step.toolCall.id) ??
+        createCancelledToolResult(step.toolCall);
+      return { ...step, status: "cancelled", toolResult };
     }
 
     if (step.type === "agent_call") {
-      const cancelledAgentCall = cancelUnfinishedAgentCall(step.agentCall);
-      if (step.status === "complete" || step.status === "failed" || step.status === "cancelled") {
+      const cancelledAgentCall = finalizeCancelledAgentCall(step.agentCall);
+      if (
+        step.status === "complete" ||
+        step.status === "failed" ||
+        step.status === "cancelled"
+      ) {
         return { ...step, agentCall: cancelledAgentCall };
       }
       return {
@@ -67,14 +95,18 @@ export function cancelUnfinishedTaskListSteps(
 
     if (step.type === "tasks") {
       if (step.status === "complete" || step.status === "failed") return step;
-      return { ...step, status: "failed" };
+      const toolResult =
+        step.toolResult ??
+        cancelledToolResultsById.get(step.toolCall.id) ??
+        createCancelledToolResult(step.toolCall);
+      return { ...step, status: "failed", toolResult };
     }
 
     return step;
   });
 }
 
-function cancelUnfinishedAgentCall(
+export function finalizeCancelledAgentCall(
   agentCall: ChatAgentCall,
 ): ChatAgentCall {
   const isFinished =
@@ -91,11 +123,17 @@ function cancelUnfinishedAgentCall(
     error: isFinished
       ? agentCall.error
       : (agentCall.error ?? "Agent call cancelled."),
+    toolResults: appendMissingCancelledToolResults(
+      agentCall.toolCalls,
+      agentCall.toolResults,
+    ),
     processSteps: agentCall.processSteps
-      ? cancelUnfinishedTaskListSteps(agentCall.processSteps)
+      ? completeThinkingProcessSteps(
+          cancelUnfinishedTaskListSteps(agentCall.processSteps),
+        )
       : agentCall.processSteps,
     childAgentCalls: (agentCall.childAgentCalls ?? []).map(
-      cancelUnfinishedAgentCall,
+      finalizeCancelledAgentCall,
     ),
   };
 }
@@ -258,7 +296,9 @@ export function getVisualFlushKeysForGeneration({
     (message): message is Extract<ChatMessage, { role: "assistant" }> =>
       message.id === assistantMessageId && message.role === "assistant",
   );
-  const activeVariant = assistantMessage ? getActiveVariant(assistantMessage) : undefined;
+  const activeVariant = assistantMessage
+    ? getActiveVariant(assistantMessage)
+    : undefined;
 
   return [
     assistantMessageId,
@@ -266,6 +306,36 @@ export function getVisualFlushKeysForGeneration({
       (step) => `${assistantMessageId}:${step.id}`,
     ),
   ];
+}
+
+export function finalizeCancelledAssistantVariant(
+  variant: ChatAssistantVariant,
+): ChatAssistantVariant {
+  const toolResults = appendMissingCancelledToolResults(
+    variant.toolCalls,
+    variant.toolResults,
+  );
+  const hasToolHistory =
+    (variant.toolCalls?.length ?? 0) > 0 ||
+    (variant.toolResults?.length ?? 0) > 0;
+  const cancelledToolResultsById = new Map(
+    toolResults.map((result) => [result.toolCallId, result] as const),
+  );
+
+  return {
+    ...variant,
+    ...(hasToolHistory ? { toolResults } : {}),
+    processSteps: completeThinkingProcessSteps(
+      keepOnlyLatestTaskListStep(
+        cancelUnfinishedTaskListSteps(
+          (variant.processSteps ?? []).filter(
+            (step) => step.type !== "tool_building",
+          ),
+          cancelledToolResultsById,
+        ),
+      ),
+    ),
+  };
 }
 
 export function markAssistantVariantDone({
@@ -320,22 +390,27 @@ export function markAssistantVariantErrored({
   provider: ProviderConfig;
 }): ChatAssistantVariant {
   const durationMs = Math.max(1, performance.now() - responseStartedAtMs);
-  const currentContent = variant.content.trim();
+  const finalizedVariant = wasAborted
+    ? finalizeCancelledAssistantVariant(variant)
+    : variant;
+  const currentContent = finalizedVariant.content.trim();
   const appendedContent = wasAborted
-    ? variant.content
+    ? finalizedVariant.content
       ? ""
       : "Generation stopped."
     : currentContent
       ? `\n\nError: ${errorLabel}`
       : `Error: ${errorLabel}`;
-  const content = `${variant.content}${appendedContent}`;
+  const content = `${finalizedVariant.content}${appendedContent}`;
   const completedAt = new Date().toISOString();
-  const baseProcessSteps = completeThinkingProcessSteps(
-    keepOnlyLatestTaskListStep(
-      cancelUnfinishedTaskListSteps(variant.processSteps ?? []),
-    ),
-    completedAt,
-  );
+  const baseProcessSteps = wasAborted
+    ? (finalizedVariant.processSteps ?? [])
+    : completeThinkingProcessSteps(
+        keepOnlyLatestTaskListStep(
+          cancelUnfinishedTaskListSteps(finalizedVariant.processSteps ?? []),
+        ),
+        completedAt,
+      );
   const processSteps = appendedContent.trim()
     ? [
         ...baseProcessSteps,
@@ -348,15 +423,15 @@ export function markAssistantVariantErrored({
     : baseProcessSteps;
 
   return {
-    ...variant,
+    ...finalizedVariant,
     status: wasAborted ? "done" : "error",
     content,
     processSteps,
     metrics: {
       startedAt:
-        variant.metrics?.startedAt ??
+        finalizedVariant.metrics?.startedAt ??
         new Date(Date.now() - durationMs).toISOString(),
-      ...variant.metrics,
+      ...finalizedVariant.metrics,
       completedAt,
       ...buildTokenMetrics({
         content,

@@ -128,4 +128,92 @@ describe("attachment model context", () => {
       image_url: { url: "data:image/png;base64,AAAA" },
     });
   });
+  it("fills missing assistant tool results with a cancelled result for provider history", async () => {
+    const messages: ChatMessage[] = [
+      {
+        id: "assistant-1",
+        role: "assistant",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        activeVariantIndex: 0,
+        variants: [
+          {
+            id: "variant-1",
+            createdAt: "2026-01-01T00:00:00.000Z",
+            content: "",
+            status: "done",
+            toolCalls: [
+              {
+                id: "call-1",
+                type: "function",
+                function: { name: "read", arguments: "{}" },
+              },
+            ],
+          },
+        ],
+      },
+    ];
+
+    const apiMessages = await buildApiMessages({
+      provider,
+      systemPrompt: "",
+      messages,
+      settings: {},
+    });
+
+    expect(apiMessages).toHaveLength(2);
+    expect(apiMessages[0]).toMatchObject({
+      role: "assistant",
+      tool_calls: [
+        {
+          id: "call-1",
+          function: { name: "read", arguments: "{}" },
+        },
+      ],
+    });
+    expect(apiMessages[1]).toMatchObject({
+      role: "tool",
+      tool_call_id: "call-1",
+      content: "Tool execution cancelled by user.",
+    });
+  });
+
+  it("does not send stray tool results without matching assistant tool calls", async () => {
+    const messages: ChatMessage[] = [
+      {
+        id: "assistant-1",
+        role: "assistant",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        activeVariantIndex: 0,
+        variants: [
+          {
+            id: "variant-1",
+            createdAt: "2026-01-01T00:00:00.000Z",
+            content: "Done",
+            status: "done",
+            toolResults: [
+              {
+                toolCallId: "missing-call",
+                toolName: "read",
+                content: "orphan result",
+              },
+            ],
+          },
+        ],
+      },
+    ];
+
+    const apiMessages = await buildApiMessages({
+      provider,
+      systemPrompt: "",
+      messages,
+      settings: {},
+    });
+
+    expect(apiMessages).toHaveLength(1);
+    expect(apiMessages[0]).toMatchObject({
+      role: "assistant",
+      content: "Done",
+    });
+  });
+
 });
