@@ -876,7 +876,7 @@ export const ToolExecutionBlock = memo(function ToolExecutionBlock({
                 <ToolIcon className="size-3.5 group-hover:hidden group-focus:hidden" />
                 <Maximize2 className="hidden size-3.5 group-hover:block group-focus:block" />
               </span>
-              <span className="shrink-0 truncate text-card-foreground">
+              <span className="shrink-0 truncate text-muted-foreground/85">
                 {toolCall.function.name}
               </span>
               {renderedToolStatus ? (

@@ -70,7 +70,9 @@ const AgentCallSummaryButton = memo(function AgentCallSummaryButton({
               <Bot className="size-3.5 group-hover:hidden group-focus:hidden" />
               <Maximize2 className="hidden size-3.5 group-hover:block group-focus:block" />
             </span>
-            <span className="truncate text-card-foreground">{agentName}</span>
+            <span className="truncate text-muted-foreground/85">
+              {agentName}
+            </span>
             {status !== "complete" ? (
               <>
                 <span className="text-muted-foreground/60">·</span>

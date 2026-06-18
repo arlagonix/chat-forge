@@ -1,6 +1,5 @@
 "use client";
 
-import { Spinner as RadixSpinner } from "@radix-ui/themes";
 import { ChevronDown } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -2994,25 +2993,6 @@ export default function Home() {
               </div>
             )}
 
-          {hasMessages && isSending && (
-            <div
-              className="pointer-events-none shrink-0 px-3 pb-1 md:px-4"
-              aria-live="polite"
-            >
-              <div className={cn("mx-auto flex w-full", chatWidthClassName)}>
-                <div className="inline-flex select-none items-center gap-1.5 text-sm text-muted-foreground">
-                  <RadixSpinner
-                    aria-hidden="true"
-                    className="generating-radix-spinner"
-                    size="1"
-                  />
-                  <span className="generating-gradient-text font-medium">
-                    Working
-                  </span>
-                </div>
-              </div>
-            </div>
-          )}
         </div>
 
         <ChatComposer

@@ -219,7 +219,7 @@ function FallbackToolCallBlock({
     <article className="flex min-w-0 max-w-full justify-start">
       <div className="w-full min-w-0 max-w-full overflow-hidden text-base leading-5 text-muted-foreground [overflow-wrap:anywhere]">
         <div className="flex min-w-0 items-center gap-2 text-sm font-medium text-muted-foreground">
-          <span className="truncate text-card-foreground">
+          <span className="truncate text-muted-foreground/85">
             {toolCall.function.name}
           </span>
         </div>
@@ -233,7 +233,7 @@ function AgentModalHeader({ agentCall }: { agentCall: ChatAgentCall }) {
     <DialogHeader className="border-b px-5 py-4">
       <DialogTitle className="flex min-w-0 items-center gap-2 overflow-hidden text-sm font-medium uppercase tracking-wide text-muted-foreground">
         <Bot className="size-4 shrink-0" />
-        <span className="min-w-0 truncate text-card-foreground">
+        <span className="min-w-0 truncate text-muted-foreground/85">
           {agentCall.agentName}
         </span>
         <span className="text-muted-foreground/60">·</span>
@@ -683,17 +683,21 @@ function AgentTranscriptStepsBody({
 
   const renderBaseGroup = (
     group: VisibleAssistantProcessStepGroup,
-    options?: { insideThinkingToolGroup?: boolean },
+    options?: {
+      insideThinkingToolGroup?: boolean;
+      insideRuntimeGroup?: boolean;
+    },
   ): ReactNode => {
     if (group.kind === "tool_batch") {
       const insideThinkingToolGroup = Boolean(options?.insideThinkingToolGroup);
+      const insideRuntimeGroup = Boolean(options?.insideRuntimeGroup);
       const groupLabel = getToolBatchGroupLabel(group);
       return (
         <div
           key={group.toolBatchId}
           className={cn(
             "grid gap-2 bg-transparent",
-            insideThinkingToolGroup
+            insideThinkingToolGroup || insideRuntimeGroup
               ? ""
               : "border border-dashed px-2 py-2 shadow-xs",
           )}
@@ -702,13 +706,32 @@ function AgentTranscriptStepsBody({
             <div
               className={cn(
                 "text-xs text-muted-foreground/80",
-                !insideThinkingToolGroup && "px-1",
+                !insideThinkingToolGroup && !insideRuntimeGroup && "px-1",
               )}
             >
               {groupLabel}
             </div>
           ) : null}
           <div className="grid gap-2">{group.steps.map(renderStep)}</div>
+        </div>
+      );
+    }
+
+    if (group.kind === "runtime_group") {
+      const key = group.groups
+        .map((baseGroup) =>
+          baseGroup.kind === "single" ? baseGroup.step.id : baseGroup.toolBatchId,
+        )
+        .join(":");
+
+      return (
+        <div
+          key={`${key}:runtime-group`}
+          className="grid gap-2 border border-dashed bg-muted/10 px-2 py-2 shadow-xs"
+        >
+          {group.groups.map((baseGroup) =>
+            renderBaseGroup(baseGroup, { insideRuntimeGroup: true }),
+          )}
         </div>
       );
     }
@@ -788,7 +811,7 @@ function ChildAgentBlock({
                 <Bot className="size-3.5 group-hover:hidden group-focus:hidden" />
                 <Maximize2 className="hidden size-3.5 group-hover:block group-focus:block" />
               </span>
-              <span className="truncate text-card-foreground">
+              <span className="truncate text-muted-foreground/85">
                 {child.agentName}
               </span>
               {child.status !== "complete" ? (

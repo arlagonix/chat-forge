@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import { memo, useEffect, useMemo, useState } from "react";
+import { flushSync } from "react-dom";
 
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
@@ -91,11 +92,68 @@ function createEmptyAskUserCustomAnswers(request: AskUserRequest) {
   );
 }
 
-function formatUserInputStatus(status: UserInputStatus | undefined) {
-  if (status === "complete") return "";
-  if (status === "cancelled") return "Cancelled";
-  if (status === "failed") return "";
-  return "Waiting";
+function getNearestScrollableParent(element: HTMLElement | null) {
+  let current = element?.parentElement ?? null;
+
+  while (current) {
+    const style = window.getComputedStyle(current);
+    const overflowY = `${style.overflowY} ${style.overflow}`;
+    if (
+      /(auto|scroll|overlay)/.test(overflowY) &&
+      current.scrollHeight > current.clientHeight
+    ) {
+      return current;
+    }
+    current = current.parentElement;
+  }
+
+  return window;
+}
+
+function adjustScrollToPreserveBlockPosition(
+  element: HTMLElement,
+  scrollContainer: HTMLElement | Window,
+  beforeTop: number,
+) {
+  const afterTop = element.getBoundingClientRect().top;
+  const delta = afterTop - beforeTop;
+  if (Math.abs(delta) < 1) return;
+
+  if (scrollContainer === window) {
+    window.scrollBy?.({ top: delta, behavior: "auto" });
+    return;
+  }
+
+  scrollContainer.scrollTop += delta;
+}
+
+function toggleAndPreserveBlockPosition(
+  element: HTMLElement | null,
+  onToggleCollapsed: () => void,
+) {
+  if (!element || typeof element.getBoundingClientRect !== "function") {
+    onToggleCollapsed();
+    return;
+  }
+
+  const scrollContainer = getNearestScrollableParent(element);
+  const beforeTop = element.getBoundingClientRect().top;
+  const requestFrame = (callback: FrameRequestCallback) => {
+    if (typeof window.requestAnimationFrame === "function") {
+      return window.requestAnimationFrame(callback);
+    }
+    return window.setTimeout(callback, 0);
+  };
+
+  flushSync(onToggleCollapsed);
+  adjustScrollToPreserveBlockPosition(element, scrollContainer, beforeTop);
+
+  requestFrame(() => {
+    adjustScrollToPreserveBlockPosition(element, scrollContainer, beforeTop);
+    requestFrame(() => {
+      adjustScrollToPreserveBlockPosition(element, scrollContainer, beforeTop);
+    });
+  });
 }
 
 function formatAskUserHeaderDetail(
@@ -162,7 +220,6 @@ export const AskUserBlock = memo(function AskUserBlock({
   );
   const effectiveStatus = status ?? "waiting";
   const isWaiting = effectiveStatus === "waiting";
-  const headerStatusText = formatUserInputStatus(effectiveStatus);
   const shouldShowHeaderStatus = effectiveStatus !== "complete";
   const headerDetail = formatAskUserHeaderDetail(request, response);
   const [activeQuestionIndex, setActiveQuestionIndex] = useState(0);
@@ -843,7 +900,12 @@ export const AskUserBlock = memo(function AskUserBlock({
         <button
           type="button"
           className="group w-full cursor-pointer text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          onClick={onToggleCollapsed}
+          onClick={(event) =>
+            toggleAndPreserveBlockPosition(
+              event.currentTarget,
+              onToggleCollapsed,
+            )
+          }
           aria-expanded={!isCollapsed}
           title={isCollapsed ? "Expand ask user" : "Collapse ask user"}
           aria-label={isCollapsed ? "Expand ask user" : "Collapse ask user"}
@@ -854,7 +916,9 @@ export const AskUserBlock = memo(function AskUserBlock({
                 icon={MessageSquareText}
                 isCollapsed={isCollapsed}
               />
-              <span className="truncate text-card-foreground">Ask user</span>
+              <span className="truncate text-muted-foreground/85">
+                Ask user
+              </span>
               {shouldShowHeaderStatus ? (
                 <>
                   <span className="text-muted-foreground/60">·</span>
@@ -873,7 +937,6 @@ export const AskUserBlock = memo(function AskUserBlock({
                     ) : (
                       <X className="size-3.5" />
                     )}
-                    {headerStatusText}
                   </span>
                 </>
               ) : null}
@@ -937,7 +1000,7 @@ export const AskUserBlock = memo(function AskUserBlock({
                 return (
                   <div className="grid gap-3">
                     {activeQuestionCount > 1 && (
-                      <div className="text-sm font-medium uppercase tracking-wide text-muted-foreground/80">
+                      <div className="text-sm font-medium tracking-wide text-muted-foreground/80">
                         Question {activeQuestionIndex + 1} of{" "}
                         {activeQuestionCount}
                       </div>
@@ -1145,7 +1208,12 @@ export const ToolApprovalBlock = memo(function ToolApprovalBlock({
         <button
           type="button"
           className="group w-full cursor-pointer text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          onClick={onToggleCollapsed}
+          onClick={(event) =>
+            toggleAndPreserveBlockPosition(
+              event.currentTarget,
+              onToggleCollapsed,
+            )
+          }
           aria-expanded={!isCollapsed}
           title={isCollapsed ? "Expand approval" : "Collapse approval"}
           aria-label={isCollapsed ? "Expand approval" : "Collapse approval"}
@@ -1156,7 +1224,9 @@ export const ToolApprovalBlock = memo(function ToolApprovalBlock({
                 icon={ShieldCheck}
                 isCollapsed={isCollapsed}
               />
-              <span className="truncate text-card-foreground">Approval</span>
+              <span className="truncate text-muted-foreground/85">
+                Approval
+              </span>
               {approvalStatusText !== undefined && (
                 <>
                   <span className="text-muted-foreground/60">·</span>
@@ -1334,7 +1404,12 @@ export const TaskListBlock = memo(function TaskListBlock({
         <button
           type="button"
           className="group w-full cursor-pointer text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          onClick={onToggleCollapsed}
+          onClick={(event) =>
+            toggleAndPreserveBlockPosition(
+              event.currentTarget,
+              onToggleCollapsed,
+            )
+          }
           aria-expanded={!isCollapsed}
           title={isCollapsed ? "Expand tasks" : "Collapse tasks"}
           aria-label={isCollapsed ? "Expand tasks" : "Collapse tasks"}
@@ -1345,7 +1420,7 @@ export const TaskListBlock = memo(function TaskListBlock({
                 icon={ListTodo}
                 isCollapsed={isCollapsed}
               />
-              <span className="truncate text-card-foreground">Tasks</span>
+              <span className="truncate text-muted-foreground/85">Tasks</span>
               <span className="text-muted-foreground/60">·</span>
               <span className="font-normal text-muted-foreground/80">
                 {isPending

@@ -1,3 +1,4 @@
+import { Spinner as RadixSpinner } from "@radix-ui/themes";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   BookOpen,
@@ -743,7 +744,7 @@ const ChatMessageItem = memo(
               <div className="flex min-w-0 items-center gap-2 text-sm font-medium text-muted-foreground">
                 <div className="flex min-w-0 items-center gap-2">
                   <Wrench className="size-3.5 shrink-0" />
-                  <span className="shrink-0 truncate text-card-foreground">
+                  <span className="shrink-0 truncate text-muted-foreground/85">
                     Tool building
                   </span>
                   <span className="shrink-0 text-muted-foreground/60">·</span>
@@ -870,12 +871,16 @@ const ChatMessageItem = memo(
 
     const renderProcessStepGroup = (
       group: VisibleAssistantProcessStepGroup,
-      options?: { insideThinkingToolGroup?: boolean },
+      options?: {
+        insideThinkingToolGroup?: boolean;
+        insideRuntimeGroup?: boolean;
+      },
     ): ReactNode => {
       if (group.kind === "tool_batch") {
         const insideThinkingToolGroup = Boolean(
           options?.insideThinkingToolGroup,
         );
+        const insideRuntimeGroup = Boolean(options?.insideRuntimeGroup);
         const groupLabel = getToolBatchGroupLabel(group);
 
         return (
@@ -883,7 +888,7 @@ const ChatMessageItem = memo(
             key={group.toolBatchId}
             className={cn(
               "grid gap-2 bg-transparent",
-              insideThinkingToolGroup
+              insideThinkingToolGroup || insideRuntimeGroup
                 ? ""
                 : "border border-dashed px-2 py-2 shadow-xs",
             )}
@@ -892,7 +897,7 @@ const ChatMessageItem = memo(
               <div
                 className={cn(
                   "text-xs text-muted-foreground/80",
-                  !insideThinkingToolGroup && "px-1",
+                  !insideThinkingToolGroup && !insideRuntimeGroup && "px-1",
                 )}
               >
                 {groupLabel}
@@ -901,6 +906,27 @@ const ChatMessageItem = memo(
             <div className="grid gap-2">
               {group.steps.map(renderProcessStep)}
             </div>
+          </div>
+        );
+      }
+
+      if (group.kind === "runtime_group") {
+        const key = group.groups
+          .map((baseGroup) =>
+            baseGroup.kind === "single"
+              ? baseGroup.step.id
+              : baseGroup.toolBatchId,
+          )
+          .join(":");
+
+        return (
+          <div
+            key={`${key}:runtime-group`}
+            className="grid gap-2 border border-dashed bg-muted/10 px-2 py-2 shadow-xs"
+          >
+            {group.groups.map((baseGroup) =>
+              renderProcessStepGroup(baseGroup, { insideRuntimeGroup: true }),
+            )}
           </div>
         );
       }
@@ -1299,7 +1325,21 @@ const ChatMessageItem = memo(
           <div className="grid gap-2 text-sm leading-5 text-muted-foreground">
             <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
               <div className="min-h-6 min-w-0 flex-1 text-left">
-                {!isMessageStreaming && generatedModelAndMode ? (
+                {isMessageStreaming ? (
+                  <span
+                    className="inline-flex select-none items-center gap-1.5 text-muted-foreground"
+                    aria-live="polite"
+                  >
+                    <RadixSpinner
+                      aria-hidden="true"
+                      className="generating-radix-spinner"
+                      size="1"
+                    />
+                    <span className="generating-gradient-text font-medium">
+                      Working
+                    </span>
+                  </span>
+                ) : generatedModelAndMode ? (
                   <span
                     className="block truncate text-muted-foreground"
                     title={`Generated with ${generatedModelAndMode}`}

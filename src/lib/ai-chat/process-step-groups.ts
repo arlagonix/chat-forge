@@ -18,6 +18,10 @@ export type VisibleAssistantProcessStepGroup =
       kind: "thinking_tool_group";
       thinkingStep: VisibleAssistantProcessStep;
       toolGroups: VisibleAssistantProcessStepBaseGroup[];
+    }
+  | {
+      kind: "runtime_group";
+      groups: VisibleAssistantProcessStepBaseGroup[];
     };
 
 export function getToolBatchGroupLabel(
@@ -55,6 +59,10 @@ function isToolRelatedVisibleStep(step: VisibleAssistantProcessStep) {
     step.type === "file_approval" ||
     step.type === "tasks"
   );
+}
+
+function isRuntimeVisibleStep(step: VisibleAssistantProcessStep) {
+  return step.type === "thinking" || isToolRelatedVisibleStep(step);
 }
 
 function groupToolRelatedVisibleSteps(
@@ -98,6 +106,75 @@ function isAssistantTextVisibleStep(step: VisibleAssistantProcessStep) {
 
 function isThinkingToolGroupBoundary(step: VisibleAssistantProcessStep) {
   return step.type === "thinking" || isAssistantTextVisibleStep(step);
+}
+
+function getThinkingToolGroupLookahead(
+  steps: VisibleAssistantProcessStep[],
+  index: number,
+) {
+  const step = steps[index];
+  if (step.type !== "thinking") return undefined;
+
+  const toolSteps: VisibleAssistantProcessStep[] = [];
+  let lookaheadIndex = index + 1;
+
+  while (lookaheadIndex < steps.length) {
+    const lookaheadStep = steps[lookaheadIndex];
+
+    if (isThinkingToolGroupBoundary(lookaheadStep)) break;
+
+    if (isToolRelatedVisibleStep(lookaheadStep)) {
+      toolSteps.push(lookaheadStep);
+    }
+
+    lookaheadIndex += 1;
+  }
+
+  if (toolSteps.length <= 0) return undefined;
+
+  return {
+    lookaheadIndex,
+    group: {
+      kind: "thinking_tool_group" as const,
+      thinkingStep: step,
+      toolGroups: groupToolRelatedVisibleSteps(toolSteps),
+    },
+  };
+}
+
+function readRuntimeBaseGroup(
+  steps: VisibleAssistantProcessStep[],
+  index: number,
+): { group: VisibleAssistantProcessStepBaseGroup; nextIndex: number } {
+  const step = steps[index];
+
+  if (isToolRelatedVisibleStep(step)) {
+    const toolBatchId = getVisibleStepToolBatchId(step);
+
+    if (toolBatchId) {
+      const batchSteps: VisibleAssistantProcessStep[] = [];
+      let nextIndex = index;
+
+      while (
+        nextIndex < steps.length &&
+        getVisibleStepToolBatchId(steps[nextIndex]) === toolBatchId
+      ) {
+        batchSteps.push(steps[nextIndex]);
+        nextIndex += 1;
+      }
+
+      if (batchSteps.length > 1) {
+        return {
+          group: { kind: "tool_batch", toolBatchId, steps: batchSteps },
+          nextIndex,
+        };
+      }
+
+      return { group: { kind: "single", step: batchSteps[0] }, nextIndex };
+    }
+  }
+
+  return { group: { kind: "single", step }, nextIndex: index + 1 };
 }
 
 export function getVisibleAssistantProcessSteps(
@@ -144,53 +221,37 @@ export function groupVisibleAssistantProcessSteps(
   while (index < steps.length) {
     const step = steps[index];
 
-    if (step.type === "thinking") {
-      const toolSteps: VisibleAssistantProcessStep[] = [];
-      let lookaheadIndex = index + 1;
-
-      while (lookaheadIndex < steps.length) {
-        const lookaheadStep = steps[lookaheadIndex];
-
-        if (isThinkingToolGroupBoundary(lookaheadStep)) break;
-
-        if (isToolRelatedVisibleStep(lookaheadStep)) {
-          toolSteps.push(lookaheadStep);
-        }
-
-        lookaheadIndex += 1;
-      }
-
-      if (toolSteps.length > 0) {
-        groups.push({
-          kind: "thinking_tool_group",
-          thinkingStep: step,
-          toolGroups: groupToolRelatedVisibleSteps(toolSteps),
-        });
-        index = lookaheadIndex;
-        continue;
-      }
+    const thinkingToolGroup = getThinkingToolGroupLookahead(steps, index);
+    if (thinkingToolGroup) {
+      groups.push(thinkingToolGroup.group);
+      index = thinkingToolGroup.lookaheadIndex;
+      continue;
     }
 
-    if (isToolRelatedVisibleStep(step)) {
-      const toolBatchId = getVisibleStepToolBatchId(step);
+    if (isRuntimeVisibleStep(step)) {
+      const runtimeGroups: VisibleAssistantProcessStepBaseGroup[] = [];
 
-      if (toolBatchId) {
-        const batchSteps: VisibleAssistantProcessStep[] = [];
-        while (
-          index < steps.length &&
-          getVisibleStepToolBatchId(steps[index]) === toolBatchId
-        ) {
-          batchSteps.push(steps[index]);
-          index += 1;
-        }
+      while (index < steps.length) {
+        const runtimeStep = steps[index];
 
-        if (batchSteps.length > 1) {
-          groups.push({ kind: "tool_batch", toolBatchId, steps: batchSteps });
-        } else {
-          groups.push({ kind: "single", step: batchSteps[0] });
-        }
-        continue;
+        if (!isRuntimeVisibleStep(runtimeStep)) break;
+        if (runtimeStep.type === "thinking" && runtimeGroups.length > 0) break;
+        if (getThinkingToolGroupLookahead(steps, index)) break;
+
+        const result = readRuntimeBaseGroup(steps, index);
+        runtimeGroups.push(result.group);
+        index = result.nextIndex;
       }
+
+      if (
+        runtimeGroups.length === 1 &&
+        runtimeGroups[0].kind === "tool_batch"
+      ) {
+        groups.push(runtimeGroups[0]);
+      } else if (runtimeGroups.length > 0) {
+        groups.push({ kind: "runtime_group", groups: runtimeGroups });
+      }
+      continue;
     }
 
     groups.push({ kind: "single", step });

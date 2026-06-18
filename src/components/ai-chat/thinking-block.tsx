@@ -5,6 +5,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 
 import { SmoothAssistantMessageContent } from "@/components/ai-chat/smooth-assistant-message";
 import { Spinner } from "@/components/ui/spinner";
@@ -60,6 +61,70 @@ function HoverSwapIcon({
   );
 }
 
+function getNearestScrollableParent(element: HTMLElement | null) {
+  let current = element?.parentElement ?? null;
+
+  while (current) {
+    const style = window.getComputedStyle(current);
+    const overflowY = `${style.overflowY} ${style.overflow}`;
+    if (
+      /(auto|scroll|overlay)/.test(overflowY) &&
+      current.scrollHeight > current.clientHeight
+    ) {
+      return current;
+    }
+    current = current.parentElement;
+  }
+
+  return window;
+}
+
+function adjustScrollToPreserveBlockPosition(
+  element: HTMLElement,
+  scrollContainer: HTMLElement | Window,
+  beforeTop: number,
+) {
+  const afterTop = element.getBoundingClientRect().top;
+  const delta = afterTop - beforeTop;
+  if (Math.abs(delta) < 1) return;
+
+  if (scrollContainer === window) {
+    window.scrollBy?.({ top: delta, behavior: "auto" });
+    return;
+  }
+
+  scrollContainer.scrollTop += delta;
+}
+
+function toggleAndPreserveBlockPosition(
+  element: HTMLElement | null,
+  onToggleCollapsed: () => void,
+) {
+  if (!element || typeof element.getBoundingClientRect !== "function") {
+    onToggleCollapsed();
+    return;
+  }
+
+  const scrollContainer = getNearestScrollableParent(element);
+  const beforeTop = element.getBoundingClientRect().top;
+  const requestFrame = (callback: FrameRequestCallback) => {
+    if (typeof window.requestAnimationFrame === "function") {
+      return window.requestAnimationFrame(callback);
+    }
+    return window.setTimeout(callback, 0);
+  };
+
+  flushSync(onToggleCollapsed);
+  adjustScrollToPreserveBlockPosition(element, scrollContainer, beforeTop);
+
+  requestFrame(() => {
+    adjustScrollToPreserveBlockPosition(element, scrollContainer, beforeTop);
+    requestFrame(() => {
+      adjustScrollToPreserveBlockPosition(element, scrollContainer, beforeTop);
+    });
+  });
+}
+
 function ThinkingBlockComponent({
   id,
   content,
@@ -90,6 +155,7 @@ function ThinkingBlockComponent({
   onVisualStreamingChange?: (isStreaming: boolean) => void;
 }) {
   const effectiveStatus = getEffectiveThinkingStatus(status, isStreaming);
+  const headerRef = useRef<HTMLButtonElement | null>(null);
   const onVisualStreamingChangeRef = useRef(onVisualStreamingChange);
 
   onVisualStreamingChangeRef.current = onVisualStreamingChange;
@@ -138,14 +204,19 @@ function ThinkingBlockComponent({
   const shouldShowPreviewLine = isCollapsed && previewLine;
   const HoverIcon = isCollapsed ? ChevronRight : ChevronDown;
 
+  function handleToggleCollapsed() {
+    toggleAndPreserveBlockPosition(headerRef.current, onToggleCollapsed);
+  }
+
   return (
     <article className="flex w-full min-w-0 max-w-full justify-start">
       <div className="w-full min-w-0 max-w-full overflow-hidden text-base leading-none text-muted-foreground [overflow-wrap:anywhere]">
         <button
+          ref={headerRef}
           type="button"
           className="group w-full min-w-0 cursor-pointer text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
           onMouseDown={(event) => event.preventDefault()}
-          onClick={onToggleCollapsed}
+          onClick={handleToggleCollapsed}
           aria-expanded={!isCollapsed}
           aria-controls={`${id}-thinking-content`}
           title={isCollapsed ? "Expand thinking" : "Collapse thinking"}
@@ -154,7 +225,7 @@ function ThinkingBlockComponent({
           <div className="flex min-w-0 items-center gap-2 text-sm font-medium text-muted-foreground">
             <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
               <HoverSwapIcon icon={Brain} hoverIcon={HoverIcon} />
-              <span className="shrink-0 whitespace-nowrap text-card-foreground">
+              <span className="shrink-0 whitespace-nowrap text-muted-foreground/85">
                 Thinking
               </span>
               {effectiveStatus !== "complete" ? (
