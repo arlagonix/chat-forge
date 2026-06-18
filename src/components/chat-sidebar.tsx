@@ -592,7 +592,7 @@ export const ChatSidebar = memo(function ChatSidebar({
         tabIndex={0}
         draggable={!isRenaming}
         className={cn(
-          "group flex min-w-0 cursor-pointer items-center gap-1 border px-2 py-1 outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          "group flex min-w-0 cursor-pointer items-center gap-1 rounded-lg border px-2 py-1 outline-none focus-visible:ring-2 focus-visible:ring-ring",
           isActive
             ? "border-primary/30 bg-accent text-accent-foreground"
             : "border-transparent hover:border-border hover:bg-muted/60",
@@ -1209,7 +1209,7 @@ export const ChatSidebar = memo(function ChatSidebar({
       </aside>
 
       {isCollapsed ? (
-        <div className="absolute left-2 top-2 z-30 hidden items-center gap-1 border bg-card/95 p-1 shadow-sm md:flex">
+        <div className="absolute left-2 top-2 z-30 hidden items-center gap-1 rounded-lg border bg-card/95 p-1 shadow-sm md:flex">
           <Button
             type="button"
             variant="ghost"

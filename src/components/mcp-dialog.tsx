@@ -128,7 +128,7 @@ function ToggleBlock({
           onCheckedChange(!checked);
         }
       }}
-      className="flex cursor-pointer select-none items-center justify-between gap-4 rounded-md border p-3 transition-colors hover:bg-accent/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="flex cursor-pointer select-none items-center justify-between gap-4 rounded-lg border p-3 transition-colors hover:bg-accent/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       <div className="min-w-0">
         <div className="flex items-center gap-1.5">
@@ -274,7 +274,7 @@ export const McpDialog = memo(function McpDialog({
                 <div
                   role="button"
                   tabIndex={0}
-                  className="mb-2 flex cursor-pointer items-center justify-between gap-3 border bg-background px-2 py-2 text-base outline-none transition-colors hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-ring"
+                  className="mb-2 flex cursor-pointer items-center justify-between gap-3 rounded-lg border bg-background px-2 py-2 text-base outline-none transition-colors hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-ring"
                   onClick={() => updateGlobalEnabled(!mcpEnabled)}
                   onKeyDown={(event) => {
                     if (event.key === "Enter" || event.key === " ") {
@@ -317,7 +317,7 @@ export const McpDialog = memo(function McpDialog({
                         role="button"
                         tabIndex={0}
                         className={cn(
-                          "group flex min-w-0 cursor-pointer select-none items-start gap-2 border px-2 py-2 outline-none transition-colors",
+                          "group flex min-w-0 cursor-pointer select-none items-start gap-2 rounded-lg border px-2 py-2 outline-none transition-colors",
                           !isNewServer && selectedServerId === server.id
                             ? "border-primary/30 bg-accent text-accent-foreground"
                             : "border-transparent hover:border-border hover:bg-muted/60",
@@ -369,7 +369,7 @@ export const McpDialog = memo(function McpDialog({
                   })}
 
                   {savedServers.length === 0 && (
-                    <div className="border border-dashed px-3 py-4 text-center text-base text-muted-foreground">
+                    <div className="rounded-lg border border-dashed px-3 py-4 text-center text-base text-muted-foreground">
                       No MCP servers configured.
                     </div>
                   )}
@@ -456,7 +456,7 @@ export const McpDialog = memo(function McpDialog({
                           <div
                             role={testResult.ok ? "status" : "alert"}
                             className={cn(
-                              "relative grid gap-1 rounded-md border px-3 py-2.5 pr-9 text-sm",
+                              "relative grid gap-1 rounded-lg border px-3 py-2.5 pr-9 text-sm",
                               testResult.ok
                                 ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
                                 : "border-destructive/40 bg-destructive/10 text-destructive",
@@ -705,7 +705,7 @@ export const McpDialog = memo(function McpDialog({
                         </div>
 
                         {activeServerTools.length > 0 ? (
-                          <div className="border bg-muted/20 px-3 py-2 text-sm leading-5 text-muted-foreground">
+                          <div className="rounded-lg border bg-muted/20 px-3 py-2 text-sm leading-5 text-muted-foreground">
                             Tool switches here control whether MCP tools are
                             visible in Tools settings and model context. Ask,
                             Allow, and Deny are still configured in Tools
@@ -715,7 +715,7 @@ export const McpDialog = memo(function McpDialog({
 
                         <div className="grid gap-2">
                           {activeServerTools.length === 0 ? (
-                            <div className="border border-dashed px-3 py-4 text-center text-base text-muted-foreground">
+                            <div className="rounded-lg border border-dashed px-3 py-4 text-center text-base text-muted-foreground">
                               No tools discovered yet. Use Load tools after
                               configuring the server.
                             </div>
@@ -726,7 +726,7 @@ export const McpDialog = memo(function McpDialog({
                                 role="button"
                                 aria-pressed={tool.enabled}
                                 tabIndex={0}
-                                className="cursor-pointer select-none border bg-background px-3 py-2 outline-none transition-colors hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-ring"
+                                className="cursor-pointer select-none rounded-lg border bg-background px-3 py-2 outline-none transition-colors hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-ring"
                                 onClick={() => {
                                   updateActiveServerToolEnabled(
                                     tool.originalName,

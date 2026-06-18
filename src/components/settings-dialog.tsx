@@ -66,7 +66,7 @@ function SettingsSwitchRow({
           onCheckedChange(!checked);
         }
       }}
-      className="flex cursor-pointer select-none items-center justify-between gap-4 border p-3 transition-colors hover:bg-accent/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="flex cursor-pointer select-none items-center justify-between gap-4 rounded-lg border p-3 transition-colors hover:bg-accent/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       <div className="flex min-w-0 items-start gap-3">
         <div className="mt-[5px] text-muted-foreground">{icon}</div>
@@ -99,7 +99,7 @@ function SettingsSelectRow({
   options: { value: string; label: string }[];
 }) {
   return (
-    <div className="flex items-center justify-between gap-4 border p-3">
+    <div className="flex items-center justify-between gap-4 rounded-lg border p-3">
       <div className="flex min-w-0 items-start gap-3">
         <div className="mt-[5px] text-muted-foreground">{icon}</div>
         <div className="min-w-0">

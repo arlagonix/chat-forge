@@ -470,7 +470,7 @@ export const AskUserBlock = memo(function AskUserBlock({
         tabIndex={isInteractive ? 0 : -1}
         data-ask-user-option
         className={cn(
-          "flex items-start gap-2  border px-3 py-2 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+          "flex items-start gap-2 rounded-lg border px-3 py-2 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
           checked
             ? "border-primary/50 bg-primary/10 text-foreground"
             : "border-border/70 bg-background/60",
@@ -544,7 +544,7 @@ export const AskUserBlock = memo(function AskUserBlock({
         tabIndex={isInteractive ? 0 : -1}
         data-ask-user-option
         className={cn(
-          "grid gap-2  border px-3 py-2 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+          "grid gap-2 rounded-lg border px-3 py-2 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
           checked
             ? "border-primary/50 bg-primary/10 text-foreground"
             : "border-border/70 bg-background/60",
@@ -1071,7 +1071,7 @@ export const AskUserBlock = memo(function AskUserBlock({
               })()}
 
             {isWaiting && !canSubmit && (
-              <div className=" border border-dashed bg-muted/30 px-3 py-2 text-sm leading-5 text-muted-foreground">
+              <div className="rounded-lg border border-dashed bg-muted/30 px-3 py-2 text-sm leading-5 text-muted-foreground">
                 This input request is no longer connected to an active
                 generation. Regenerate the response to ask again.
               </div>
@@ -1100,7 +1100,7 @@ function renderTerminalTextBlock(value: string, emptyLabel = "No output yet.") {
   const text = value.length ? value : emptyLabel;
 
   return (
-    <pre className="max-h-[min(50rem,50dvh)] overflow-auto border bg-background/80 px-3 py-2 font-mono text-xs leading-5 text-foreground whitespace-pre-wrap [overflow-wrap:anywhere]">
+    <pre className="max-h-[min(50rem,50dvh)] overflow-auto rounded-lg border bg-background/80 px-3 py-2 font-mono text-xs leading-5 text-foreground whitespace-pre-wrap [overflow-wrap:anywhere]">
       {text}
     </pre>
   );
@@ -1125,7 +1125,7 @@ function renderApprovalTerminalOutput(toolResult?: ChatToolResult) {
   return (
     <div className="grid gap-2">
       {terminal.warnings?.length ? (
-        <div className="grid gap-1 border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+        <div className="grid gap-1 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
           {terminal.warnings.map((warning) => (
             <div key={warning}>{warning}</div>
           ))}
@@ -1313,7 +1313,7 @@ export const ToolApprovalBlock = memo(function ToolApprovalBlock({
             )}
 
             {isWaiting && !canSubmit && (
-              <div className=" border border-dashed bg-muted/30 px-3 py-2 text-sm leading-5 text-muted-foreground">
+              <div className="rounded-lg border border-dashed bg-muted/30 px-3 py-2 text-sm leading-5 text-muted-foreground">
                 This approval request is no longer connected to an active
                 generation. Regenerate the response to ask again.
               </div>
@@ -1443,7 +1443,7 @@ export const TaskListBlock = memo(function TaskListBlock({
                 <span>Updating tasks…</span>
               </div>
             ) : isError ? (
-              <div className="border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm leading-5 text-destructive">
+              <div className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm leading-5 text-destructive">
                 {toolResult?.content || "Task tool failed."}
               </div>
             ) : totalCount === 0 ? (

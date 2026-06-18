@@ -103,7 +103,7 @@ export const WorkspaceRootsControl = memo(function WorkspaceRootsControl({
                         <div className="flex min-w-0 items-center gap-2">
                           <div className="truncate font-medium">{root.name}</div>
                           {isAutomatic ? (
-                            <span className="shrink-0 rounded border px-1.5 py-0.5 text-[0.65rem] uppercase tracking-wide text-muted-foreground">
+                            <span className="shrink-0 rounded-sm border px-1.5 py-0.5 text-[0.65rem] uppercase tracking-wide text-muted-foreground">
                               Auto
                             </span>
                           ) : null}

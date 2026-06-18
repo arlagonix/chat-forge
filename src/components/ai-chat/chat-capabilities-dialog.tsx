@@ -137,7 +137,7 @@ function CapabilitySection({
             <div
               key={item.name}
               className={cn(
-                "flex min-w-0 items-start gap-3 border bg-card px-3 py-2",
+                "flex min-w-0 items-start gap-3 rounded-lg border bg-card px-3 py-2",
                 denied && "bg-muted/30 text-muted-foreground opacity-70",
               )}
             >
@@ -163,7 +163,7 @@ function CapabilitySection({
             </div>
           );
         })}
-        {items.length === 0 ? <div className="border border-dashed px-3 py-4 text-sm text-muted-foreground">No {title.toLowerCase()} configured.</div> : null}
+        {items.length === 0 ? <div className="rounded-lg border border-dashed px-3 py-4 text-sm text-muted-foreground">No {title.toLowerCase()} configured.</div> : null}
       </div>
     </section>
   );

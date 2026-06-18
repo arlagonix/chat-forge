@@ -283,7 +283,7 @@ const SkillListRow = memo(function SkillListRow({
       role="button"
       tabIndex={0}
       className={cn(
-        "group flex min-w-0 cursor-pointer select-none items-start gap-2 border px-2 py-2 outline-none transition-colors",
+        "group flex min-w-0 cursor-pointer select-none items-start gap-2 rounded-lg border px-2 py-2 outline-none transition-colors",
         selected
           ? "border-primary/30 bg-accent text-accent-foreground"
           : "border-transparent hover:border-border hover:bg-muted/60",
@@ -435,7 +435,7 @@ const SkillFileStructurePreview = memo(function SkillFileStructurePreview({
   return (
     <div className="grid gap-2">
       <Label>File structure</Label>
-      <div className="border bg-muted/20 px-3 py-2 text-sm">
+      <div className="rounded-lg border bg-muted/20 px-3 py-2 text-sm">
         {skill.fileTree?.length ? (
           <div className="grid gap-1">
             {skill.fileTree.map((item) => (
@@ -989,7 +989,7 @@ export const SkillsDialog = memo(function SkillsDialog({
               </div>
 
               <div className="min-h-0 flex-1 overflow-y-auto p-2 pr-0">
-                <div className="mb-2 flex items-start justify-between gap-3 border bg-background px-2 py-2 text-base">
+                <div className="mb-2 flex items-start justify-between gap-3 rounded-lg border bg-background px-2 py-2 text-base">
                   <span className="min-w-0">
                     <span className="block font-medium">Skills</span>
                     <span className="block select-none text-sm leading-5 text-muted-foreground">
@@ -1044,7 +1044,7 @@ export const SkillsDialog = memo(function SkillsDialog({
                       </div>
                     ))
                   ) : (
-                    <div className="border border-dashed px-3 py-4 text-center text-base text-muted-foreground">
+                    <div className="rounded-lg border border-dashed px-3 py-4 text-center text-base text-muted-foreground">
                       {loadedSkills.length > 0
                         ? "No skills match the search."
                         : "No skills discovered."}
@@ -1211,7 +1211,7 @@ export const SkillsDialog = memo(function SkillsDialog({
                       </div>
 
                       {formValidationError ? (
-                        <div className="border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                        <div className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
                           {formValidationError}
                         </div>
                       ) : null}

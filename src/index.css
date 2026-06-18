@@ -501,7 +501,7 @@
   }
 
   .chat-markdown details {
-    @apply my-3 rounded border border-border px-3 py-2;
+    @apply my-3 rounded-lg border border-border px-3 py-2;
   }
 
   .chat-markdown summary {
@@ -513,11 +513,11 @@
   }
 
   .chat-markdown kbd {
-    @apply rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-sm;
+    @apply rounded-sm border border-border bg-muted px-1.5 py-0.5 font-mono text-sm;
   }
 
   .chat-markdown mark {
-    @apply rounded bg-muted px-1 text-foreground;
+    @apply rounded-sm bg-muted px-1 text-foreground;
   }
 
   .chat-markdown input[type="checkbox"] {
@@ -538,7 +538,7 @@
   }
 
   .chat-markdown code {
-    @apply bg-muted px-1 py-0.5 font-mono break-words;
+    @apply rounded-sm bg-muted px-1 py-0.5 font-mono break-words;
   }
 
   .chat-markdown .katex {
@@ -563,15 +563,14 @@
     text-align: initial;
   }
 
-  .chat-markdown .chat-code-block {
-    @apply relative my-2 w-full min-w-0 max-w-full border;
+  .chat-code-block {
+    @apply relative my-2 w-full min-w-0 max-w-full overflow-hidden rounded-lg border;
     background: var(--code-bg);
     border-color: var(--border);
     color: var(--code-fg);
-    overflow: visible;
   }
 
-  .chat-markdown .chat-code-header {
+  .chat-code-header {
     user-select: none;
     position: sticky;
     top: -1.5rem;
@@ -588,32 +587,32 @@
     border-radius: var(--radius) var(--radius) 0 0;
   }
 
-  .chat-markdown .chat-code-language {
+  .chat-code-language {
     @apply min-w-0 truncate font-mono text-sm leading-5 text-muted-foreground;
   }
 
-  .chat-markdown .chat-code-toolbar-actions {
+  .chat-code-toolbar-actions {
     @apply flex w-max shrink-0 items-center gap-1;
     user-select: none;
   }
 
-  .chat-markdown .chat-code-action {
-    @apply h-7 w-7 rounded-none border-0 bg-transparent text-muted-foreground shadow-none hover:bg-muted hover:text-foreground;
+  .chat-code-action {
+    @apply h-7 w-7 rounded-sm border-0 bg-transparent text-muted-foreground shadow-none hover:bg-muted hover:text-foreground;
   }
 
-  .chat-markdown .chat-code-action-active {
+  .chat-code-action-active {
     @apply bg-muted text-foreground;
   }
 
-  .chat-markdown .chat-code-scroll {
+  .chat-code-scroll {
     @apply block w-full min-w-0 max-w-full;
   }
 
-  .chat-markdown .chat-code-scroll-wrap {
+  .chat-code-scroll-wrap {
     overflow-x: hidden;
   }
 
-  .chat-markdown .chat-code-scroll-nowrap {
+  .chat-code-scroll-nowrap {
     overflow-x: auto;
   }
 
@@ -624,12 +623,12 @@
     overflow-y: auto;
   }
 
-  .chat-markdown .chat-code-pre {
+  .chat-code-pre {
     @apply m-0 block bg-transparent p-3;
     min-width: 100%;
   }
 
-  .chat-markdown .chat-code-pre-wrap {
+  .chat-code-pre-wrap {
     width: 100%;
     max-width: 100%;
     white-space: pre-wrap;
@@ -637,7 +636,7 @@
     word-break: break-word;
   }
 
-  .chat-markdown .chat-code-pre-nowrap {
+  .chat-code-pre-nowrap {
     display: block;
     width: max-content;
     min-width: 100%;
@@ -647,7 +646,7 @@
     word-break: normal;
   }
 
-  .chat-markdown .chat-code-block code {
+  .chat-code-block code {
     @apply bg-transparent p-0 text-sm leading-5;
   }
 
@@ -742,17 +741,17 @@
     font-style: oblique 8deg;
   }
 
-  .chat-markdown .chat-code-block-fullscreen {
-    @apply m-0 flex h-full min-h-0 flex-col overflow-hidden;
+  .chat-code-block-fullscreen {
+    @apply m-0 flex h-full min-h-0 flex-col overflow-hidden rounded-none;
   }
 
-  .chat-markdown .chat-code-block-fullscreen .chat-code-header {
+  .chat-code-block-fullscreen .chat-code-header {
     position: static;
     top: auto;
     @apply shrink-0;
   }
 
-  .chat-markdown .chat-code-block-fullscreen .chat-code-scroll {
+  .chat-code-block-fullscreen .chat-code-scroll {
     @apply min-h-0 flex-1 overflow-auto;
   }
 
@@ -769,13 +768,13 @@
   .chat-code-preview-fullscreen .chat-code-preview-loading,
   .chat-code-fullscreen-preview .chat-code-preview-loading,
   .chat-markdown .chat-code-preview-loading {
-    @apply flex min-h-36 items-center justify-center  border border-dashed border-border bg-muted/40 px-4 py-8 text-sm text-muted-foreground;
+    @apply flex min-h-36 items-center justify-center rounded-lg border border-dashed border-border bg-muted/40 px-4 py-8 text-sm text-muted-foreground;
   }
 
   .chat-code-preview-fullscreen .chat-code-preview-error,
   .chat-code-fullscreen-preview .chat-code-preview-error,
   .chat-markdown .chat-code-preview-error {
-    @apply whitespace-pre-wrap  border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive;
+    @apply whitespace-pre-wrap rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive;
   }
 
   .chat-code-preview-fullscreen .chat-code-mermaid-preview,
@@ -797,7 +796,7 @@
   }
 
   .chat-markdown .chat-code-mermaid-controls {
-    @apply absolute right-3 top-3 z-30 flex items-center gap-1 border border-border bg-background/95 p-1 shadow-md backdrop-blur;
+    @apply absolute right-3 top-3 z-30 flex items-center gap-1 rounded-lg border border-border bg-background/95 p-1 shadow-md backdrop-blur;
   }
 
   .chat-markdown .chat-code-mermaid-zoom-label {
@@ -833,7 +832,7 @@
   .chat-code-preview-fullscreen .chat-code-html-preview,
   .chat-code-fullscreen-preview .chat-code-html-preview,
   .chat-markdown .chat-code-html-preview {
-    @apply h-full min-h-72 min-w-0 overflow-auto  border border-border bg-background;
+    @apply h-full min-h-72 min-w-0 overflow-auto rounded-lg border border-border bg-background;
   }
 
   .chat-code-preview-fullscreen .chat-code-html-preview,

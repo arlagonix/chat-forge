@@ -1289,7 +1289,7 @@ export const ToolsDialog = memo(function ToolsDialog({
     const modelDescription = getDraftModelDescription(name, defaultDescription);
 
     return (
-      <div className="grid gap-4 border bg-muted/10 p-3">
+      <div className="grid gap-4 rounded-lg border bg-muted/10 p-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
             <Label>Model-facing description</Label>
@@ -1298,7 +1298,7 @@ export const ToolsDialog = memo(function ToolsDialog({
               tool.
             </p>
           </div>
-          <div className="whitespace-pre-wrap border bg-background p-3 text-sm leading-5 text-muted-foreground">
+          <div className="whitespace-pre-wrap rounded-lg border bg-background p-3 text-sm leading-5 text-muted-foreground">
             {modelDescription}
           </div>
         </div>
@@ -1633,7 +1633,7 @@ export const ToolsDialog = memo(function ToolsDialog({
         role="button"
         tabIndex={0}
         className={cn(
-          "group flex min-w-0 cursor-pointer items-start gap-2 border px-2 py-2 outline-none",
+          "group flex min-w-0 cursor-pointer items-start gap-2 rounded-lg border px-2 py-2 outline-none",
           selected
             ? "border-primary/30 bg-accent text-accent-foreground"
             : "border-transparent hover:border-border hover:bg-muted/60",
@@ -1676,7 +1676,7 @@ export const ToolsDialog = memo(function ToolsDialog({
         role="button"
         tabIndex={0}
         className={cn(
-          "group flex min-w-0 cursor-pointer items-start gap-2 border px-2 py-2 outline-none",
+          "group flex min-w-0 cursor-pointer items-start gap-2 rounded-lg border px-2 py-2 outline-none",
           selectedMcpTool?.id === tool.id
             ? "border-primary/30 bg-accent text-accent-foreground"
             : "border-transparent hover:border-border hover:bg-muted/60",
@@ -1713,7 +1713,7 @@ export const ToolsDialog = memo(function ToolsDialog({
             <Label className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
               MCP tool
             </Label>
-            <span className="inline-flex shrink-0 items-center gap-1 border bg-muted/40 px-2 py-1 text-sm text-muted-foreground">
+            <span className="inline-flex shrink-0 items-center gap-1 rounded-sm border bg-muted/40 px-2 py-1 text-sm text-muted-foreground">
               <Server className="size-3.5" />
               Read-only manifest
             </span>
@@ -1732,7 +1732,7 @@ export const ToolsDialog = memo(function ToolsDialog({
               </p>
             </div>
 
-            <div className="grid gap-3 border bg-muted/10 p-3 text-sm leading-5">
+            <div className="grid gap-3 rounded-lg border bg-muted/10 p-3 text-sm leading-5">
               <div className="grid gap-1">
                 <Label>Permission</Label>
                 <div className="text-muted-foreground">
@@ -1852,7 +1852,7 @@ export const ToolsDialog = memo(function ToolsDialog({
 
         <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden md:grid-cols-[400px_minmax(0,1fr)]">
           <aside className="min-h-0 overflow-y-auto border-b bg-card/70 p-3 md:border-b-0 md:border-r">
-            <div className="mb-3 flex items-start justify-between gap-3 border bg-background px-3 py-2 text-base">
+            <div className="mb-3 flex items-start justify-between gap-3 rounded-lg border bg-background px-3 py-2 text-base">
               <span className="min-w-0">
                 <span className="block font-medium">Tools</span>
                 <span className="block select-none text-sm leading-5 text-muted-foreground">
@@ -2003,7 +2003,7 @@ export const ToolsDialog = memo(function ToolsDialog({
                   role="button"
                   tabIndex={0}
                   className={cn(
-                    "group flex min-w-0 cursor-pointer items-start gap-2  border px-2 py-2 outline-none",
+                    "group flex min-w-0 cursor-pointer items-start gap-2 rounded-lg border px-2 py-2 outline-none",
                     selectedTool?.id === tool.id
                       ? "border-primary/30 bg-accent text-accent-foreground"
                       : "border-transparent hover:border-border hover:bg-muted/60",
@@ -2034,7 +2034,7 @@ export const ToolsDialog = memo(function ToolsDialog({
               ))}
 
               {loadedTools.length === 0 && (
-                <div className=" border border-dashed px-3 py-4 text-center text-base text-muted-foreground">
+                <div className="rounded-lg border border-dashed px-3 py-4 text-center text-base text-muted-foreground">
                   No custom tools configured.
                 </div>
               )}
@@ -2044,7 +2044,7 @@ export const ToolsDialog = memo(function ToolsDialog({
               {loadedMcpTools.map((tool) => renderMcpToolRow(tool))}
 
               {loadedMcpTools.length === 0 && (
-                <div className=" border border-dashed px-3 py-4 text-center text-base text-muted-foreground">
+                <div className="rounded-lg border border-dashed px-3 py-4 text-center text-base text-muted-foreground">
                   No MCP tools discovered. Add or refresh MCP servers from MCP
                   settings.
                 </div>
@@ -2057,7 +2057,7 @@ export const ToolsDialog = memo(function ToolsDialog({
                 {toolLoadErrors.map((error) => (
                   <div
                     key={`${error.source}:${error.message}`}
-                    className=" border border-destructive/40 bg-destructive/5 px-2 py-1.5 text-sm leading-5"
+                    className="rounded-lg border border-destructive/40 bg-destructive/5 px-2 py-1.5 text-sm leading-5"
                   >
                     <div
                       className="truncate font-medium text-destructive"
@@ -2080,7 +2080,7 @@ export const ToolsDialog = memo(function ToolsDialog({
                     <Label className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
                       Built-in tool
                     </Label>
-                    <span className="inline-flex shrink-0 items-center gap-1  border bg-muted/40 px-2 py-1 text-sm text-muted-foreground">
+                    <span className="inline-flex shrink-0 items-center gap-1 rounded-sm border bg-muted/40 px-2 py-1 text-sm text-muted-foreground">
                       <Lock className="size-3.5" />
                       Locked
                     </span>
@@ -2152,7 +2152,7 @@ export const ToolsDialog = memo(function ToolsDialog({
                     <Label className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
                       Built-in tool
                     </Label>
-                    <span className="inline-flex shrink-0 items-center gap-1  border bg-muted/40 px-2 py-1 text-sm text-muted-foreground">
+                    <span className="inline-flex shrink-0 items-center gap-1 rounded-sm border bg-muted/40 px-2 py-1 text-sm text-muted-foreground">
                       <Lock className="size-3.5" />
                       Locked
                     </span>
@@ -2227,7 +2227,7 @@ export const ToolsDialog = memo(function ToolsDialog({
                     <Label className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
                       Built-in tool
                     </Label>
-                    <span className="inline-flex shrink-0 items-center gap-1 border bg-muted/40 px-2 py-1 text-sm text-muted-foreground">
+                    <span className="inline-flex shrink-0 items-center gap-1 rounded-sm border bg-muted/40 px-2 py-1 text-sm text-muted-foreground">
                       <Lock className="size-3.5" />
                       Locked
                     </span>
@@ -2293,7 +2293,7 @@ export const ToolsDialog = memo(function ToolsDialog({
                     <Label className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
                       Built-in tool
                     </Label>
-                    <span className="inline-flex shrink-0 items-center gap-1  border bg-muted/40 px-2 py-1 text-sm text-muted-foreground">
+                    <span className="inline-flex shrink-0 items-center gap-1 rounded-sm border bg-muted/40 px-2 py-1 text-sm text-muted-foreground">
                       <Lock className="size-3.5" />
                       Locked
                     </span>
@@ -2360,7 +2360,7 @@ export const ToolsDialog = memo(function ToolsDialog({
                     <Label className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
                       Built-in tool
                     </Label>
-                    <span className="inline-flex shrink-0 items-center gap-1  border bg-muted/40 px-2 py-1 text-sm text-muted-foreground">
+                    <span className="inline-flex shrink-0 items-center gap-1 rounded-sm border bg-muted/40 px-2 py-1 text-sm text-muted-foreground">
                       <Lock className="size-3.5" />
                       Locked
                     </span>
@@ -2429,7 +2429,7 @@ export const ToolsDialog = memo(function ToolsDialog({
                     <Label className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
                       Built-in tool
                     </Label>
-                    <span className="inline-flex shrink-0 items-center gap-1  border bg-muted/40 px-2 py-1 text-sm text-muted-foreground">
+                    <span className="inline-flex shrink-0 items-center gap-1 rounded-sm border bg-muted/40 px-2 py-1 text-sm text-muted-foreground">
                       <Lock className="size-3.5" />
                       Locked
                     </span>
@@ -2665,7 +2665,7 @@ export const ToolsDialog = memo(function ToolsDialog({
                       </div>
                     </div>
 
-                    <div className="grid gap-3  border bg-muted/20 p-3">
+                    <div className="grid gap-3 rounded-lg border bg-muted/20 p-3">
                       <div>
                         <Label>Execution limits</Label>
                         <p className="text-sm leading-5 text-muted-foreground">
@@ -2771,7 +2771,7 @@ export const ToolsDialog = memo(function ToolsDialog({
                       />
                       {(currentToolTestResult ||
                         currentToolTestExecutionPreview) && (
-                        <div className="grid gap-3  border bg-card p-3">
+                        <div className="grid gap-3 rounded-lg border bg-card p-3">
                           <div className="flex items-center justify-between gap-3 text-sm text-muted-foreground">
                             {currentToolTestResult ? (
                               <span>
@@ -2831,7 +2831,7 @@ export const ToolsDialog = memo(function ToolsDialog({
               </>
             ) : (
               <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-5">
-                <div className="flex h-full items-center justify-center  border border-dashed p-8 text-center text-base text-muted-foreground">
+                <div className="flex h-full items-center justify-center rounded-lg border border-dashed p-8 text-center text-base text-muted-foreground">
                   Select a tool or add a new one.
                 </div>
               </div>

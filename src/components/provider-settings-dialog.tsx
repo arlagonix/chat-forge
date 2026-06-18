@@ -1082,7 +1082,7 @@ export const ProviderSettingsDialog = memo(function ProviderSettingsDialog({
                       );
                     })
                   ) : (
-                    <div className="border border-dashed px-3 py-4 text-center text-base text-muted-foreground">
+                    <div className="rounded-lg border border-dashed px-3 py-4 text-center text-base text-muted-foreground">
                       {providers.length > 0
                         ? "No providers match the search."
                         : "No providers configured."}

@@ -676,7 +676,7 @@ export const AgentsDialog = memo(function AgentsDialog({
 
           <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden md:grid-cols-[400px_minmax(0,1fr)]">
             <aside className="min-h-0 overflow-y-auto border-b bg-card/70 p-3 md:border-b-0 md:border-r">
-              <div className="mb-3 flex items-start justify-between gap-3 border bg-background px-3 py-2 text-base">
+              <div className="mb-3 flex items-start justify-between gap-3 rounded-lg border bg-background px-3 py-2 text-base">
                 <span className="min-w-0">
                   <span className="block font-medium">Agents</span>
                   <span className="block text-sm leading-5 text-muted-foreground">
@@ -755,7 +755,7 @@ export const AgentsDialog = memo(function AgentsDialog({
                         role="button"
                         tabIndex={0}
                         className={cn(
-                          "group flex min-w-0 cursor-pointer items-start gap-2 border px-2 py-2 outline-none",
+                          "group flex min-w-0 cursor-pointer items-start gap-2 rounded-lg border px-2 py-2 outline-none",
                           selectedAgent?.id === agent.id
                             ? "border-primary/30 bg-accent text-accent-foreground"
                             : "border-transparent hover:border-border hover:bg-muted/60",
@@ -793,7 +793,7 @@ export const AgentsDialog = memo(function AgentsDialog({
                 ))}
 
                 {displayedAgents.length === 0 && (
-                  <div className="border border-dashed px-3 py-4 text-center text-base text-muted-foreground">
+                  <div className="rounded-lg border border-dashed px-3 py-4 text-center text-base text-muted-foreground">
                     No agents configured.
                   </div>
                 )}
@@ -807,7 +807,7 @@ export const AgentsDialog = memo(function AgentsDialog({
                   {agentLoadErrors.map((error) => (
                     <div
                       key={`${error.source}:${error.message}`}
-                      className="border border-destructive/40 bg-destructive/5 px-2 py-1.5 text-sm leading-5"
+                    className="rounded-lg border border-destructive/40 bg-destructive/5 px-2 py-1.5 text-sm leading-5"
                     >
                       <div
                         className="truncate font-medium text-destructive"
@@ -1117,7 +1117,7 @@ export const AgentsDialog = memo(function AgentsDialog({
                       </div>
 
                       {selectedAgentIsBuiltIn ? (
-                        <div className="border bg-muted/25 px-3 py-2 text-sm leading-5 text-muted-foreground">
+                        <div className="rounded-lg border bg-muted/25 px-3 py-2 text-sm leading-5 text-muted-foreground">
                           Built-in agents mirror the current chat's effective
                           tools, skills, and allowed agents at runtime, so only
                           their max nesting depth is editable here.
@@ -1231,7 +1231,7 @@ export const AgentsDialog = memo(function AgentsDialog({
                             </Popover>
 
                             {agentDraft.loadedSkillNames.length > 0 && (
-                              <div className="grid max-h-56 gap-1 overflow-y-auto border bg-muted/10 p-2">
+                              <div className="grid max-h-56 gap-1 overflow-y-auto rounded-lg border bg-muted/10 p-2">
                                 {agentDraft.loadedSkillNames.map(
                                   (skillName) => {
                                     const skill =
@@ -1239,7 +1239,7 @@ export const AgentsDialog = memo(function AgentsDialog({
                                     return (
                                       <div
                                         key={skillName}
-                                        className="flex min-w-0 items-start gap-2 px-2 py-1.5 hover:bg-muted/70"
+                                        className="flex min-w-0 items-start gap-2 rounded-sm px-2 py-1.5 hover:bg-muted/70"
                                         title={skill?.description}
                                       >
                                         <Checkbox
@@ -1374,13 +1374,13 @@ export const AgentsDialog = memo(function AgentsDialog({
                             </Popover>
 
                             {agentDraft.allowedToolNames.length > 0 && (
-                              <div className="grid max-h-56 gap-1 overflow-y-auto border bg-muted/10 p-2">
+                              <div className="grid max-h-56 gap-1 overflow-y-auto rounded-lg border bg-muted/10 p-2">
                                 {agentDraft.allowedToolNames.map((toolName) => {
                                   const tool = toolsByName.get(toolName);
                                   return (
                                     <div
                                       key={toolName}
-                                      className="flex min-w-0 items-start gap-2 px-2 py-1.5 hover:bg-muted/70"
+                                      className="flex min-w-0 items-start gap-2 rounded-sm px-2 py-1.5 hover:bg-muted/70"
                                       title={tool?.description}
                                     >
                                       <Wrench className="mt-1 size-4 shrink-0 text-muted-foreground" />
@@ -1515,14 +1515,14 @@ export const AgentsDialog = memo(function AgentsDialog({
                             </Popover>
 
                             {agentDraft.allowedAgentNames.length > 0 && (
-                              <div className="grid max-h-56 gap-1 overflow-y-auto border bg-muted/10 p-2">
+                              <div className="grid max-h-56 gap-1 overflow-y-auto rounded-lg border bg-muted/10 p-2">
                                 {agentDraft.allowedAgentNames.map(
                                   (agentName) => {
                                     const agent = agentsByName.get(agentName);
                                     return (
                                       <div
                                         key={agentName}
-                                        className="flex min-w-0 items-start gap-2 px-2 py-1.5 hover:bg-muted/70"
+                                        className="flex min-w-0 items-start gap-2 rounded-sm px-2 py-1.5 hover:bg-muted/70"
                                         title={agent?.description}
                                       >
                                         <Bot className="mt-1 size-4 shrink-0 text-muted-foreground" />

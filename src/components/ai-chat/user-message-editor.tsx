@@ -475,7 +475,7 @@ export const UserMessageEditor = memo(function UserMessageEditor({
           {isMentionMenuOpen && mentionMenuPosition && (
             <div
               ref={mentionMenuRef}
-              className="absolute z-30 w-[min(28rem,calc(100vw-2rem))] overflow-y-auto border bg-popover p-1 text-popover-foreground shadow-lg"
+              className="absolute z-30 w-[min(28rem,calc(100vw-2rem))] overflow-y-auto rounded-lg border bg-popover p-1 text-popover-foreground shadow-lg"
               style={{
                 left: mentionMenuPosition.left,
                 top: mentionMenuPosition.top,

@@ -195,7 +195,7 @@ function MiniChatMessage({
         className={cn(
           "min-w-0 max-w-full text-base leading-6 [overflow-wrap:anywhere]",
           isUser
-            ? "max-w-[85%] bg-primary px-4 py-3 text-primary-foreground shadow-xs"
+            ? "max-w-[85%] rounded-lg bg-primary px-4 py-3 text-primary-foreground shadow-xs"
             : "w-full px-0 py-1 text-card-foreground shadow-xs",
         )}
       >
@@ -445,7 +445,7 @@ function AgentTranscriptFlatBody({
       !agentCall.reasoning?.trim() &&
       visibleToolCalls.length === 0 &&
       childAgentCalls.length === 0 ? (
-        <div className="border bg-muted/35 px-3 py-2 text-base text-muted-foreground">
+        <div className="rounded-lg border bg-muted/35 px-3 py-2 text-base text-muted-foreground">
           {agentCall.status === "running" || agentCall.status === "pending"
             ? "Waiting for agent output..."
             : "No runtime output recorded."}
@@ -699,7 +699,7 @@ function AgentTranscriptStepsBody({
             "grid gap-2 bg-transparent",
             insideThinkingToolGroup || insideRuntimeGroup
               ? ""
-              : "border border-dashed px-2 py-2 shadow-xs",
+              : "rounded-lg border border-dashed px-2 py-2 shadow-xs",
           )}
         >
           {groupLabel ? (
@@ -727,7 +727,7 @@ function AgentTranscriptStepsBody({
       return (
         <div
           key={`${key}:runtime-group`}
-          className="grid gap-2 border border-dashed bg-muted/10 px-2 py-2 shadow-xs"
+          className="grid gap-2 rounded-lg border border-dashed bg-muted/10 px-2 py-2 shadow-xs"
         >
           {group.groups.map((baseGroup) =>
             renderBaseGroup(baseGroup, { insideRuntimeGroup: true }),
@@ -740,7 +740,7 @@ function AgentTranscriptStepsBody({
       return (
         <div
           key={`${group.thinkingStep.id}:tool-group`}
-          className="grid gap-2 border border-dashed bg-muted/10 px-2 py-2 shadow-xs"
+          className="grid gap-2 rounded-lg border border-dashed bg-muted/10 px-2 py-2 shadow-xs"
         >
           {renderStep(group.thinkingStep)}
           {group.toolGroups.map((toolGroup) =>
@@ -760,7 +760,7 @@ function AgentTranscriptStepsBody({
       {groups.map((group) => renderBaseGroup(group))}
 
       {!hasAnyContent ? (
-        <div className="border bg-muted/35 px-3 py-2 text-base text-muted-foreground">
+        <div className="rounded-lg border bg-muted/35 px-3 py-2 text-base text-muted-foreground">
           {agentRunning
             ? "Waiting for agent output..."
             : "No runtime output recorded."}

@@ -75,7 +75,7 @@ function formatField(value: number | undefined, kind: "count" | "percent") {
 
 function StatCard({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-xl bg-muted/50 px-4 py-3">
+    <div className="rounded-lg bg-muted/50 px-4 py-3">
       <div className="text-sm text-muted-foreground">{label}</div>
       <div className="mt-1 text-lg tabular-nums text-foreground">{value}</div>
     </div>
@@ -145,7 +145,7 @@ function ContextUsageModalContent({ usage }: { usage: ContextUsageInfo }) {
 
   return (
     <div className="space-y-5">
-      <div className="rounded-xl bg-muted/50 px-5 py-4">
+      <div className="rounded-lg bg-muted/50 px-5 py-4">
         <div className="flex items-baseline justify-between gap-4">
           <span className="text-sm text-muted-foreground">Context</span>
           <span className="text-sm tabular-nums text-muted-foreground">
@@ -185,7 +185,7 @@ function ContextUsageModalContent({ usage }: { usage: ContextUsageInfo }) {
         <StatCard label="Cost" value={formatMoney(usage.costUsd)} />
       </div>
 
-      <div className="rounded-xl bg-muted/50 px-5 py-4">
+      <div className="rounded-lg bg-muted/50 px-5 py-4">
         <div className="mb-3 text-sm text-muted-foreground">
           Last Assistant Message
         </div>

@@ -320,7 +320,7 @@ const UserMessageContent = memo(function UserMessageContent({
     return (
       <div className="whitespace-pre-wrap">
         {slashInvocation.leading}
-        <span className="rounded bg-primary-foreground/15 px-1 py-0.5 font-mono text-[0.95em]">
+        <span className="rounded-sm bg-primary-foreground/15 px-1 py-0.5 font-mono text-[0.95em]">
           {slashInvocation.command}
         </span>
         {slashInvocation.rest}
@@ -334,7 +334,7 @@ const UserMessageContent = memo(function UserMessageContent({
     <div className="space-y-2">
       <button
         type="button"
-        className="flex w-full min-w-0 items-start gap-2 rounded-md border border-primary-foreground/20 bg-primary-foreground/10 px-3 py-2 text-left transition hover:bg-primary-foreground/15"
+        className="flex w-full min-w-0 items-start gap-2 rounded-lg border border-primary-foreground/20 bg-primary-foreground/10 px-3 py-2 text-left transition hover:bg-primary-foreground/15"
         onClick={() => setSkillModalOpen(true)}
         title={skillInvocation.location}
       >
@@ -367,7 +367,7 @@ const UserMessageContent = memo(function UserMessageContent({
             ) : null}
           </DialogHeader>
           <div className="min-h-0 flex-1 overflow-auto p-5 chat-message-scrollbar">
-            <pre className="whitespace-pre-wrap break-words rounded-md border bg-muted/30 p-4 font-mono text-sm leading-6">
+            <pre className="whitespace-pre-wrap break-words rounded-lg border bg-muted/30 p-4 font-mono text-sm leading-6">
               <code>{skillInvocation.content}</code>
             </pre>
           </div>
@@ -890,7 +890,7 @@ const ChatMessageItem = memo(
               "grid gap-2 bg-transparent",
               insideThinkingToolGroup || insideRuntimeGroup
                 ? ""
-                : "border border-dashed px-2 py-2 shadow-xs",
+                : "rounded-lg border border-dashed px-2 py-2 shadow-xs",
             )}
           >
             {groupLabel ? (
@@ -922,7 +922,7 @@ const ChatMessageItem = memo(
         return (
           <div
             key={`${key}:runtime-group`}
-            className="grid gap-2 border border-dashed bg-muted/10 px-2 py-2 shadow-xs"
+            className="grid gap-2 rounded-lg border border-dashed bg-muted/10 px-2 py-2 shadow-xs"
           >
             {group.groups.map((baseGroup) =>
               renderProcessStepGroup(baseGroup, { insideRuntimeGroup: true }),
@@ -936,7 +936,7 @@ const ChatMessageItem = memo(
         return (
           <div
             key={key}
-            className="grid gap-2 border border-dashed bg-muted/10 px-2 py-2 shadow-xs"
+            className="grid gap-2 rounded-lg border border-dashed bg-muted/10 px-2 py-2 shadow-xs"
           >
             {renderProcessStep(group.thinkingStep)}
             {group.toolGroups.map((toolGroup) =>
@@ -1059,7 +1059,7 @@ const ChatMessageItem = memo(
                   className={cn(
                     "min-w-0 text-base leading-6 [overflow-wrap:anywhere] w-full ",
                     message.role === "user"
-                      ? "max-h-[32rem] overflow-y-auto overflow-x-hidden chat-message-scrollbar bg-primary px-4 py-3 text-primary-foreground shadow-xs"
+                      ? "max-h-[32rem] overflow-y-auto overflow-x-hidden chat-message-scrollbar rounded-lg bg-primary px-4 py-3 text-primary-foreground shadow-xs"
                       : "min-w-0 max-w-full overflow-visible px-0 py-1 text-card-foreground shadow-xs",
                     status === "error" && "border-destructive/50",
                   )}
@@ -1108,7 +1108,7 @@ const ChatMessageItem = memo(
           createPortal(
             <div
               data-message-context-menu
-              className="fixed z-50 min-w-55  border bg-popover p-1 text-base text-popover-foreground shadow-md"
+              className="fixed z-50 min-w-55 rounded-lg border bg-popover p-1 text-base text-popover-foreground shadow-md"
               style={{
                 left: messageContextMenu.x,
                 top: messageContextMenu.y,
