@@ -779,7 +779,7 @@ export const ChatComposer = memo(
             </div>
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="min-w-0 flex-1">{footerStart}</div>
-              <ContextUsageIndicator usage={contextUsage ?? {}} />
+              {contextUsage ? <ContextUsageIndicator usage={contextUsage} /> : null}
               <Button
                 type="button"
                 variant="ghost"

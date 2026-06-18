@@ -131,6 +131,15 @@ type ChatTokenUsage = {
   promptTokens?: number;
   completionTokens?: number;
   totalTokens?: number;
+  breakdown?: {
+    input?: number;
+    output?: number;
+    reasoning?: number;
+    cache?: {
+      read?: number;
+      write?: number;
+    };
+  };
 };
 
 type ChatReasoningMetadata = {

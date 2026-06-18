@@ -116,11 +116,18 @@ function readNumber(value: unknown) {
     : undefined;
 }
 
-function readUsage(data: unknown): ChatTokenUsage | undefined {
-  if (!data || typeof data !== "object" || !("usage" in data)) return undefined;
+function readRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
 
-  const usage = data.usage;
-  if (!usage || typeof usage !== "object") return undefined;
+function readUsage(data: unknown): ChatTokenUsage | undefined {
+  const dataRecord = readRecord(data);
+  if (!dataRecord || !("usage" in dataRecord)) return undefined;
+
+  const usage = readRecord(dataRecord.usage);
+  if (!usage) return undefined;
 
   const promptTokens = readNumber(
     "prompt_tokens" in usage ? usage.prompt_tokens : undefined,
@@ -131,11 +138,60 @@ function readUsage(data: unknown): ChatTokenUsage | undefined {
   const totalTokens = readNumber(
     "total_tokens" in usage ? usage.total_tokens : undefined,
   );
+  const promptDetails = readRecord(
+    "prompt_tokens_details" in usage
+      ? usage.prompt_tokens_details
+      : "input_tokens_details" in usage
+        ? usage.input_tokens_details
+        : undefined,
+  );
+  const completionDetails = readRecord(
+    "completion_tokens_details" in usage
+      ? usage.completion_tokens_details
+      : "output_tokens_details" in usage
+        ? usage.output_tokens_details
+        : undefined,
+  );
+  const cacheReadTokens =
+    readNumber(promptDetails?.cached_tokens) ??
+    readNumber(promptDetails?.cache_read_tokens) ??
+    readNumber(promptDetails?.cache_read_input_tokens) ??
+    readNumber(
+      "cache_read_input_tokens" in usage
+        ? usage.cache_read_input_tokens
+        : undefined,
+    ) ??
+    readNumber("cache_read_tokens" in usage ? usage.cache_read_tokens : undefined);
+  const cacheWriteTokens =
+    readNumber(promptDetails?.cache_creation_tokens) ??
+    readNumber(promptDetails?.cache_write_tokens) ??
+    readNumber(promptDetails?.cache_write_input_tokens) ??
+    readNumber(
+      "cache_creation_input_tokens" in usage
+        ? usage.cache_creation_input_tokens
+        : undefined,
+    ) ??
+    readNumber(
+      "cache_write_input_tokens" in usage
+        ? usage.cache_write_input_tokens
+        : undefined,
+    ) ??
+    readNumber(
+      "cache_write_tokens" in usage ? usage.cache_write_tokens : undefined,
+    );
+  const reasoningTokens =
+    readNumber(completionDetails?.reasoning_tokens) ??
+    readNumber(
+      "reasoning_tokens" in usage ? usage.reasoning_tokens : undefined,
+    );
 
   if (
     promptTokens === undefined &&
     completionTokens === undefined &&
-    totalTokens === undefined
+    totalTokens === undefined &&
+    cacheReadTokens === undefined &&
+    cacheWriteTokens === undefined &&
+    reasoningTokens === undefined
   ) {
     return undefined;
   }
@@ -144,6 +200,18 @@ function readUsage(data: unknown): ChatTokenUsage | undefined {
     promptTokens,
     completionTokens,
     totalTokens,
+    breakdown: {
+      input:
+        promptTokens !== undefined
+          ? Math.max(0, promptTokens - (cacheReadTokens ?? 0) - (cacheWriteTokens ?? 0))
+          : undefined,
+      output: completionTokens,
+      reasoning: reasoningTokens,
+      cache: {
+        read: cacheReadTokens,
+        write: cacheWriteTokens,
+      },
+    },
   };
 }
 

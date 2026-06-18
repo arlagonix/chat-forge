@@ -36,6 +36,7 @@ import {
   createBuiltInAgents,
   isBuiltInAgentName,
 } from "@/lib/ai-chat/builtin-agents";
+import { buildContextUsageDetails } from "@/lib/ai-chat/context-usage";
 import {
   applyBuiltInToolSettings,
   ASK_USER_TOOL,
@@ -714,34 +715,22 @@ export default function Home() {
     const attachmentTokens = estimateAttachmentsTokens(
       activeComposerAttachments,
     );
-    const assistantMessages = [...messages]
-      .reverse()
-      .filter((message) => message.role === "assistant");
 
-    for (const message of assistantMessages) {
-      if (message.role !== "assistant") continue;
-      const variant = message.variants[message.activeVariantIndex];
-      const usage = variant?.metrics?.tokenUsage;
-      const usedTokens = usage?.promptTokens ?? usage?.totalTokens;
-      if (usedTokens !== undefined && Number.isFinite(usedTokens)) {
-        return {
-          usedTokens: usedTokens + attachmentTokens,
-          limitTokens: context.length,
-          limitSource: context.source,
-        };
-      }
-    }
-
-    return {
-      usedTokens: attachmentTokens || undefined,
-      limitTokens: context.length,
+    const details = buildContextUsageDetails({
+      messages,
+      contextLimit: context.length,
       limitSource: context.source,
-    };
+      attachmentTokens,
+      systemPrompt,
+    });
+
+    return details.usedTokens && details.usedTokens > 0 ? details : undefined;
   }, [
     activeChatModel,
     activeChatProvider,
     activeComposerAttachments,
     messages,
+    systemPrompt,
   ]);
   const visibleProviderGroups = useMemo(() => {
     const search = sidebarModelSearchValue.trim().toLowerCase();

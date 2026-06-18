@@ -38,6 +38,15 @@ export type ChatTokenUsage = {
   promptTokens?: number;
   completionTokens?: number;
   totalTokens?: number;
+  breakdown?: {
+    input?: number;
+    output?: number;
+    reasoning?: number;
+    cache?: {
+      read?: number;
+      write?: number;
+    };
+  };
 };
 
 export type ChatReasoningMetadata = {
@@ -195,11 +204,21 @@ function readNumber(value: unknown): number | undefined {
     : undefined;
 }
 
+function readRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
 type AiSdkUsage =
   | {
       inputTokens?: number;
       outputTokens?: number;
       totalTokens?: number;
+      reasoningTokens?: number;
+      cachedInputTokens?: number;
+      cacheReadInputTokens?: number;
+      cacheWriteInputTokens?: number;
     }
   | undefined;
 
@@ -208,16 +227,102 @@ function mapUsage(usage: AiSdkUsage): ChatTokenUsage | undefined {
   const promptTokens = readNumber(usage.inputTokens);
   const completionTokens = readNumber(usage.outputTokens);
   const totalTokens = readNumber(usage.totalTokens);
+  const reasoningTokens = readNumber(usage.reasoningTokens);
+  const cacheReadTokens =
+    readNumber(usage.cachedInputTokens) ?? readNumber(usage.cacheReadInputTokens);
+  const cacheWriteTokens = readNumber(usage.cacheWriteInputTokens);
 
   if (
     promptTokens === undefined &&
     completionTokens === undefined &&
-    totalTokens === undefined
+    totalTokens === undefined &&
+    reasoningTokens === undefined &&
+    cacheReadTokens === undefined &&
+    cacheWriteTokens === undefined
   ) {
     return undefined;
   }
 
-  return { promptTokens, completionTokens, totalTokens };
+  return {
+    promptTokens,
+    completionTokens,
+    totalTokens,
+    breakdown: {
+      input:
+        promptTokens !== undefined
+          ? Math.max(0, promptTokens - (cacheReadTokens ?? 0) - (cacheWriteTokens ?? 0))
+          : undefined,
+      output: completionTokens,
+      reasoning: reasoningTokens,
+      cache: {
+        read: cacheReadTokens,
+        write: cacheWriteTokens,
+      },
+    },
+  };
+}
+
+function readUsage(data: unknown): ChatTokenUsage | undefined {
+  const dataRecord = readRecord(data);
+  const usage = readRecord(dataRecord?.usage);
+  if (!usage) return undefined;
+
+  const promptTokens =
+    readNumber(usage.prompt_tokens) ?? readNumber(usage.input_tokens);
+  const completionTokens =
+    readNumber(usage.completion_tokens) ?? readNumber(usage.output_tokens);
+  const totalTokens = readNumber(usage.total_tokens);
+  const promptDetails =
+    readRecord(usage.prompt_tokens_details) ??
+    readRecord(usage.input_tokens_details);
+  const completionDetails =
+    readRecord(usage.completion_tokens_details) ??
+    readRecord(usage.output_tokens_details);
+  const cacheReadTokens =
+    readNumber(promptDetails?.cached_tokens) ??
+    readNumber(promptDetails?.cache_read_tokens) ??
+    readNumber(promptDetails?.cache_read_input_tokens) ??
+    readNumber(usage.cache_read_input_tokens) ??
+    readNumber(usage.cache_read_tokens);
+  const cacheWriteTokens =
+    readNumber(promptDetails?.cache_creation_tokens) ??
+    readNumber(promptDetails?.cache_write_tokens) ??
+    readNumber(promptDetails?.cache_write_input_tokens) ??
+    readNumber(usage.cache_creation_input_tokens) ??
+    readNumber(usage.cache_write_input_tokens) ??
+    readNumber(usage.cache_write_tokens);
+  const reasoningTokens =
+    readNumber(completionDetails?.reasoning_tokens) ??
+    readNumber(usage.reasoning_tokens);
+
+  if (
+    promptTokens === undefined &&
+    completionTokens === undefined &&
+    totalTokens === undefined &&
+    reasoningTokens === undefined &&
+    cacheReadTokens === undefined &&
+    cacheWriteTokens === undefined
+  ) {
+    return undefined;
+  }
+
+  return {
+    promptTokens,
+    completionTokens,
+    totalTokens,
+    breakdown: {
+      input:
+        promptTokens !== undefined
+          ? Math.max(0, promptTokens - (cacheReadTokens ?? 0) - (cacheWriteTokens ?? 0))
+          : undefined,
+      output: completionTokens,
+      reasoning: reasoningTokens,
+      cache: {
+        read: cacheReadTokens,
+        write: cacheWriteTokens,
+      },
+    },
+  };
 }
 
 function mapFinishReason(finishReason: string | undefined): string | undefined {
@@ -453,6 +558,11 @@ export async function streamChatCompletion({
         case "raw": {
           const data = part.rawValue;
 
+          const rawUsage = readUsage(data);
+          if (rawUsage) {
+            usage = rawUsage;
+          }
+
           const metadataDelta = readReasoningMetadataDelta(data);
           if (metadataDelta) {
             reasoningMetadata = mergeReasoningMetadata(
@@ -498,7 +608,21 @@ export async function streamChatCompletion({
         }
         case "finish": {
           finishReason = mapFinishReason(part.finishReason);
-          usage = mapUsage(part.totalUsage);
+          const finishUsage = mapUsage(part.totalUsage);
+          usage = finishUsage
+            ? {
+                ...(usage ?? {}),
+                ...finishUsage,
+                breakdown: {
+                  ...(usage?.breakdown ?? {}),
+                  ...finishUsage.breakdown,
+                  cache: {
+                    ...(usage?.breakdown?.cache ?? {}),
+                    ...(finishUsage.breakdown?.cache ?? {}),
+                  },
+                },
+              }
+            : usage;
           break;
         }
         case "abort": {

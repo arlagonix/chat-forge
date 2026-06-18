@@ -106,14 +106,16 @@ function formatAskUserHeaderDetail(
   const prompt = request.title?.trim() || question?.question.trim() || "";
   if (!response || !question) return prompt;
 
-  const answerLabel = response.answerLabels?.[question.id];
-  const answer = Array.isArray(answerLabel)
-    ? answerLabel.join(", ")
-    : answerLabel || response.answers[question.id] || "";
+  const answerCount = request.questions.filter((item) => {
+    const answerLabel = response.answerLabels?.[item.id];
+    if (Array.isArray(answerLabel)) return answerLabel.length > 0;
+    if (answerLabel?.trim()) return true;
+    if (response.answers[item.id]?.trim()) return true;
+    return (response.multiAnswers?.[item.id] ?? []).length > 0;
+  }).length;
 
-  if (!prompt) return answer;
-  if (!answer.trim()) return prompt;
-  return `${prompt}: ${answer.trim()}`;
+  if (answerCount <= 0) return prompt;
+  return `${answerCount} answer${answerCount === 1 ? "" : "s"}`;
 }
 
 function formatToolApprovalHeaderStatus(
@@ -237,7 +239,10 @@ export const AskUserBlock = memo(function AskUserBlock({
 
     event.preventDefault();
 
-    if (activeQuestionCount > 1 && activeQuestionIndex < activeQuestionCount - 1) {
+    if (
+      activeQuestionCount > 1 &&
+      activeQuestionIndex < activeQuestionCount - 1
+    ) {
       goToNextQuestion();
       return;
     }
@@ -270,6 +275,47 @@ export const AskUserBlock = memo(function AskUserBlock({
       .map((optionId) => getSelectedOptionLabel(question.id, optionId))
       .filter(Boolean);
   }
+
+  function getResponseAnswerText(question: AskUserQuestion) {
+    if (!response) return "";
+
+    const answerLabel = response.answerLabels?.[question.id];
+    if (Array.isArray(answerLabel)) {
+      return answerLabel.filter(Boolean).join(", ");
+    }
+    if (answerLabel?.trim()) return answerLabel.trim();
+
+    const questionType = getAskUserQuestionType(question);
+    if (questionType === "multi_select") {
+      return getMultiAnswerLabels(
+        question,
+        response.multiAnswers?.[question.id] ?? [],
+      ).join(", ");
+    }
+
+    if (questionType === "text") {
+      return response.answers[question.id]?.trim() ?? "";
+    }
+
+    const selectedAnswer = response.answers[question.id];
+    if (selectedAnswer === ASK_USER_CUSTOM_ANSWER_ID) {
+      return response.customAnswers?.[question.id]?.trim() ?? "";
+    }
+
+    return getSelectedOptionLabel(question.id, selectedAnswer).trim();
+  }
+
+  const collapsedAnswerSummaries = useMemo(() => {
+    if (!response) return [];
+
+    return request.questions
+      .map((question) => ({
+        id: question.id,
+        question: question.question.trim(),
+        answer: getResponseAnswerText(question),
+      }))
+      .filter((item) => item.question && item.answer.trim());
+  }, [request.questions, response]);
 
   function renderTextAnswer(question: AskUserQuestion, readOnly = false) {
     const value = readOnly
@@ -859,6 +905,22 @@ export const AskUserBlock = memo(function AskUserBlock({
                 )}
               </div>
             )}
+          {isCollapsed && collapsedAnswerSummaries.length > 0 && (
+            <div className="mt-2 ml-[7px] grid gap-2 border-l border-border/70 pl-4 font-normal normal-case leading-5 tracking-normal">
+              {collapsedAnswerSummaries.map((item) => (
+                <div key={item.id} className="grid gap-1">
+                  <div className="text-sm text-card-foreground">
+                    <span className="text-muted-foreground">Q:</span>{" "}
+                    {item.question}
+                  </div>
+                  <div className="text-sm">
+                    <span className="text-muted-foreground/80">A:</span>{" "}
+                    {item.answer}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </button>
 
         {!isCollapsed && (

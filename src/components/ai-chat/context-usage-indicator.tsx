@@ -1,25 +1,25 @@
-import { Button } from "@/components/ui/button";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import { cn } from "@/lib/utils";
-import { memo } from "react";
+import { memo, useState } from "react";
 
-export type ContextUsageInfo = {
-  usedTokens?: number;
-  limitTokens?: number;
-  limitSource?: "manual" | "detected" | "speculated" | "unknown";
-};
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import type { ContextUsageDetails } from "@/lib/ai-chat/context-usage";
+import { cn } from "@/lib/utils";
+
+export type ContextUsageInfo = ContextUsageDetails;
 
 function formatNumber(value: number | undefined) {
   return value === undefined || !Number.isFinite(value)
-    ? "unknown"
-    : new Intl.NumberFormat().format(value);
+    ? "—"
+    : new Intl.NumberFormat().format(Math.round(value));
 }
 
-function formatCompactTokens(value: number | undefined) {
+function formatCompact(value: number | undefined) {
   const safeValue =
     value !== undefined && Number.isFinite(value) && value > 0 ? value : 0;
 
@@ -27,14 +27,26 @@ function formatCompactTokens(value: number | undefined) {
     return `${Math.round(safeValue / 1_000_000)}M`;
   }
 
-  return `${Math.round(safeValue / 1_000)}k`;
+  if (safeValue >= 1_000) {
+    return `${Math.round(safeValue / 1_000)}k`;
+  }
+
+  return String(Math.round(safeValue));
 }
 
-function formatLimitSource(source: ContextUsageInfo["limitSource"]) {
-  if (source === "manual") return "Manual override";
-  if (source === "detected") return "Runtime/provider detected";
-  if (source === "speculated") return "Speculated metadata";
-  return "Unknown";
+function formatPercent(value: number | undefined) {
+  return value === undefined || !Number.isFinite(value)
+    ? "—"
+    : `${Math.min(value, 999).toFixed(1)}%`;
+}
+
+function formatMoney(value: number | undefined) {
+  return new Intl.NumberFormat(undefined, {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value && Number.isFinite(value) ? value : 0);
 }
 
 function getUsageColor(percentage: number | undefined) {
@@ -46,37 +58,231 @@ function getUsageColor(percentage: number | undefined) {
   return "text-red-600 dark:text-red-400";
 }
 
+function getUsageBarColor(percentage: number | undefined) {
+  if (percentage === undefined || !Number.isFinite(percentage)) {
+    return "bg-primary";
+  }
+  if (percentage < 75) return "bg-primary";
+  if (percentage < 90) return "bg-yellow-500";
+  return "bg-red-500";
+}
+
+function formatField(value: number | undefined, kind: "count" | "percent") {
+  if (value === undefined || !Number.isFinite(value)) return "—";
+  return kind === "percent" ? formatPercent(value) : formatNumber(value);
+}
+
+function StatCard({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl bg-muted/50 px-4 py-3">
+      <div className="text-sm text-muted-foreground">{label}</div>
+      <div className="mt-1 text-lg tabular-nums text-foreground">{value}</div>
+    </div>
+  );
+}
+
+function SegmentLegend({
+  label,
+  value,
+  total,
+  className,
+}: {
+  label: string;
+  value: number;
+  total: number;
+  className: string;
+}) {
+  const percent = total > 0 ? (value / total) * 100 : 0;
+
+  return (
+    <div className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
+      <span className={cn("size-2 rounded-full", className)} />
+      <span>
+        {label} <span className="tabular-nums">{percent.toFixed(0)}%</span>
+      </span>
+    </div>
+  );
+}
+
+function ContextUsageModalContent({ usage }: { usage: ContextUsageInfo }) {
+  const hasLimit =
+    usage.limitTokens !== undefined &&
+    Number.isFinite(usage.limitTokens) &&
+    usage.limitTokens > 0;
+  const usagePercent = usage.usagePercent;
+  const progressWidth =
+    hasLimit && usagePercent !== undefined
+      ? `${Math.min(100, Math.max(0, usagePercent))}%`
+      : "0%";
+  const breakdown = usage.lastAssistantBreakdown;
+  const segments = [
+    {
+      key: "user",
+      label: "User",
+      value: usage.distribution.user,
+      className: "bg-emerald-500",
+    },
+    {
+      key: "assistant",
+      label: "Assistant",
+      value: usage.distribution.assistant,
+      className: "bg-blue-500",
+    },
+    {
+      key: "tool",
+      label: "Tool Calls",
+      value: usage.distribution.tool,
+      className: "bg-yellow-400",
+    },
+    {
+      key: "other",
+      label: "Other",
+      value: usage.distribution.other,
+      className: "bg-muted-foreground/60",
+    },
+  ];
+
+  return (
+    <div className="space-y-5">
+      <div className="rounded-xl bg-muted/50 px-5 py-4">
+        <div className="flex items-baseline justify-between gap-4">
+          <span className="text-sm text-muted-foreground">Context</span>
+          <span className="text-sm tabular-nums text-muted-foreground">
+            {formatNumber(usage.usedTokens)}
+            {hasLimit ? ` / ${formatNumber(usage.limitTokens)}` : ""}
+          </span>
+        </div>
+        {hasLimit ? (
+          <>
+            <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-background">
+              <div
+                className={cn(
+                  "h-full rounded-full transition-[width] duration-300",
+                  getUsageBarColor(usagePercent),
+                )}
+                style={{ width: progressWidth }}
+              />
+            </div>
+            <div className="mt-2 text-sm font-medium tabular-nums text-foreground">
+              {formatPercent(usagePercent)} used
+            </div>
+          </>
+        ) : (
+          <div className="mt-2 text-sm text-muted-foreground">
+            Context limit is unknown.
+          </div>
+        )}
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <StatCard label="Messages" value={formatNumber(usage.messagesCount)} />
+        <StatCard label="User" value={formatNumber(usage.userMessagesCount)} />
+        <StatCard
+          label="Assistant"
+          value={formatNumber(usage.assistantMessagesCount)}
+        />
+        <StatCard label="Cost" value={formatMoney(usage.costUsd)} />
+      </div>
+
+      <div className="rounded-xl bg-muted/50 px-5 py-4">
+        <div className="mb-3 text-sm text-muted-foreground">
+          Last Assistant Message
+        </div>
+        <div className="grid grid-cols-3 gap-x-5 gap-y-3">
+          {[
+            { label: "Input", value: breakdown?.input, kind: "count" as const },
+            {
+              label: "Output",
+              value: breakdown?.output,
+              kind: "count" as const,
+            },
+            {
+              label: "Reasoning",
+              value: breakdown?.reasoning,
+              kind: "count" as const,
+            },
+            {
+              label: "Cache Read",
+              value: breakdown?.cacheRead,
+              kind: "count" as const,
+            },
+            {
+              label: "Cache Write",
+              value: breakdown?.cacheWrite,
+              kind: "count" as const,
+            },
+            {
+              label: "Cache Hit",
+              value: usage.cacheHitPercent,
+              kind: "percent" as const,
+            },
+          ].map((item) => (
+            <div key={item.label}>
+              <div className="text-sm text-muted-foreground">{item.label}</div>
+              <div className="mt-1 tabular-nums text-foreground">
+                {formatField(item.value, item.kind)}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div>
+        <div className="flex h-1.5 overflow-hidden rounded-full bg-muted">
+          {segments.map((segment) => {
+            if (segment.value <= 0 || usage.distributionTotal <= 0) return null;
+
+            return (
+              <div
+                key={segment.key}
+                className={segment.className}
+                style={{
+                  width: `${(segment.value / usage.distributionTotal) * 100}%`,
+                }}
+              />
+            );
+          })}
+        </div>
+        <div className="mt-3 flex flex-wrap gap-x-4 gap-y-2">
+          {segments.map((segment) => (
+            <SegmentLegend
+              key={segment.key}
+              label={segment.label}
+              value={segment.value}
+              total={usage.distributionTotal}
+              className={segment.className}
+            />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export const ContextUsageIndicator = memo(function ContextUsageIndicator({
   usage,
 }: {
   usage: ContextUsageInfo;
 }) {
-  const usedTokens = usage.usedTokens;
-  const limitTokens = usage.limitTokens;
-  const displayUsedTokens =
-    usedTokens !== undefined && Number.isFinite(usedTokens) ? usedTokens : 0;
-  const hasUsage = usedTokens !== undefined && Number.isFinite(usedTokens);
+  const [open, setOpen] = useState(false);
   const hasLimit =
-    limitTokens !== undefined &&
-    Number.isFinite(limitTokens) &&
-    limitTokens > 0;
-  const percentage = hasLimit
-    ? (displayUsedTokens / limitTokens) * 100
-    : undefined;
-  const colorClass = getUsageColor(percentage);
+    usage.limitTokens !== undefined &&
+    Number.isFinite(usage.limitTokens) &&
+    usage.limitTokens > 0;
   const label = hasLimit
-    ? `${formatCompactTokens(displayUsedTokens)} / ${formatCompactTokens(limitTokens)}`
-    : formatCompactTokens(displayUsedTokens);
+    ? formatPercent(usage.usagePercent)
+    : formatCompact(usage.usedTokens);
+  const colorClass = getUsageColor(usage.usagePercent);
 
   return (
-    <Popover>
-      <PopoverTrigger asChild>
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
         <Button
           type="button"
           variant="ghost"
           size="sm"
           className={cn(
-            "context-usage-token-label h-9 shrink-0  px-2 text-sm font-medium leading-none tabular-nums",
+            "context-usage-token-label h-9 shrink-0 px-2 text-sm font-normal leading-none tabular-nums",
             colorClass,
           )}
           title="Context usage"
@@ -84,51 +290,15 @@ export const ContextUsageIndicator = memo(function ContextUsageIndicator({
         >
           {label}
         </Button>
-      </PopoverTrigger>
-      <PopoverContent align="end" className="w-72  p-3">
-        <div className="grid gap-2 text-sm leading-5">
-          <div className="font-medium">Context usage</div>
-          <div className="grid gap-1 text-muted-foreground">
-            <div className="flex justify-between gap-3">
-              <span>Used</span>
-              <span className="text-foreground">
-                {formatNumber(hasUsage ? usedTokens : undefined)} tokens
-              </span>
-            </div>
-            <div className="flex justify-between gap-3">
-              <span>Limit</span>
-              <span className="text-foreground">
-                {formatNumber(limitTokens)} tokens
-              </span>
-            </div>
-            <div className="flex justify-between gap-3">
-              <span>Usage</span>
-              <span className="text-foreground">
-                {percentage === undefined
-                  ? "unknown"
-                  : `${percentage.toFixed(1)}%`}
-              </span>
-            </div>
-            <div className="flex justify-between gap-3">
-              <span>Used source</span>
-              <span className="text-right text-foreground">
-                {hasUsage ? "Provider-reported usage" : "Unknown"}
-              </span>
-            </div>
-            <div className="flex justify-between gap-3">
-              <span>Limit source</span>
-              <span className="text-right text-foreground">
-                {formatLimitSource(usage.limitSource)}
-              </span>
-            </div>
-          </div>
-          {!hasUsage && (
-            <p className="text-sm leading-5 text-muted-foreground">
-              Provider did not return token usage yet.
-            </p>
-          )}
+      </DialogTrigger>
+      <DialogContent className="max-h-[min(720px,calc(100dvh-2rem))] overflow-y-auto p-0 sm:max-w-[460px]">
+        <DialogHeader className="border-b px-5 py-4">
+          <DialogTitle>Context usage</DialogTitle>
+        </DialogHeader>
+        <div className="px-5 py-5">
+          <ContextUsageModalContent usage={usage} />
         </div>
-      </PopoverContent>
-    </Popover>
+      </DialogContent>
+    </Dialog>
   );
 });
