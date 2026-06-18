@@ -103,7 +103,7 @@ export function CodeBlockPreviewDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         showCloseButton={false}
-        className="flex h-[calc(100dvh-2rem)] w-[calc(min(100vw-2rem,1024px))] max-h-none max-w-none flex-col gap-0 overflow-hidden p-0 sm:max-w-[min(100vw-2rem,1024px)] data-[state=closed]:animate-none data-[state=closed]:opacity-0"
+        className="flex h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] max-h-none max-w-none flex-col gap-0 overflow-hidden p-0 sm:max-w-[min(70vw,1440px)] data-[state=closed]:animate-none data-[state=closed]:opacity-0"
       >
         <DialogTitle className="sr-only">Code block fullscreen</DialogTitle>
         <DialogDescription className="sr-only">

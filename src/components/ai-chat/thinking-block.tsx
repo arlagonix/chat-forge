@@ -93,7 +93,8 @@ function adjustScrollToPreserveBlockPosition(
     return;
   }
 
-  scrollContainer.scrollTop += delta;
+  const scrollElement = scrollContainer as HTMLElement;
+  scrollElement.scrollTop += delta;
 }
 
 function toggleAndPreserveBlockPosition(
