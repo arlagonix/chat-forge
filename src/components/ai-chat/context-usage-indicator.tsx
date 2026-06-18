@@ -3,6 +3,7 @@ import { memo, useState } from "react";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -294,6 +295,9 @@ export const ContextUsageIndicator = memo(function ContextUsageIndicator({
       <DialogContent className="max-h-[min(720px,calc(100dvh-2rem))] overflow-y-auto p-0 sm:max-w-[460px]">
         <DialogHeader className="border-b px-5 py-4">
           <DialogTitle>Context usage</DialogTitle>
+          <DialogDescription className="sr-only">
+            Detailed token and context usage for the current chat.
+          </DialogDescription>
         </DialogHeader>
         <div className="px-5 py-5">
           <ContextUsageModalContent usage={usage} />

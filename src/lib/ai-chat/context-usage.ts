@@ -48,7 +48,7 @@ function toNonNegativeNumber(value: unknown): number | undefined {
 }
 
 function sumDefined(values: Array<number | undefined>) {
-  return values.reduce((sum, value) => sum + (value ?? 0), 0);
+  return values.reduce<number>((sum, value) => sum + (value ?? 0), 0);
 }
 
 export function extractTokenBreakdown(
@@ -126,10 +126,13 @@ function estimateTextLength(value: unknown): number {
     return String(value).length;
   }
   if (Array.isArray(value)) {
-    return value.reduce((sum, item) => sum + estimateTextLength(item), 0);
+    return value.reduce<number>(
+      (sum, item) => sum + estimateTextLength(item),
+      0,
+    );
   }
   if (value && typeof value === "object") {
-    return Object.values(value as Record<string, unknown>).reduce(
+    return Object.values(value as Record<string, unknown>).reduce<number>(
       (sum, item) => sum + estimateTextLength(item),
       0,
     );
@@ -141,19 +144,22 @@ function estimateTokensFromText(value: unknown): number {
   return Math.ceil(estimateTextLength(value) / 4);
 }
 
-function estimateVariantAssistantTokens(variant: ChatAssistantVariant) {
-  return estimateTokensFromText(variant.content) + estimateTokensFromText(variant.reasoning);
+function estimateVariantAssistantTokens(variant: ChatAssistantVariant): number {
+  return (
+    estimateTokensFromText(variant.content) +
+    estimateTokensFromText(variant.reasoning)
+  );
 }
 
-function estimateVariantToolTokens(variant: ChatAssistantVariant) {
-  const toolCallTokens = (variant.toolCalls ?? []).reduce(
+function estimateVariantToolTokens(variant: ChatAssistantVariant): number {
+  const toolCallTokens = (variant.toolCalls ?? []).reduce<number>(
     (sum, call) =>
       sum +
       estimateTokensFromText(call.function.name) +
       estimateTokensFromText(call.function.arguments),
     0,
   );
-  const toolResultTokens = (variant.toolResults ?? []).reduce(
+  const toolResultTokens = (variant.toolResults ?? []).reduce<number>(
     (sum, result) =>
       sum +
       estimateTokensFromText(result.toolName) +
@@ -181,7 +187,7 @@ function computeDistribution({
   for (const message of messages) {
     if (message.role === "user") {
       user += estimateTokensFromText(message.content);
-      user += (message.attachments ?? []).reduce(
+      user += (message.attachments ?? []).reduce<number>(
         (sum, attachment) =>
           sum +
           (attachment.tokenEstimate ??

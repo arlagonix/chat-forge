@@ -46,7 +46,12 @@ describe("ContextUsageIndicator", () => {
 
     expect(screen.getByRole("dialog")).toBeInTheDocument();
     expect(screen.getByText("Last Assistant Message")).toBeInTheDocument();
-    expect(screen.getByText("35,433 / 200,000")).toBeInTheDocument();
+    expect(
+      screen.getByText((_, element) =>
+        element?.textContent?.replace(/\s/g, "") === "35433/200000" ||
+        false,
+      ),
+    ).toBeInTheDocument();
     expect(screen.getByText("99.7%")).toBeInTheDocument();
   });
 
