@@ -60,7 +60,6 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { getActiveVariant } from "@/lib/ai-chat/chat-utils";
-import { getToolBuildingVisibleMetadata } from "@/lib/ai-chat/tool-building";
 import {
   getToolBatchGroupLabel,
   getVisibleAssistantProcessSteps,
@@ -68,6 +67,7 @@ import {
   type VisibleAssistantProcessStep as SharedVisibleAssistantProcessStep,
   type VisibleAssistantProcessStepGroup as SharedVisibleAssistantProcessStepGroup,
 } from "@/lib/ai-chat/process-step-groups";
+import { getToolBuildingVisibleMetadata } from "@/lib/ai-chat/tool-building";
 import type {
   AskUserRequest,
   AskUserResponse,
@@ -739,22 +739,23 @@ const ChatMessageItem = memo(
             key={step.id}
             className="flex w-full min-w-0 max-w-full justify-start"
           >
-            <div className="w-full min-w-0 max-w-full overflow-hidden  border border-dashed bg-muted/30 px-4 py-3 text-base leading-6 text-muted-foreground [overflow-wrap:anywhere]">
-              <div className="flex min-w-0 items-center justify-between gap-3 text-sm font-medium uppercase tracking-wide text-muted-foreground">
+            <div className="w-full min-w-0 max-w-full overflow-hidden text-base leading-5 text-muted-foreground [overflow-wrap:anywhere]">
+              <div className="flex min-w-0 items-center gap-2 text-sm font-medium text-muted-foreground">
                 <div className="flex min-w-0 items-center gap-2">
                   <Wrench className="size-3.5 shrink-0" />
-                  <span className="shrink-0 truncate">Tool building</span>
-                  <span className="shrink-0 text-muted-foreground/60">•</span>
+                  <span className="shrink-0 truncate text-card-foreground">
+                    Tool building
+                  </span>
+                  <span className="shrink-0 text-muted-foreground/60">·</span>
                   <span className="inline-flex shrink-0 items-center gap-1 text-amber-600 dark:text-amber-400">
                     <Spinner className="size-3.5" />
-                    In progress
                   </span>
                   {toolName ? (
                     <>
                       <span className="shrink-0 text-muted-foreground/60">
-                        •
+                        ·
                       </span>
-                      <span className="min-w-0 truncate normal-case tracking-normal text-muted-foreground/85">
+                      <span className="min-w-0 truncate font-normal normal-case tracking-normal text-muted-foreground/85">
                         {toolName}
                       </span>
                     </>
@@ -875,6 +876,7 @@ const ChatMessageItem = memo(
         const insideThinkingToolGroup = Boolean(
           options?.insideThinkingToolGroup,
         );
+        const groupLabel = getToolBatchGroupLabel(group);
 
         return (
           <div
@@ -886,14 +888,16 @@ const ChatMessageItem = memo(
                 : "border border-dashed px-2 py-2 shadow-xs",
             )}
           >
-            <div
-              className={cn(
-                "text-xs font-medium uppercase tracking-wide text-muted-foreground/80",
-                !insideThinkingToolGroup && "px-1",
-              )}
-            >
-              {getToolBatchGroupLabel(group)}
-            </div>
+            {groupLabel ? (
+              <div
+                className={cn(
+                  "text-xs text-muted-foreground/80",
+                  !insideThinkingToolGroup && "px-1",
+                )}
+              >
+                {groupLabel}
+              </div>
+            ) : null}
             <div className="grid gap-2">
               {group.steps.map(renderProcessStep)}
             </div>
@@ -925,10 +929,10 @@ const ChatMessageItem = memo(
       <div
         ref={registerMessageElement(message.id)}
         data-message-id={message.id}
-        className="group/message grid min-w-0 max-w-full gap-2"
+        className="group/message grid min-w-0 max-w-full gap-4"
       >
         {message.role === "assistant" && hasVisibleProcessSteps && (
-          <div className="grid gap-2">
+          <div className="grid gap-4">
             {processStepGroups.map((group) => renderProcessStepGroup(group))}
           </div>
         )}
@@ -1214,7 +1218,7 @@ const ChatMessageItem = memo(
           )}
 
         {message.role === "user" && editingMessageId !== message.id && (
-          <div className="flex justify-end gap-1.5 text-sm leading-5 text-muted-foreground opacity-0 transition-opacity focus-within:opacity-100 group-hover/message:opacity-100">
+          <div className="flex justify-end gap-1.5 text-sm leading-5 text-muted-foreground">
             <TooltipIconButton
               type="button"
               variant="ghost"
@@ -1297,7 +1301,7 @@ const ChatMessageItem = memo(
               <div className="min-h-6 min-w-0 flex-1 text-left">
                 {!isMessageStreaming && generatedModelAndMode ? (
                   <span
-                    className="block truncate text-muted-foreground opacity-0 transition-opacity group-hover/message:opacity-100 group-focus-within/message:opacity-100"
+                    className="block truncate text-muted-foreground"
                     title={`Generated with ${generatedModelAndMode}`}
                   >
                     {generatedModelAndMode}
@@ -1307,7 +1311,7 @@ const ChatMessageItem = memo(
                 )}
               </div>
 
-              <div className="flex flex-wrap items-center justify-end gap-1.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover/message:opacity-100">
+              <div className="flex flex-wrap items-center justify-end gap-1.5">
                 {variantCount > 1 && (
                   <div className="flex items-center gap-1">
                     <TooltipIconButton
@@ -1560,9 +1564,9 @@ const ChatMessageItem = memo(
   },
 );
 
-// Matches the previous flex `gap-5` between messages, now applied by the
-// virtualizer since the items are absolutely positioned.
-const MESSAGE_GAP_PX = 20;
+// Controls the gap between virtualized message rows. This must be applied
+// through the virtualizer because items are absolutely positioned.
+const MESSAGE_GAP_PX = 32;
 const VIRTUAL_MESSAGE_OVERSCAN = 6;
 const ESTIMATED_TEXT_CHARS_PER_LINE = 80;
 const ESTIMATED_LINE_HEIGHT_PX = 22;

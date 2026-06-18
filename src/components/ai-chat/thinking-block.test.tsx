@@ -1,4 +1,4 @@
-import { render } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("@/components/ai-chat/code-block-preview-dialog", () => ({
@@ -63,5 +63,33 @@ describe("ThinkingBlock", () => {
 
     expect(setIntervalSpy).not.toHaveBeenCalled();
     setIntervalSpy.mockRestore();
+  });
+
+  it("shows the first thinking row after completion while collapsed", () => {
+    render(
+      <ThinkingBlock
+        {...baseProps}
+        content={"First useful thought\nSecond useful thought"}
+        status="complete"
+        completedAt="2026-01-01T00:00:02.000Z"
+        isStreaming={false}
+        isCollapsed
+        renderMarkdownWhileStreaming
+      />,
+    );
+
+    expect(screen.getByText("First useful thought")).toBeInTheDocument();
+    expect(screen.queryByText("Second useful thought")).not.toBeInTheDocument();
+    expect(screen.queryByText("Complete")).not.toBeInTheDocument();
+    expect(screen.queryByText(/sec/)).not.toBeInTheDocument();
+  });
+
+  it("shows the latest thinking row while in progress and collapsed", () => {
+    render(
+      <ThinkingBlock {...baseProps} isCollapsed renderMarkdownWhileStreaming />,
+    );
+
+    expect(screen.getByText("hidden markdown body")).toBeInTheDocument();
+    expect(screen.queryByText("Working")).not.toBeInTheDocument();
   });
 });

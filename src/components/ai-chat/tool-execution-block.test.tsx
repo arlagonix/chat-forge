@@ -22,8 +22,12 @@ vi.mock("sonner", () => ({
 }));
 
 import { ToolExecutionBlock } from "@/components/ai-chat/tool-execution-block";
-import { BASH_TOOL_NAME } from "@/lib/ai-chat/builtin-tools";
-import type { ChatToolCall, LoadedToolInfo } from "@/lib/ai-chat/types";
+import { BASH_TOOL_NAME, READ_TOOL_NAME } from "@/lib/ai-chat/builtin-tools";
+import type {
+  ChatToolCall,
+  ChatToolResult,
+  LoadedToolInfo,
+} from "@/lib/ai-chat/types";
 
 const toolCall: ChatToolCall = {
   id: "tool-call-1",
@@ -139,6 +143,72 @@ describe("ToolExecutionBlock", () => {
 
     expect(screen.getByText("Search stored memories.")).toBeInTheDocument();
     expect(screen.queryByText("Exposed name: mcp_memory_search_memory")).not.toBeInTheDocument();
+  });
+
+  it("hides the completed status for successful tool calls", () => {
+    const toolResult: ChatToolResult = {
+      toolCallId: toolCall.id,
+      toolName: toolCall.function.name,
+      content: "done",
+    };
+
+    render(
+      <ToolExecutionBlock
+        id="tool-call-1"
+        toolCall={toolCall}
+        toolResult={toolResult}
+        status="complete"
+        loadedTools={[]}
+        isCollapsed
+        onToggleCollapsed={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByText("Complete")).not.toBeInTheDocument();
+    expect(screen.getByText(BASH_TOOL_NAME)).toBeInTheDocument();
+    expect(screen.getByText("echo hello")).toBeInTheDocument();
+  });
+
+  it("compacts absolute file paths in the header", () => {
+    const readToolCall: ChatToolCall = {
+      id: "tool-call-read-1",
+      type: "function",
+      function: {
+        name: READ_TOOL_NAME,
+        arguments: JSON.stringify({
+          path: String.raw`C:\Prime\GitHub\project\docs\example.mdx`,
+        }),
+      },
+    };
+
+    render(
+      <ToolExecutionBlock
+        id="tool-call-read-1"
+        toolCall={readToolCall}
+        loadedTools={[]}
+        isCollapsed
+        onToggleCollapsed={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("example.mdx")).toBeInTheDocument();
+    expect(screen.queryByText(/C:\\Prime/)).not.toBeInTheDocument();
+  });
+
+  it("hides running status text for active tool calls", () => {
+    render(
+      <ToolExecutionBlock
+        id="tool-call-1"
+        toolCall={toolCall}
+        status="running"
+        loadedTools={[]}
+        isCollapsed
+        onToggleCollapsed={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByText("Running")).not.toBeInTheDocument();
+    expect(screen.queryByText("Waiting")).not.toBeInTheDocument();
   });
 
 });

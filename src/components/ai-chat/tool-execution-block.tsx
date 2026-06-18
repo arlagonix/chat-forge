@@ -1,5 +1,4 @@
 import {
-  Check,
   Download,
   FileArchive,
   FileText,
@@ -495,24 +494,17 @@ function renderToolStatus(status: ToolExecutionStatus) {
     return (
       <span className="inline-flex shrink-0 items-center gap-1 text-red-600 dark:text-red-400">
         <X className="size-3.5" />
-        Failed
       </span>
     );
   }
 
   if (status === "complete") {
-    return (
-      <span className="inline-flex shrink-0 items-center gap-1 text-green-600 dark:text-green-400">
-        <Check className="size-3.5" />
-        Complete
-      </span>
-    );
+    return null;
   }
 
   return (
     <span className="inline-flex shrink-0 items-center gap-1 text-amber-600 dark:text-amber-400">
       <Spinner className="size-3.5" />
-      {status === "pending" ? "Waiting" : "Running"}
     </span>
   );
 }
@@ -550,8 +542,39 @@ function getStringArgument(args: Record<string, unknown>, key: string) {
   return typeof value === "string" ? value.trim() : "";
 }
 
-function getToolHeaderDetail(toolCall: ChatToolCall) {
+function compactPathLabel(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+
+  const normalized = trimmed.replace(/\\/g, "/");
+  const parts = normalized.split("/").filter(Boolean);
+  const finalPart = parts[parts.length - 1] ?? trimmed;
+  const isWindowsAbsolute = /^[A-Za-z]:[\\/]/.test(trimmed);
+  const isUnixAbsolute = trimmed.startsWith("/");
+
+  if (isWindowsAbsolute || isUnixAbsolute) return finalPart;
+  return trimmed;
+}
+
+function readResultPath(toolResult?: ChatToolResult) {
+  if (toolResult?.changePreview?.path) return toolResult.changePreview.path;
+  const content = toolResult?.content.trim();
+  if (!content) return "";
+
+  try {
+    const parsed = JSON.parse(content) as { path?: unknown };
+    return typeof parsed.path === "string" ? parsed.path.trim() : "";
+  } catch {
+    return "";
+  }
+}
+
+function getToolHeaderDetail(
+  toolCall: ChatToolCall,
+  toolResult?: ChatToolResult,
+) {
   const args = parseToolCallArguments(toolCall);
+  const resultPath = readResultPath(toolResult);
 
   if (
     toolCall.function.name === READ_TOOL_NAME ||
@@ -559,7 +582,7 @@ function getToolHeaderDetail(toolCall: ChatToolCall) {
     toolCall.function.name === WRITE_TOOL_NAME ||
     toolCall.function.name === FILE_READ_TOOL_NAME
   ) {
-    return getStringArgument(args, "path");
+    return compactPathLabel(resultPath || getStringArgument(args, "path"));
   }
 
   if (toolCall.function.name === BASH_TOOL_NAME) {
@@ -584,7 +607,7 @@ function getToolHeaderDetail(toolCall: ChatToolCall) {
     toolCall.function.name === ARCHIVE_EXTRACT_TOOL_NAME ||
     toolCall.function.name === DOCUMENT_CONVERT_TOOL_NAME
   ) {
-    return getStringArgument(args, "path");
+    return compactPathLabel(resultPath || getStringArgument(args, "path"));
   }
 
   if (toolCall.function.name === ARCHIVE_CREATE_TOOL_NAME) {
@@ -593,7 +616,7 @@ function getToolHeaderDetail(toolCall: ChatToolCall) {
   }
 
   if (toolCall.function.name === CHAT_FILE_CREATE_TOOL_NAME) {
-    return getStringArgument(args, "filename");
+    return compactPathLabel(getStringArgument(args, "filename"));
   }
 
   if (toolCall.function.name === WEB_FETCH_TOOL_NAME) {
@@ -653,6 +676,7 @@ const ToolExecutionDetailsDialog = memo(function ToolExecutionDetailsDialog({
   const showToolInput =
     hasMeaningfulToolInput(toolCall.function.arguments || "") &&
     (isTaskTool || !executionPreview || executionPreview.usesStdin);
+  const renderedToolStatus = renderToolStatus(effectiveStatus);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -667,8 +691,12 @@ const ToolExecutionDetailsDialog = memo(function ToolExecutionDetailsDialog({
             <span className="min-w-0 truncate shrink-0">
               {toolCall.function.name}
             </span>
-            <span className="text-muted-foreground/60">·</span>
-            {renderToolStatus(effectiveStatus)}
+            {renderedToolStatus ? (
+              <>
+                <span className="text-muted-foreground/60">·</span>
+                {renderedToolStatus}
+              </>
+            ) : null}
             {toolHeaderDetail ? (
               <>
                 <span className="text-muted-foreground/60">·</span>
@@ -798,8 +826,9 @@ export const ToolExecutionBlock = memo(function ToolExecutionBlock({
     ? [loadedSkillName, getLoadSkillLocation(toolResult)]
         .filter(Boolean)
         .join(" · ")
-    : getToolHeaderDetail(toolCall);
+    : getToolHeaderDetail(toolCall, toolResult);
   const generatedFiles = toolResult?.generatedFiles ?? [];
+  const renderedToolStatus = renderToolStatus(effectiveStatus);
 
   async function handleDownloadGeneratedFile(file: GeneratedFileArtifact) {
     const storagePath = file.storagePath ?? file.workspacePath;
@@ -830,7 +859,7 @@ export const ToolExecutionBlock = memo(function ToolExecutionBlock({
         <div
           role="button"
           tabIndex={0}
-          className="w-full min-w-0 max-w-full cursor-pointer overflow-hidden border bg-muted/25 px-4 py-3 text-sm leading-none text-muted-foreground [overflow-wrap:anywhere] hover:bg-muted/35 focus:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
+          className="group w-full min-w-0 max-w-full cursor-pointer overflow-hidden text-sm leading-5 text-muted-foreground [overflow-wrap:anywhere] hover:text-muted-foreground focus:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
           onClick={() => setIsDetailsOpen(true)}
           onKeyDown={(event) => {
             if (event.key === "Enter" || event.key === " ") {
@@ -839,42 +868,36 @@ export const ToolExecutionBlock = memo(function ToolExecutionBlock({
             }
           }}
           title="Open tool call details"
+          aria-label="Open tool call details"
         >
-          <div className="flex min-w-0 items-center justify-between gap-3 text-sm font-medium uppercase tracking-wide text-muted-foreground">
+          <div className="flex min-w-0 items-center gap-2 text-sm font-medium text-muted-foreground">
             <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
-              <ToolIcon className="size-3.5 shrink-0" />
-              <span className="shrink-0 truncate">
+              <span className="inline-flex size-3.5 shrink-0 items-center justify-center">
+                <ToolIcon className="size-3.5 group-hover:hidden group-focus:hidden" />
+                <Maximize2 className="hidden size-3.5 group-hover:block group-focus:block" />
+              </span>
+              <span className="shrink-0 truncate text-card-foreground">
                 {toolCall.function.name}
               </span>
-              <span className="shrink-0 text-muted-foreground/60">•</span>
-              {renderToolStatus(effectiveStatus)}
+              {renderedToolStatus ? (
+                <>
+                  <span className="shrink-0 text-muted-foreground/60">·</span>
+                  {renderedToolStatus}
+                </>
+              ) : null}
               {toolHeaderDetail ? (
                 <>
-                  <span className="shrink-0 text-muted-foreground/60">•</span>
-                  <span className="min-w-0 truncate normal-case tracking-normal text-muted-foreground/85">
+                  <span className="shrink-0 text-muted-foreground/60">·</span>
+                  <span className="min-w-0 truncate font-normal normal-case tracking-normal text-muted-foreground/85">
                     {toolHeaderDetail}
                   </span>
                 </>
               ) : null}
             </div>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              className="h-4 w-4 shrink-0"
-              onClick={(event) => {
-                event.stopPropagation();
-                setIsDetailsOpen(true);
-              }}
-              title="Open tool call details"
-              aria-label="Open tool call details"
-            >
-              <Maximize2 className="size-3.5" />
-            </Button>
           </div>
           {generatedFiles.length > 0 ? (
             <div
-              className="mt-3 flex flex-wrap gap-2 border-t pt-3 normal-case tracking-normal"
+              className="mt-2 flex flex-wrap gap-2 pl-5 normal-case tracking-normal"
               onClick={(event) => event.stopPropagation()}
             >
               {generatedFiles.map((file) => (

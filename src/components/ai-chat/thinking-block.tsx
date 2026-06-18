@@ -1,48 +1,14 @@
-import { Brain, Check, ChevronDown, ChevronRight } from "lucide-react";
+import {
+  Brain,
+  ChevronDown,
+  ChevronRight,
+  type LucideIcon,
+} from "lucide-react";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 
 import { SmoothAssistantMessageContent } from "@/components/ai-chat/smooth-assistant-message";
 import { Spinner } from "@/components/ui/spinner";
 import type { ThinkingStatus } from "@/lib/ai-chat/types";
-
-function formatThoughtDuration({
-  startedAt,
-  completedAt,
-  currentTimeMs,
-  minOneSecond = false,
-}: {
-  startedAt?: string;
-  completedAt?: string;
-  currentTimeMs?: number;
-  minOneSecond?: boolean;
-}) {
-  if (!startedAt) return "";
-
-  const startedAtMs = Date.parse(startedAt);
-  const completedAtMs = completedAt
-    ? Date.parse(completedAt)
-    : (currentTimeMs ?? Date.now());
-
-  if (!Number.isFinite(startedAtMs) || !Number.isFinite(completedAtMs)) {
-    return "";
-  }
-
-  const rawElapsedSeconds = (completedAtMs - startedAtMs) / 1000;
-  const elapsedSeconds = completedAt
-    ? Math.round(rawElapsedSeconds)
-    : Math.floor(rawElapsedSeconds);
-  const totalSeconds = Math.max(minOneSecond ? 1 : 0, elapsedSeconds);
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-  const parts: string[] = [];
-
-  if (hours > 0) parts.push(`${hours} h`);
-  if (minutes > 0) parts.push(`${minutes} min`);
-  if (seconds > 0 || parts.length === 0) parts.push(`${seconds} sec`);
-
-  return parts.join(" ");
-}
 
 function getEffectiveThinkingStatus(
   status: ThinkingStatus | undefined,
@@ -53,29 +19,43 @@ function getEffectiveThinkingStatus(
   return status ?? "complete";
 }
 
-function renderThinkingStatus(status: ThinkingStatus) {
-  if (status === "complete") {
-    return (
-      <span className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-green-600 dark:text-green-400">
-        <Check className="size-3.5 shrink-0" />
-        <span className="shrink-0">Complete</span>
-      </span>
-    );
-  }
+function cleanThinkingPreviewLine(value: string) {
+  return value
+    .trim()
+    .replace(/^[\s#>*_`~\-+\d.)[\]]+/, "")
+    .replace(/[*_`~]+$/g, "")
+    .trim();
+}
 
-  if (status === "waiting") {
-    return (
-      <span className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-amber-600 dark:text-amber-400">
-        <Spinner className="size-3.5 shrink-0" />
-        <span className="shrink-0">Waiting</span>
-      </span>
-    );
+function getFirstContentLine(content: string) {
+  const lines = content.split("\n");
+  for (const line of lines) {
+    const cleaned = cleanThinkingPreviewLine(line);
+    if (cleaned) return cleaned;
   }
+  return "";
+}
 
+function getLastContentLine(content: string) {
+  const lines = content.split("\n");
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const cleaned = cleanThinkingPreviewLine(lines[i]);
+    if (cleaned) return cleaned;
+  }
+  return "";
+}
+
+function HoverSwapIcon({
+  icon: Icon,
+  hoverIcon: HoverIcon,
+}: {
+  icon: LucideIcon;
+  hoverIcon: LucideIcon;
+}) {
   return (
-    <span className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-amber-600 dark:text-amber-400">
-      <Spinner className="size-3.5 shrink-0" />
-      <span className="shrink-0">In progress</span>
+    <span className="inline-flex size-3.5 shrink-0 items-center justify-center">
+      <Icon className="size-3.5 group-hover:hidden group-focus:hidden" />
+      <HoverIcon className="hidden size-3.5 group-hover:block group-focus:block" />
     </span>
   );
 }
@@ -110,7 +90,6 @@ function ThinkingBlockComponent({
   onVisualStreamingChange?: (isStreaming: boolean) => void;
 }) {
   const effectiveStatus = getEffectiveThinkingStatus(status, isStreaming);
-  const [durationTickMs, setDurationTickMs] = useState(() => Date.now());
   const onVisualStreamingChangeRef = useRef(onVisualStreamingChange);
 
   onVisualStreamingChangeRef.current = onVisualStreamingChange;
@@ -121,47 +100,11 @@ function ThinkingBlockComponent({
     onVisualStreamingChangeRef.current?.(false);
   }, [isCollapsed]);
 
-  useEffect(() => {
-    if (effectiveStatus !== "in_progress" || !startedAt) return;
-
-    setDurationTickMs(Date.now());
-    const intervalId = window.setInterval(() => {
-      setDurationTickMs(Date.now());
-    }, 1000);
-
-    return () => window.clearInterval(intervalId);
-  }, [effectiveStatus, startedAt]);
-
-  const thoughtDuration = useMemo(() => {
-    if (effectiveStatus === "complete") {
-      return formatThoughtDuration({
-        startedAt,
-        completedAt,
-        minOneSecond: true,
-      });
-    }
-
-    if (effectiveStatus === "in_progress") {
-      return formatThoughtDuration({
-        startedAt,
-        currentTimeMs: durationTickMs,
-      });
-    }
-
-    return "";
-  }, [completedAt, durationTickMs, effectiveStatus, startedAt]);
-
-  // Extract the last non-empty trimmed line from the thinking content,
-  // stripping leading markdown markers and non-letter characters.
+  // Extract preview lines from thinking content, stripping leading markdown
+  // markers so the compact header reads like prose.
+  const firstContentLine = useMemo(() => getFirstContentLine(content), [content]);
   const lastContentLine = useMemo(() => {
-    const lines = content.split("\n");
-    for (let i = lines.length - 1; i >= 0; i--) {
-      const trimmed = lines[i].trim();
-      if (!trimmed) continue;
-      const cleaned = trimmed.replace(/^[^a-zA-Z]+/, "");
-      if (cleaned) return cleaned;
-    }
-    return "";
+    return getLastContentLine(content);
   }, [content]);
 
   // Throttle updates to ~1 second so the user has time to read.
@@ -172,8 +115,8 @@ function ThinkingBlockComponent({
   useEffect(() => {
     if (effectiveStatus === "in_progress") return;
 
-    setDisplayedLastLine(lastContentLine);
-  }, [effectiveStatus, lastContentLine]);
+    setDisplayedLastLine(firstContentLine);
+  }, [effectiveStatus, firstContentLine]);
 
   useEffect(() => {
     if (effectiveStatus !== "in_progress" || !isCollapsed) return;
@@ -190,58 +133,52 @@ function ThinkingBlockComponent({
     return () => window.clearInterval(intervalId);
   }, [effectiveStatus, isCollapsed]);
 
-  const shouldShowLastContentLine =
-    isCollapsed && effectiveStatus !== "complete" && displayedLastLine;
+  const previewLine =
+    effectiveStatus === "complete" ? firstContentLine : displayedLastLine;
+  const shouldShowPreviewLine = isCollapsed && previewLine;
+  const HoverIcon = isCollapsed ? ChevronRight : ChevronDown;
 
   return (
     <article className="flex w-full min-w-0 max-w-full justify-start">
-      <div className="w-full min-w-0 max-w-full overflow-hidden border border-dashed bg-muted/30 px-4 py-3 text-base leading-none text-muted-foreground shadow-xs [overflow-wrap:anywhere]">
+      <div className="w-full min-w-0 max-w-full overflow-hidden text-base leading-none text-muted-foreground [overflow-wrap:anywhere]">
         <button
           type="button"
-          className="w-full min-w-0 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="group w-full min-w-0 cursor-pointer text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
           onMouseDown={(event) => event.preventDefault()}
           onClick={onToggleCollapsed}
           aria-expanded={!isCollapsed}
           aria-controls={`${id}-thinking-content`}
+          title={isCollapsed ? "Expand thinking" : "Collapse thinking"}
+          aria-label={isCollapsed ? "Expand thinking" : "Collapse thinking"}
         >
-          <div className="flex min-w-0 items-center gap-3 text-sm font-medium uppercase tracking-wide text-muted-foreground">
+          <div className="flex min-w-0 items-center gap-2 text-sm font-medium text-muted-foreground">
             <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
-              <Brain className="size-3.5 shrink-0" />
-              <span className="shrink-0 whitespace-nowrap">Thinking</span>
-              <span className="shrink-0 text-muted-foreground/60">•</span>
-              {renderThinkingStatus(effectiveStatus)}
-              {thoughtDuration ? (
-                <>
-                  <span className="shrink-0 text-muted-foreground/60">•</span>
-                  <span className="shrink-0 tabular-nums text-muted-foreground/85">
-                    {thoughtDuration}
-                  </span>
-                </>
+              <HoverSwapIcon icon={Brain} hoverIcon={HoverIcon} />
+              <span className="shrink-0 whitespace-nowrap text-card-foreground">
+                Thinking
+              </span>
+              {effectiveStatus !== "complete" ? (
+                <Spinner className="size-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
               ) : null}
-              {shouldShowLastContentLine ? (
+              {shouldShowPreviewLine ? (
                 <>
-                  <span className="shrink-0 text-muted-foreground/60">•</span>
+                  <span className="shrink-0 text-muted-foreground/60">·</span>
                   <span
-                    className="min-w-0 flex-1 truncate normal-case tracking-normal text-muted-foreground/85"
-                    title={displayedLastLine}
+                    className="min-w-0 flex-1 truncate font-normal normal-case tracking-normal text-muted-foreground/85"
+                    title={previewLine}
                   >
-                    {displayedLastLine}
+                    {previewLine}
                   </span>
                 </>
               ) : null}
             </div>
-            {isCollapsed ? (
-              <ChevronRight className="size-3.5 shrink-0" />
-            ) : (
-              <ChevronDown className="size-3.5 shrink-0" />
-            )}
           </div>
         </button>
 
         {!isCollapsed && (
           <div
             id={`${id}-thinking-content`}
-            className="mt-2 min-w-0 overflow-visible text-sm leading-5"
+            className="mt-2 ml-[7px] min-w-0 overflow-visible border-l border-border/70 pl-4 text-sm leading-5 text-muted-foreground/90"
           >
             <SmoothAssistantMessageContent
               content={content}

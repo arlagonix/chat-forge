@@ -3,6 +3,7 @@ import {
   ChevronDown,
   ChevronRight,
   ListTodo,
+  type LucideIcon,
   MessageSquareText,
   ShieldCheck,
   Square,
@@ -33,6 +34,23 @@ import { cn } from "@/lib/utils";
 
 const ASK_USER_CUSTOM_ANSWER_ID = "__custom__";
 const MAX_ASK_USER_CUSTOM_ANSWER_LENGTH = 2000;
+
+function CollapsibleHeaderIcon({
+  icon: Icon,
+  isCollapsed,
+}: {
+  icon: LucideIcon;
+  isCollapsed: boolean;
+}) {
+  const HoverIcon = isCollapsed ? ChevronRight : ChevronDown;
+
+  return (
+    <span className="inline-flex size-3.5 shrink-0 items-center justify-center">
+      <Icon className="size-3.5 group-hover:hidden group-focus:hidden" />
+      <HoverIcon className="hidden size-3.5 group-hover:block group-focus:block" />
+    </span>
+  );
+}
 
 function getAskUserQuestionType(
   question: AskUserQuestion,
@@ -74,10 +92,28 @@ function createEmptyAskUserCustomAnswers(request: AskUserRequest) {
 }
 
 function formatUserInputStatus(status: UserInputStatus | undefined) {
-  if (status === "complete") return "Complete";
+  if (status === "complete") return "";
   if (status === "cancelled") return "Cancelled";
-  if (status === "failed") return "Failed";
+  if (status === "failed") return "";
   return "Waiting";
+}
+
+function formatAskUserHeaderDetail(
+  request: AskUserRequest,
+  response?: AskUserResponse,
+) {
+  const question = request.questions[0];
+  const prompt = request.title?.trim() || question?.question.trim() || "";
+  if (!response || !question) return prompt;
+
+  const answerLabel = response.answerLabels?.[question.id];
+  const answer = Array.isArray(answerLabel)
+    ? answerLabel.join(", ")
+    : answerLabel || response.answers[question.id] || "";
+
+  if (!prompt) return answer;
+  if (!answer.trim()) return prompt;
+  return `${prompt}: ${answer.trim()}`;
 }
 
 function formatToolApprovalHeaderStatus(
@@ -86,7 +122,7 @@ function formatToolApprovalHeaderStatus(
 ) {
   if (status === "waiting") return "Waiting";
   if (status === "complete") return response?.approved ? "Approved" : undefined;
-  if (status === "failed") return "Failed";
+  if (status === "failed") return "";
   return undefined;
 }
 
@@ -124,6 +160,9 @@ export const AskUserBlock = memo(function AskUserBlock({
   );
   const effectiveStatus = status ?? "waiting";
   const isWaiting = effectiveStatus === "waiting";
+  const headerStatusText = formatUserInputStatus(effectiveStatus);
+  const shouldShowHeaderStatus = effectiveStatus !== "complete";
+  const headerDetail = formatAskUserHeaderDetail(request, response);
   const [activeQuestionIndex, setActiveQuestionIndex] = useState(0);
   const activeQuestionCount = request.questions.length;
   const activeQuestion =
@@ -754,53 +793,62 @@ export const AskUserBlock = memo(function AskUserBlock({
 
   return (
     <article key={id} className="flex min-w-0 max-w-full justify-start">
-      <div className="w-full min-w-0 max-w-full overflow-hidden  border bg-muted/25 px-4 py-3 text-sm leading-5 text-muted-foreground [overflow-wrap:anywhere]">
+      <div className="w-full min-w-0 max-w-full overflow-hidden text-sm leading-5 text-muted-foreground [overflow-wrap:anywhere]">
         <button
           type="button"
-          className="w-full  text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="group w-full cursor-pointer text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
           onClick={onToggleCollapsed}
           aria-expanded={!isCollapsed}
+          title={isCollapsed ? "Expand ask user" : "Collapse ask user"}
+          aria-label={isCollapsed ? "Expand ask user" : "Collapse ask user"}
         >
-          <div className="flex min-w-0 items-center justify-between gap-3 text-sm font-medium uppercase tracking-wide text-muted-foreground">
-            <div className="flex min-w-0 items-center gap-2">
-              <MessageSquareText className="size-3.5 shrink-0" />
-              <span className="truncate">Ask user</span>
-              <span className="text-muted-foreground/60">•</span>
-              <span
-                className={cn(
-                  "inline-flex items-center gap-1",
-                  effectiveStatus === "complete" &&
-                    "text-green-600 dark:text-green-400",
-                  effectiveStatus === "waiting" &&
-                    "text-amber-600 dark:text-amber-400",
-                  (effectiveStatus === "cancelled" ||
-                    effectiveStatus === "failed") &&
-                    "text-red-600 dark:text-red-400",
-                )}
-              >
-                {effectiveStatus === "complete" ? (
-                  <Check className="size-3.5" />
-                ) : effectiveStatus === "waiting" ? (
-                  <Spinner className="size-3.5" />
-                ) : (
-                  <X className="size-3.5" />
-                )}
-                {formatUserInputStatus(effectiveStatus)}
-              </span>
-              <span className="hidden text-muted-foreground/60 sm:inline">
-                • {request.questions.length} question
-                {request.questions.length === 1 ? "" : "s"}
-              </span>
+          <div className="flex min-w-0 items-center gap-2 text-sm font-medium text-muted-foreground">
+            <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
+              <CollapsibleHeaderIcon
+                icon={MessageSquareText}
+                isCollapsed={isCollapsed}
+              />
+              <span className="truncate text-card-foreground">Ask user</span>
+              {shouldShowHeaderStatus ? (
+                <>
+                  <span className="text-muted-foreground/60">·</span>
+                  <span
+                    className={cn(
+                      "inline-flex items-center gap-1",
+                      effectiveStatus === "waiting" &&
+                        "text-amber-600 dark:text-amber-400",
+                      (effectiveStatus === "cancelled" ||
+                        effectiveStatus === "failed") &&
+                        "text-red-600 dark:text-red-400",
+                    )}
+                  >
+                    {effectiveStatus === "waiting" ? (
+                      <Spinner className="size-3.5" />
+                    ) : (
+                      <X className="size-3.5" />
+                    )}
+                    {headerStatusText}
+                  </span>
+                </>
+              ) : null}
+              {headerDetail ? (
+                <>
+                  <span className="text-muted-foreground/60">·</span>
+                  <span className="min-w-0 truncate font-normal text-muted-foreground/85">
+                    {headerDetail}
+                  </span>
+                </>
+              ) : (
+                <span className="hidden font-normal text-muted-foreground/60 sm:inline">
+                  · {request.questions.length} question
+                  {request.questions.length === 1 ? "" : "s"}
+                </span>
+              )}
             </div>
-            {isCollapsed ? (
-              <ChevronRight className="size-3.5 shrink-0" />
-            ) : (
-              <ChevronDown className="size-3.5 shrink-0" />
-            )}
           </div>
           {!isCollapsed &&
             (request.title?.trim() || request.description?.trim()) && (
-              <div className="mt-2 grid gap-1 text-sm normal-case leading-5 tracking-normal text-muted-foreground/85">
+              <div className="mt-2 ml-[7px] grid gap-1 border-l border-border/70 pl-4 text-sm font-normal normal-case leading-5 tracking-normal text-muted-foreground/85">
                 {request.title?.trim() && (
                   <div className="font-medium text-foreground/80">
                     {request.title.trim()}
@@ -814,7 +862,7 @@ export const AskUserBlock = memo(function AskUserBlock({
         </button>
 
         {!isCollapsed && (
-          <div className="mt-3 grid gap-3">
+          <div className="mt-3 ml-[7px] grid gap-3 border-l border-border/70 pl-4">
             {isWaiting &&
               activeQuestion &&
               (() => {
@@ -1031,20 +1079,25 @@ export const ToolApprovalBlock = memo(function ToolApprovalBlock({
 
   return (
     <article key={id} className="flex min-w-0 max-w-full justify-start">
-      <div className="w-full min-w-0 max-w-full overflow-hidden  border bg-muted/25 px-4 py-3 text-sm leading-5 text-muted-foreground [overflow-wrap:anywhere]">
+      <div className="w-full min-w-0 max-w-full overflow-hidden text-sm leading-5 text-muted-foreground [overflow-wrap:anywhere]">
         <button
           type="button"
-          className="w-full  text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="group w-full cursor-pointer text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
           onClick={onToggleCollapsed}
           aria-expanded={!isCollapsed}
+          title={isCollapsed ? "Expand approval" : "Collapse approval"}
+          aria-label={isCollapsed ? "Expand approval" : "Collapse approval"}
         >
-          <div className="flex min-w-0 items-center justify-between gap-3 text-sm font-medium uppercase tracking-wide text-muted-foreground">
-            <div className="flex min-w-0 items-center gap-2">
-              <ShieldCheck className="size-3.5 shrink-0" />
-              <span className="truncate">Approval</span>
-              {approvalStatusText && (
+          <div className="flex min-w-0 items-center gap-2 text-sm font-medium text-muted-foreground">
+            <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
+              <CollapsibleHeaderIcon
+                icon={ShieldCheck}
+                isCollapsed={isCollapsed}
+              />
+              <span className="truncate text-card-foreground">Approval</span>
+              {approvalStatusText !== undefined && (
                 <>
-                  <span className="text-muted-foreground/60">•</span>
+                  <span className="text-muted-foreground/60">·</span>
                   <span
                     className={cn(
                       "inline-flex items-center gap-1",
@@ -1067,21 +1120,16 @@ export const ToolApprovalBlock = memo(function ToolApprovalBlock({
                   </span>
                 </>
               )}
-              <span className="text-muted-foreground/60">•</span>
-              <span className="truncate font-mono normal-case tracking-normal text-muted-foreground/80">
+              <span className="text-muted-foreground/60">·</span>
+              <span className="truncate font-mono font-normal normal-case tracking-normal text-muted-foreground/80">
                 {request.toolName}
               </span>
             </div>
-            {isCollapsed ? (
-              <ChevronRight className="size-3.5 shrink-0" />
-            ) : (
-              <ChevronDown className="size-3.5 shrink-0" />
-            )}
           </div>
         </button>
 
         {!isCollapsed && (
-          <div className="mt-3 grid gap-3">
+          <div className="mt-3 ml-[7px] grid gap-3 border-l border-border/70 pl-4">
             <div className="grid gap-1.5 text-sm leading-5 text-muted-foreground/85">
               {request.description?.trim() && (
                 <div>{request.description.trim()}</div>
@@ -1220,19 +1268,24 @@ export const TaskListBlock = memo(function TaskListBlock({
 
   return (
     <article key={id} className="flex min-w-0 max-w-full justify-start">
-      <div className="w-full min-w-0 max-w-full overflow-hidden  border bg-muted/25 px-4 py-3 text-sm leading-5 text-muted-foreground [overflow-wrap:anywhere]">
+      <div className="w-full min-w-0 max-w-full overflow-hidden text-sm leading-5 text-muted-foreground [overflow-wrap:anywhere]">
         <button
           type="button"
-          className="w-full  text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="group w-full cursor-pointer text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
           onClick={onToggleCollapsed}
           aria-expanded={!isCollapsed}
+          title={isCollapsed ? "Expand tasks" : "Collapse tasks"}
+          aria-label={isCollapsed ? "Expand tasks" : "Collapse tasks"}
         >
-          <div className="flex min-w-0 items-center justify-between gap-3 text-sm font-medium uppercase tracking-wide text-muted-foreground">
-            <div className="flex min-w-0 items-center gap-2">
-              <ListTodo className="size-3.5 shrink-0" />
-              <span className="truncate">Tasks</span>
-              <span className="text-muted-foreground/60">•</span>
-              <span className="text-muted-foreground/80">
+          <div className="flex min-w-0 items-center gap-2 text-sm font-medium text-muted-foreground">
+            <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
+              <CollapsibleHeaderIcon
+                icon={ListTodo}
+                isCollapsed={isCollapsed}
+              />
+              <span className="truncate text-card-foreground">Tasks</span>
+              <span className="text-muted-foreground/60">·</span>
+              <span className="font-normal text-muted-foreground/80">
                 {isPending
                   ? "updating"
                   : isError
@@ -1242,16 +1295,11 @@ export const TaskListBlock = memo(function TaskListBlock({
                       : `${doneCount}/${totalCount} done`}
               </span>
             </div>
-            {isCollapsed ? (
-              <ChevronRight className="size-3.5 shrink-0" />
-            ) : (
-              <ChevronDown className="size-3.5 shrink-0" />
-            )}
           </div>
         </button>
 
         {!isCollapsed && (
-          <div className="mt-3">
+          <div className="mt-3 ml-[7px] border-l border-border/70 pl-4">
             {isPending ? (
               <div className="flex items-center gap-2 px-2 py-1.5 text-sm leading-5 text-muted-foreground">
                 <Spinner className="size-3.5" />

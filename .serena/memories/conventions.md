@@ -27,7 +27,7 @@
 
 ## State Management
 - No external state library (no Redux, Zustand, etc.). All state in `App.tsx` via `useState`.
-- Persistence: IndexedDB with snapshot diffing to avoid redundant writes.
+- Persistence: Electron IPC JSON files (main-process) with snapshot diffing to avoid redundant writes. Legacy IndexedDB storage was migrated.
 - Chat messages are immutable slices; updater functions receive current state and return next state.
 
 ## IPC Architecture

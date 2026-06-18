@@ -37,7 +37,7 @@ export function getToolBatchGroupLabel(
   );
 
   if (hasCallAgentTool && hasAgentBlock) return "Agent delegation";
-  if (hasApprovalStep && hasToolExecutionStep) return "Tool approval";
+  if (hasApprovalStep && hasToolExecutionStep) return "";
   return "Parallel tool calls";
 }
 
@@ -107,6 +107,14 @@ export function getVisibleAssistantProcessSteps(
 
   for (const step of processSteps) {
     if (step.type === "thinking" && !step.content.trim()) {
+      continue;
+    }
+
+    if (
+      (step.type === "approval" || step.type === "file_approval") &&
+      step.status === "complete" &&
+      step.response?.approved
+    ) {
       continue;
     }
 

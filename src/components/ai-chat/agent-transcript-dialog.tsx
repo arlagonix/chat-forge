@@ -14,7 +14,6 @@ import { AgentStatusInline } from "@/components/ai-chat/agent-status-inline";
 import { MarkdownMessage } from "@/components/ai-chat/markdown-message";
 import { ThinkingBlock } from "@/components/ai-chat/thinking-block";
 import { AskUserBlock } from "@/components/ai-chat/tool-interaction-blocks";
-import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -218,9 +217,11 @@ function FallbackToolCallBlock({
 }) {
   return (
     <article className="flex min-w-0 max-w-full justify-start">
-      <div className="w-full min-w-0 max-w-full overflow-hidden border bg-muted/25 px-4 py-3 text-base leading-none text-muted-foreground shadow-xs [overflow-wrap:anywhere]">
-        <div className="flex min-w-0 items-center gap-2 text-sm font-medium uppercase tracking-wide text-muted-foreground">
-          <span className="truncate">{toolCall.function.name}</span>
+      <div className="w-full min-w-0 max-w-full overflow-hidden text-base leading-5 text-muted-foreground [overflow-wrap:anywhere]">
+        <div className="flex min-w-0 items-center gap-2 text-sm font-medium text-muted-foreground">
+          <span className="truncate text-card-foreground">
+            {toolCall.function.name}
+          </span>
         </div>
       </div>
     </article>
@@ -232,13 +233,15 @@ function AgentModalHeader({ agentCall }: { agentCall: ChatAgentCall }) {
     <DialogHeader className="border-b px-5 py-4">
       <DialogTitle className="flex min-w-0 items-center gap-2 overflow-hidden text-sm font-medium uppercase tracking-wide text-muted-foreground">
         <Bot className="size-4 shrink-0" />
-        <span className="min-w-0 truncate">{agentCall.agentName}</span>
+        <span className="min-w-0 truncate text-card-foreground">
+          {agentCall.agentName}
+        </span>
         <span className="text-muted-foreground/60">·</span>
         <AgentStatusInline status={agentCall.status} />
         {agentCall.model?.trim() ? (
           <>
             <span className="text-muted-foreground/60">·</span>
-            <span className="min-w-0 truncate normal-case tracking-normal text-muted-foreground/85">
+            <span className="min-w-0 truncate font-normal normal-case tracking-normal text-muted-foreground/85">
               {agentCall.model.trim()}
             </span>
           </>
@@ -684,6 +687,7 @@ function AgentTranscriptStepsBody({
   ): ReactNode => {
     if (group.kind === "tool_batch") {
       const insideThinkingToolGroup = Boolean(options?.insideThinkingToolGroup);
+      const groupLabel = getToolBatchGroupLabel(group);
       return (
         <div
           key={group.toolBatchId}
@@ -694,14 +698,16 @@ function AgentTranscriptStepsBody({
               : "border border-dashed px-2 py-2 shadow-xs",
           )}
         >
-          <div
-            className={cn(
-              "text-xs font-medium uppercase tracking-wide text-muted-foreground/80",
-              !insideThinkingToolGroup && "px-1",
-            )}
-          >
-            {getToolBatchGroupLabel(group)}
-          </div>
+          {groupLabel ? (
+            <div
+              className={cn(
+                "text-xs text-muted-foreground/80",
+                !insideThinkingToolGroup && "px-1",
+              )}
+            >
+              {groupLabel}
+            </div>
+          ) : null}
           <div className="grid gap-2">{group.steps.map(renderStep)}</div>
         </div>
       );
@@ -764,7 +770,7 @@ function ChildAgentBlock({
       <div
         role="button"
         tabIndex={0}
-        className="w-full min-w-0 max-w-full cursor-pointer overflow-hidden border bg-muted/25 px-4 py-3 text-base leading-none text-muted-foreground shadow-xs [overflow-wrap:anywhere] hover:bg-muted/35 focus:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
+        className="group w-full min-w-0 max-w-full cursor-pointer overflow-hidden text-base leading-5 text-muted-foreground [overflow-wrap:anywhere] hover:text-muted-foreground focus:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
         onClick={() => onOpenChildAgent(child.id)}
         onKeyDown={(event) => {
           if (event.key === "Enter" || event.key === " ") {
@@ -773,38 +779,34 @@ function ChildAgentBlock({
           }
         }}
         title="Open agent run"
+        aria-label={`Open agent run: ${child.agentName}`}
       >
-        <div className="flex min-w-0 items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-2">
           <div className="min-w-0 flex-1">
-            <div className="flex min-w-0 items-center gap-2 overflow-hidden text-sm font-medium uppercase tracking-wide text-muted-foreground">
-              <Bot className="size-3.5 shrink-0" />
-              <span className="truncate">{child.agentName}</span>
-              <span className="text-muted-foreground/60">·</span>
-              <AgentStatusInline status={child.status} />
+            <div className="flex min-w-0 items-center gap-2 overflow-hidden text-sm font-medium text-muted-foreground">
+              <span className="inline-flex size-3.5 shrink-0 items-center justify-center">
+                <Bot className="size-3.5 group-hover:hidden group-focus:hidden" />
+                <Maximize2 className="hidden size-3.5 group-hover:block group-focus:block" />
+              </span>
+              <span className="truncate text-card-foreground">
+                {child.agentName}
+              </span>
+              {child.status !== "complete" ? (
+                <>
+                  <span className="text-muted-foreground/60">·</span>
+                  <AgentStatusInline status={child.status} />
+                </>
+              ) : null}
               {child.model?.trim() ? (
                 <>
                   <span className="text-muted-foreground/60">·</span>
-                  <span className="truncate normal-case tracking-normal text-muted-foreground/85">
+                  <span className="truncate font-normal normal-case tracking-normal text-muted-foreground/85">
                     {child.model.trim()}
                   </span>
                 </>
               ) : null}
             </div>
           </div>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            className="h-4 w-4 shrink-0"
-            onClick={(event) => {
-              event.stopPropagation();
-              onOpenChildAgent(child.id);
-            }}
-            title="Open agent run"
-            aria-label="Open agent run"
-          >
-            <Maximize2 className="size-3.5" />
-          </Button>
         </div>
       </div>
     </article>

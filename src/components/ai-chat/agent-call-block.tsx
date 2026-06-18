@@ -4,7 +4,6 @@ import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import type { RenderAgentToolExecutionBlock } from "@/components/ai-chat/agent-call-utils";
 import { AgentStatusInline } from "@/components/ai-chat/agent-status-inline";
 import { AgentTranscriptDialog } from "@/components/ai-chat/agent-transcript-dialog";
-import { Button } from "@/components/ui/button";
 import { ASK_USER_TOOL_NAME } from "@/lib/ai-chat/builtin-tools";
 import type {
   AgentCallStatus,
@@ -53,7 +52,7 @@ const AgentCallSummaryButton = memo(function AgentCallSummaryButton({
     <div
       role="button"
       tabIndex={0}
-      className="w-full min-w-0 max-w-full cursor-pointer overflow-hidden border bg-muted/25 px-4 py-3 text-sm leading-none  text-muted-foreground shadow-xs [overflow-wrap:anywhere] hover:bg-muted/35 focus:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
+      className="group w-full min-w-0 max-w-full cursor-pointer overflow-hidden text-sm leading-5 text-muted-foreground [overflow-wrap:anywhere] hover:text-muted-foreground focus:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
       onClick={onOpen}
       onKeyDown={(event) => {
         if (event.key === "Enter" || event.key === " ") {
@@ -62,39 +61,32 @@ const AgentCallSummaryButton = memo(function AgentCallSummaryButton({
         }
       }}
       title="Open agent run"
+      aria-label={`Open agent run: ${agentName}`}
     >
-      <div className="flex min-w-0 items-center justify-between gap-3">
+      <div className="flex min-w-0 items-center gap-2">
         <div className="min-w-0 flex-1">
-          <div className="flex min-w-0 items-center gap-2 overflow-hidden text-sm font-medium uppercase tracking-wide text-muted-foreground">
-            <Bot className="size-3.5 shrink-0" />
-            <span className="truncate">{agentName}</span>
-            <span className="text-muted-foreground/60">·</span>
-            <AgentStatusInline status={status} />
+          <div className="flex min-w-0 items-center gap-2 overflow-hidden text-sm font-medium text-muted-foreground">
+            <span className="inline-flex size-3.5 shrink-0 items-center justify-center">
+              <Bot className="size-3.5 group-hover:hidden group-focus:hidden" />
+              <Maximize2 className="hidden size-3.5 group-hover:block group-focus:block" />
+            </span>
+            <span className="truncate text-card-foreground">{agentName}</span>
+            {status !== "complete" ? (
+              <>
+                <span className="text-muted-foreground/60">·</span>
+                <AgentStatusInline status={status} />
+              </>
+            ) : null}
             {model ? (
               <>
                 <span className="text-muted-foreground/60">·</span>
-                <span className="truncate normal-case tracking-normal text-muted-foreground/85">
+                <span className="truncate font-normal normal-case tracking-normal text-muted-foreground/85">
                   {model}
                 </span>
               </>
             ) : null}
           </div>
         </div>
-
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          className="h-4 w-4 shrink-0"
-          onClick={(event) => {
-            event.stopPropagation();
-            onOpen();
-          }}
-          title="Open agent run"
-          aria-label="Open agent run"
-        >
-          <Maximize2 className="size-3.5" />
-        </Button>
       </div>
     </div>
   );

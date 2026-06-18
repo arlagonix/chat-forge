@@ -8,7 +8,6 @@ export function AgentStatusInline({ status }: { status: AgentCallStatus }) {
     return (
       <span className="inline-flex items-center gap-1 text-red-600 dark:text-red-400">
         <X className="size-3.5 shrink-0" />
-        <span className="truncate">Failed</span>
       </span>
     );
   }
