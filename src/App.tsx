@@ -240,7 +240,7 @@ function estimateTokens(value: unknown): number {
     return value.reduce((sum, item) => sum + estimateTokens(item), 0);
   }
   if (value && typeof value === "object") {
-    return Object.values(value as Record<string, unknown>).reduce(
+    return Object.values(value as Record<string, unknown>).reduce<number>(
       (sum, item) => sum + estimateTokens(item),
       0,
     );

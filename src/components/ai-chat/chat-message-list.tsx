@@ -333,7 +333,9 @@ function getAdjustedTokensPerSecond(variant?: ChatAssistantVariant) {
     metrics.outputTokens ?? metrics.tokenUsage?.completionTokens;
   if (!outputTokens || outputTokens <= 0) return undefined;
 
-  const nonGenerationMs = getKnownNonGenerationDurationMs(variant.processSteps);
+  const nonGenerationMs = getKnownNonGenerationDurationMs(
+    variant?.processSteps,
+  );
   const activeDurationMs = Math.max(1000, metrics.durationMs - nonGenerationMs);
   return outputTokens / (activeDurationMs / 1000);
 }
