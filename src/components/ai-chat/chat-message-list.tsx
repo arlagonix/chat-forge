@@ -68,6 +68,7 @@ import {
   type VisibleAssistantProcessStep as SharedVisibleAssistantProcessStep,
   type VisibleAssistantProcessStepGroup as SharedVisibleAssistantProcessStepGroup,
 } from "@/lib/ai-chat/process-step-groups";
+import { getAssistantGenerationStatusLabel } from "@/lib/ai-chat/generation-status-label";
 import { getToolBuildingVisibleMetadata } from "@/lib/ai-chat/tool-building";
 import type {
   AskUserRequest,
@@ -617,6 +618,8 @@ const ChatMessageItem = memo(
       ? `${generatedModelName} · ${generatedModeName}`
       : "";
     const isMessageStreaming = status === "streaming";
+    const generationStatusLabel =
+      getAssistantGenerationStatusLabel(activeVariant);
     const variantCount =
       message.role === "assistant" ? message.variants.length : 0;
     const activeVariantNumber =
@@ -922,7 +925,7 @@ const ChatMessageItem = memo(
         return (
           <div
             key={`${key}:runtime-group`}
-            className="grid gap-2 rounded-lg border border-dashed bg-muted/10 px-2 py-2 shadow-xs"
+            className="grid gap-2 rounded-sm border border-dashed bg-muted/10 px-2 py-2 shadow-xs"
           >
             {group.groups.map((baseGroup) =>
               renderProcessStepGroup(baseGroup, { insideRuntimeGroup: true }),
@@ -936,7 +939,7 @@ const ChatMessageItem = memo(
         return (
           <div
             key={key}
-            className="grid gap-2 rounded-lg border border-dashed bg-muted/10 px-2 py-2 shadow-xs"
+            className="grid gap-2 rounded-sm border border-dashed bg-muted/10 px-2 py-2 shadow-xs"
           >
             {renderProcessStep(group.thinkingStep)}
             {group.toolGroups.map((toolGroup) =>
@@ -958,7 +961,7 @@ const ChatMessageItem = memo(
         className="group/message grid min-w-0 max-w-full gap-4"
       >
         {message.role === "assistant" && hasVisibleProcessSteps && (
-          <div className="grid gap-4">
+          <div className="grid gap-2">
             {processStepGroups.map((group) => renderProcessStepGroup(group))}
           </div>
         )}
@@ -1336,7 +1339,7 @@ const ChatMessageItem = memo(
                       size="1"
                     />
                     <span className="generating-gradient-text font-medium">
-                      Working
+                      {generationStatusLabel}
                     </span>
                   </span>
                 ) : generatedModelAndMode ? (
@@ -1351,168 +1354,170 @@ const ChatMessageItem = memo(
                 )}
               </div>
 
-              <div className="flex flex-wrap items-center justify-end gap-1.5">
-                {variantCount > 1 && (
-                  <div className="flex items-center gap-1">
-                    <TooltipIconButton
-                      type="button"
-                      variant="ghost"
-                      size="icon-sm"
-                      label="Previous answer"
-                      onClick={() =>
-                        onSelectAssistantVariant(
-                          message.id,
-                          message.activeVariantIndex - 1,
-                        )
-                      }
-                      disabled={message.activeVariantIndex <= 0 || isSending}
-                    >
-                      <ChevronLeft className="size-3.5" />
-                    </TooltipIconButton>
-                    <span className="min-w-9 text-center tabular-nums">
-                      {activeVariantNumber}/{variantCount}
-                    </span>
-                    <TooltipIconButton
-                      type="button"
-                      variant="ghost"
-                      size="icon-sm"
-                      label="Next answer"
-                      onClick={() =>
-                        onSelectAssistantVariant(
-                          message.id,
-                          message.activeVariantIndex + 1,
-                        )
-                      }
-                      disabled={
-                        message.activeVariantIndex >= variantCount - 1 ||
-                        isSending
-                      }
-                    >
-                      <ChevronRight className="size-3.5" />
-                    </TooltipIconButton>
-                  </div>
-                )}
-
-                <Popover>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <PopoverTrigger asChild>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon-sm"
-                          className="h-6 w-6  text-muted-foreground"
-                          disabled={metrics?.durationMs === undefined}
-                          title="Generation info"
-                          aria-label="Generation info"
-                        >
-                          <Info className="size-3" />
-                        </Button>
-                      </PopoverTrigger>
-                    </TooltipTrigger>
-                    <TooltipContent>Generation info</TooltipContent>
-                  </Tooltip>
-                  <PopoverContent
-                    align="end"
-                    className="w-[min(26rem,calc(100vw-2rem))]  p-3"
-                  >
-                    <div className="mb-2 text-sm font-medium text-popover-foreground">
-                      Generation info
+              {!isSending ? (
+                <div className="flex flex-wrap items-center justify-end gap-1.5">
+                  {variantCount > 1 && (
+                    <div className="flex items-center gap-1">
+                      <TooltipIconButton
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        label="Previous answer"
+                        onClick={() =>
+                          onSelectAssistantVariant(
+                            message.id,
+                            message.activeVariantIndex - 1,
+                          )
+                        }
+                        disabled={message.activeVariantIndex <= 0 || isSending}
+                      >
+                        <ChevronLeft className="size-3.5" />
+                      </TooltipIconButton>
+                      <span className="min-w-9 text-center tabular-nums">
+                        {activeVariantNumber}/{variantCount}
+                      </span>
+                      <TooltipIconButton
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        label="Next answer"
+                        onClick={() =>
+                          onSelectAssistantVariant(
+                            message.id,
+                            message.activeVariantIndex + 1,
+                          )
+                        }
+                        disabled={
+                          message.activeVariantIndex >= variantCount - 1 ||
+                          isSending
+                        }
+                      >
+                        <ChevronRight className="size-3.5" />
+                      </TooltipIconButton>
                     </div>
-                    {renderJsonCodeBlock(
-                      formatGenerationInfoJson(metrics),
-                      "chat-markdown-compact max-h-120 overflow-auto text-sm",
-                    )}
-                  </PopoverContent>
-                </Popover>
-
-                <TooltipIconButton
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  label="Branch from here"
-                  onClick={() => onBranchFromMessage(message.id)}
-                  disabled={isSending || isMessageStreaming}
-                >
-                  <GitBranch className="size-3" />
-                </TooltipIconButton>
-
-                <TooltipIconButton
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  label="Delete message"
-                  onClick={() => onDeleteMessage(message.id)}
-                  disabled={isSending}
-                >
-                  <Trash2 className="size-3" />
-                </TooltipIconButton>
-
-                <TooltipIconButton
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  label={
-                    status === "error" ? "Retry answer" : "Regenerate answer"
-                  }
-                  onClick={() => onRegenerateAssistantMessage(message.id)}
-                  disabled={isSending}
-                >
-                  <RefreshCcw className="size-3" />
-                </TooltipIconButton>
-
-                <TooltipIconButton
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  label="Continue generating"
-                  onClick={() => onContinueAssistantMessage(message.id)}
-                  disabled={isSending || isMessageStreaming}
-                >
-                  <ChevronRight className="size-3.5" />
-                </TooltipIconButton>
-
-                <TooltipIconButton
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  label={getSourceViewToggleLabel(isSourceView)}
-                  onClick={() => setIsSourceView((current) => !current)}
-                  disabled={!hasMessageSourceContent}
-                >
-                  <MarkdownIcon className="size-3" />
-                </TooltipIconButton>
-
-                <TooltipIconButton
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  label={
-                    copiedMessageId === message.id
-                      ? "Copied"
-                      : isSourceView
-                        ? "Copy source"
-                        : "Copy answer"
-                  }
-                  onClick={(event) =>
-                    onCopyMessageContent(
-                      message.id,
-                      getMessageCopyContent(
-                        isSourceView,
-                        event.currentTarget,
-                        messageSourceContent,
-                      ),
-                    )
-                  }
-                  disabled={!hasMessageSourceContent}
-                >
-                  {copiedMessageId === message.id ? (
-                    <Check className="size-3" />
-                  ) : (
-                    <Copy className="size-3" />
                   )}
-                </TooltipIconButton>
-              </div>
+
+                  <Popover>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <PopoverTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon-sm"
+                            className="h-6 w-6  text-muted-foreground"
+                            disabled={metrics?.durationMs === undefined}
+                            title="Generation info"
+                            aria-label="Generation info"
+                          >
+                            <Info className="size-3" />
+                          </Button>
+                        </PopoverTrigger>
+                      </TooltipTrigger>
+                      <TooltipContent>Generation info</TooltipContent>
+                    </Tooltip>
+                    <PopoverContent
+                      align="end"
+                      className="w-[min(26rem,calc(100vw-2rem))]  p-3"
+                    >
+                      <div className="mb-2 text-sm font-medium text-popover-foreground">
+                        Generation info
+                      </div>
+                      {renderJsonCodeBlock(
+                        formatGenerationInfoJson(metrics),
+                        "chat-markdown-compact max-h-120 overflow-auto text-sm",
+                      )}
+                    </PopoverContent>
+                  </Popover>
+
+                  <TooltipIconButton
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    label="Branch from here"
+                    onClick={() => onBranchFromMessage(message.id)}
+                    disabled={isSending || isMessageStreaming}
+                  >
+                    <GitBranch className="size-3" />
+                  </TooltipIconButton>
+
+                  <TooltipIconButton
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    label="Delete message"
+                    onClick={() => onDeleteMessage(message.id)}
+                    disabled={isSending}
+                  >
+                    <Trash2 className="size-3" />
+                  </TooltipIconButton>
+
+                  <TooltipIconButton
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    label={
+                      status === "error" ? "Retry answer" : "Regenerate answer"
+                    }
+                    onClick={() => onRegenerateAssistantMessage(message.id)}
+                    disabled={isSending}
+                  >
+                    <RefreshCcw className="size-3" />
+                  </TooltipIconButton>
+
+                  <TooltipIconButton
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    label="Continue generating"
+                    onClick={() => onContinueAssistantMessage(message.id)}
+                    disabled={isSending || isMessageStreaming}
+                  >
+                    <ChevronRight className="size-3.5" />
+                  </TooltipIconButton>
+
+                  <TooltipIconButton
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    label={getSourceViewToggleLabel(isSourceView)}
+                    onClick={() => setIsSourceView((current) => !current)}
+                    disabled={!hasMessageSourceContent}
+                  >
+                    <MarkdownIcon className="size-3" />
+                  </TooltipIconButton>
+
+                  <TooltipIconButton
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    label={
+                      copiedMessageId === message.id
+                        ? "Copied"
+                        : isSourceView
+                          ? "Copy source"
+                          : "Copy answer"
+                    }
+                    onClick={(event) =>
+                      onCopyMessageContent(
+                        message.id,
+                        getMessageCopyContent(
+                          isSourceView,
+                          event.currentTarget,
+                          messageSourceContent,
+                        ),
+                      )
+                    }
+                    disabled={!hasMessageSourceContent}
+                  >
+                    {copiedMessageId === message.id ? (
+                      <Check className="size-3" />
+                    ) : (
+                      <Copy className="size-3" />
+                    )}
+                  </TooltipIconButton>
+                </div>
+              ) : null}
             </div>
           </div>
         )}

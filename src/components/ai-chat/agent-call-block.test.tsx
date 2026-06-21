@@ -45,4 +45,16 @@ describe("AgentCallBlock", () => {
 
     expect(screen.getByTestId("agent-transcript-dialog")).toBeInTheDocument();
   });
+
+  it("shows a muted checkmark for completed agents", () => {
+    render(
+      <AgentCallBlock
+        {...baseProps}
+        agentCall={{ ...agentCall, status: "complete" }}
+      />,
+    );
+
+    expect(screen.queryByText("Complete")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Agent complete")).toBeInTheDocument();
+  });
 });

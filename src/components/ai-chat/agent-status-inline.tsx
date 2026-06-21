@@ -23,9 +23,11 @@ export function AgentStatusInline({ status }: { status: AgentCallStatus }) {
 
   if (status === "complete") {
     return (
-      <span className="inline-flex items-center gap-1 text-green-600 dark:text-green-400">
+      <span
+        className="inline-flex items-center gap-1 text-muted-foreground/85"
+        aria-label="Agent complete"
+      >
         <Check className="size-3.5 shrink-0" />
-        <span className="truncate">Complete</span>
       </span>
     );
   }

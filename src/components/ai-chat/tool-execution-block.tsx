@@ -1,4 +1,5 @@
 import {
+  Check,
   Download,
   FileArchive,
   FileText,
@@ -499,7 +500,14 @@ function renderToolStatus(status: ToolExecutionStatus) {
   }
 
   if (status === "complete") {
-    return null;
+    return (
+      <span
+        className="inline-flex shrink-0 items-center gap-1 text-muted-foreground/85"
+        aria-label="Tool complete"
+      >
+        <Check className="size-3.5" />
+      </span>
+    );
   }
 
   return (

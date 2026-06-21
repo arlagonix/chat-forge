@@ -45,4 +45,4 @@
 - `@/` → `src/` (configured in `tsconfig.json`, `vite.config.ts`, `vitest.config.ts`).
 
 ## Version Pin
-- Current: **1.15.3** (defined in `package.json`, exposed to app as `__APP_VERSION__` build-time constant).
+- Current: **1.15.5** (defined in `package.json`, exposed to app as `__APP_VERSION__` build-time constant).

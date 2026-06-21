@@ -720,14 +720,16 @@ function AgentTranscriptStepsBody({
     if (group.kind === "runtime_group") {
       const key = group.groups
         .map((baseGroup) =>
-          baseGroup.kind === "single" ? baseGroup.step.id : baseGroup.toolBatchId,
+          baseGroup.kind === "single"
+            ? baseGroup.step.id
+            : baseGroup.toolBatchId,
         )
         .join(":");
 
       return (
         <div
           key={`${key}:runtime-group`}
-          className="grid gap-2 rounded-lg border border-dashed bg-muted/10 px-2 py-2 shadow-xs"
+          className="grid gap-2 rounded-sm border border-dashed bg-muted/10 px-2 py-2 shadow-xs"
         >
           {group.groups.map((baseGroup) =>
             renderBaseGroup(baseGroup, { insideRuntimeGroup: true }),
@@ -740,7 +742,7 @@ function AgentTranscriptStepsBody({
       return (
         <div
           key={`${group.thinkingStep.id}:tool-group`}
-          className="grid gap-2 rounded-lg border border-dashed bg-muted/10 px-2 py-2 shadow-xs"
+          className="grid gap-2 rounded-sm border border-dashed bg-muted/10 px-2 py-2 shadow-xs"
         >
           {renderStep(group.thinkingStep)}
           {group.toolGroups.map((toolGroup) =>

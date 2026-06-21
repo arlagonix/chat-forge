@@ -145,7 +145,7 @@ describe("ToolExecutionBlock", () => {
     expect(screen.queryByText("Exposed name: mcp_memory_search_memory")).not.toBeInTheDocument();
   });
 
-  it("hides the completed status for successful tool calls", () => {
+  it("shows a muted checkmark for successful tool calls", () => {
     const toolResult: ChatToolResult = {
       toolCallId: toolCall.id,
       toolName: toolCall.function.name,
@@ -165,6 +165,7 @@ describe("ToolExecutionBlock", () => {
     );
 
     expect(screen.queryByText("Complete")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Tool complete")).toBeInTheDocument();
     expect(screen.getByText(BASH_TOOL_NAME)).toBeInTheDocument();
     expect(screen.getByText("echo hello")).toBeInTheDocument();
   });

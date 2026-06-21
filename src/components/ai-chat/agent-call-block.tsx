@@ -73,12 +73,8 @@ const AgentCallSummaryButton = memo(function AgentCallSummaryButton({
             <span className="truncate text-muted-foreground/85">
               {agentName}
             </span>
-            {status !== "complete" ? (
-              <>
-                <span className="text-muted-foreground/60">·</span>
-                <AgentStatusInline status={status} />
-              </>
-            ) : null}
+            <span className="text-muted-foreground/60">·</span>
+            <AgentStatusInline status={status} />
             {model ? (
               <>
                 <span className="text-muted-foreground/60">·</span>
