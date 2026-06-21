@@ -18,6 +18,10 @@ import {
 } from "react";
 
 import { AgentsDialog } from "@/components/agents-dialog";
+import {
+  AgentTranscriptChatView,
+  AgentTranscriptSidebar,
+} from "@/components/ai-chat/agent-transcript-dialog";
 import { ChatCapabilitiesSidebar } from "@/components/ai-chat/chat-capabilities-dialog";
 import {
   ChatComposer,
@@ -35,10 +39,6 @@ import {
 } from "@/components/ai-chat/context-usage-indicator";
 import { EmptyChatState } from "@/components/ai-chat/empty-chat-state";
 import { FindBar } from "@/components/ai-chat/find-bar";
-import {
-  AgentTranscriptChatView,
-  AgentTranscriptSidebar,
-} from "@/components/ai-chat/agent-transcript-dialog";
 import {
   ToolExecutionBlock,
   ToolExecutionDetailsSidebar,
@@ -59,17 +59,16 @@ import { useChatAutoscroll } from "@/hooks/use-chat-autoscroll";
 import { useChatGeneration } from "@/hooks/use-chat-generation";
 import { useMessageContextMenu } from "@/hooks/use-message-context-menu";
 import { useStableCallback } from "@/hooks/use-stable-callback";
-import { estimateAttachmentsTokens } from "@/lib/ai-chat/attachment-limits";
 import {
   collectAgentRunsFromMessages,
-  findAgentRunItem,
   findAgentCallInMessages,
+  findAgentRunItem,
 } from "@/lib/ai-chat/agent-runs";
+import { estimateAttachmentsTokens } from "@/lib/ai-chat/attachment-limits";
 import {
   createBuiltInAgents,
   isBuiltInAgentName,
 } from "@/lib/ai-chat/builtin-agents";
-import { buildContextUsageDetails } from "@/lib/ai-chat/context-usage";
 import {
   applyBuiltInToolSettings,
   ASK_USER_TOOL,
@@ -108,6 +107,7 @@ import {
   providerDisplayName,
   sortChatsByUpdatedAt,
 } from "@/lib/ai-chat/chat-utils";
+import { buildContextUsageDetails } from "@/lib/ai-chat/context-usage";
 import {
   buildLoadedMcpTools,
   createMcpExposedToolName,
@@ -171,8 +171,8 @@ import type {
   AgentsSettings,
   AppSettings,
   ChatAgentCall,
-  ChatAttachment,
   ChatAssistantVariant,
+  ChatAttachment,
   ChatFolder,
   ChatMessage,
   ChatSession,
@@ -223,11 +223,20 @@ function clampPanelWidth(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, Math.round(value)));
 }
 
-function loadStoredPanelWidth(key: string, fallback: number, min: number, max: number) {
+function loadStoredPanelWidth(
+  key: string,
+  fallback: number,
+  min: number,
+  max: number,
+) {
   if (typeof window === "undefined") return fallback;
 
-  const stored = Number(window.localStorage.getItem(key));
+  const storedValue = window.localStorage.getItem(key);
+  if (storedValue === null) return fallback;
+
+  const stored = Number(storedValue);
   if (!Number.isFinite(stored)) return fallback;
+
   return clampPanelWidth(stored, min, max);
 }
 
@@ -940,7 +949,8 @@ export default function Home() {
       messages: buildAgentContextMessages(selectedAgentChat),
       contextLimit: context.length,
       limitSource: context.source,
-      systemPrompt: selectedAgentChat.description ?? selectedAgentChat.agentName,
+      systemPrompt:
+        selectedAgentChat.description ?? selectedAgentChat.agentName,
     });
 
     return details.usedTokens && details.usedTokens > 0 ? details : undefined;
@@ -3452,63 +3462,62 @@ export default function Home() {
                 </div>
               </div>
             )}
-
         </div>
 
         {!selectedAgentChat ? (
-        <ChatComposer
-          ref={chatComposerRef}
-          disabled={!activeChat && !isNewChatDraft}
-          isSending={isSending}
-          draftKey={composerDraftKey}
-          draft={activeComposerDraft}
-          onDraftChange={updateActiveComposerDraft}
-          attachments={activeComposerAttachments}
-          onAttachmentsChange={updateActiveComposerAttachments}
-          onSend={handleComposerSend}
-          onStop={stopGeneration}
-          supportsVision={modelSupportsVision(
-            activeChatProvider,
-            activeChatModel,
-          )}
-          footerStart={
-            <ComposerFooter
-              activeChatExists={Boolean(activeChat) || isNewChatDraft}
-              isSending={isSending}
-              activeChatProvider={activeChatProvider}
-              activeChatModel={activeChatModel}
-              visibleProviderGroups={visibleProviderGroups}
-              isModelPickerOpen={isSidebarModelComboboxOpen}
-              onModelPickerOpenChange={setIsSidebarModelComboboxOpen}
-              modelSearchValue={sidebarModelSearchValue}
-              onModelSearchValueChange={setSidebarModelSearchValue}
-              onSelectProviderModel={selectActiveChatProviderModel}
-              activeMode={activeMode}
-              visibleModes={visibleModes}
-              isModePickerOpen={isModePickerOpen}
-              onModePickerOpenChange={setIsModePickerOpen}
-              modeSearchValue={modeSearchValue}
-              onModeSearchValueChange={setModeSearchValue}
-              onSelectMode={selectActiveChatMode}
-              workspaceControl={
-                <WorkspaceRootsControl
-                  activeChatExists={Boolean(activeChat) || isNewChatDraft}
-                  disabled={isSending}
-                  roots={activeChatVisibleWorkspaceRoots}
-                  open={isWorkspacePickerOpen}
-                  onOpenChange={setIsWorkspacePickerOpen}
-                  onAddRoot={addActiveChatWorkspaceRoot}
-                  onRemoveRoot={removeActiveChatWorkspaceRoot}
-                  onOpenRoot={openWorkspaceRoot}
-                />
-              }
-            />
-          }
-          contentWidthClassName={chatWidthClassName}
-          toolMentionOptions={toolMentionOptions}
-          skillMentionOptions={skillMentionOptions}
-          agentMentionOptions={agentMentionOptions}
-        />
+          <ChatComposer
+            ref={chatComposerRef}
+            disabled={!activeChat && !isNewChatDraft}
+            isSending={isSending}
+            draftKey={composerDraftKey}
+            draft={activeComposerDraft}
+            onDraftChange={updateActiveComposerDraft}
+            attachments={activeComposerAttachments}
+            onAttachmentsChange={updateActiveComposerAttachments}
+            onSend={handleComposerSend}
+            onStop={stopGeneration}
+            supportsVision={modelSupportsVision(
+              activeChatProvider,
+              activeChatModel,
+            )}
+            footerStart={
+              <ComposerFooter
+                activeChatExists={Boolean(activeChat) || isNewChatDraft}
+                isSending={isSending}
+                activeChatProvider={activeChatProvider}
+                activeChatModel={activeChatModel}
+                visibleProviderGroups={visibleProviderGroups}
+                isModelPickerOpen={isSidebarModelComboboxOpen}
+                onModelPickerOpenChange={setIsSidebarModelComboboxOpen}
+                modelSearchValue={sidebarModelSearchValue}
+                onModelSearchValueChange={setSidebarModelSearchValue}
+                onSelectProviderModel={selectActiveChatProviderModel}
+                activeMode={activeMode}
+                visibleModes={visibleModes}
+                isModePickerOpen={isModePickerOpen}
+                onModePickerOpenChange={setIsModePickerOpen}
+                modeSearchValue={modeSearchValue}
+                onModeSearchValueChange={setModeSearchValue}
+                onSelectMode={selectActiveChatMode}
+                workspaceControl={
+                  <WorkspaceRootsControl
+                    activeChatExists={Boolean(activeChat) || isNewChatDraft}
+                    disabled={isSending}
+                    roots={activeChatVisibleWorkspaceRoots}
+                    open={isWorkspacePickerOpen}
+                    onOpenChange={setIsWorkspacePickerOpen}
+                    onAddRoot={addActiveChatWorkspaceRoot}
+                    onRemoveRoot={removeActiveChatWorkspaceRoot}
+                    onOpenRoot={openWorkspaceRoot}
+                  />
+                }
+              />
+            }
+            contentWidthClassName={chatWidthClassName}
+            toolMentionOptions={toolMentionOptions}
+            skillMentionOptions={skillMentionOptions}
+            agentMentionOptions={agentMentionOptions}
+          />
         ) : null}
       </section>
 
