@@ -1,4 +1,4 @@
-import { Bot, BookOpen, Wrench } from "lucide-react";
+import { Bot, BookOpen, Wrench, X } from "lucide-react";
 import { memo, type ReactNode } from "react";
 
 import {
@@ -8,6 +8,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -27,9 +28,7 @@ import type {
 import { FEATURE_PERMISSION_KEY } from "@/lib/ai-chat/modes";
 import { cn } from "@/lib/utils";
 
-type ChatCapabilitiesDialogProps = {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
+type ChatCapabilitiesProps = {
   tools: LoadedToolInfo[];
   toolPermissions: Map<string, Permission>;
   globalToolPermissions: Map<string, Permission>;
@@ -46,6 +45,11 @@ type ChatCapabilitiesDialogProps = {
   thinkingMode: ChatThinkingMode;
   onThinkingModeChange: (thinkingMode: ChatThinkingMode) => void;
   disabled?: boolean;
+};
+
+type ChatCapabilitiesDialogProps = ChatCapabilitiesProps & {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
 };
 
 function formatPermission(permission: Permission) {
@@ -169,9 +173,7 @@ function CapabilitySection({
   );
 }
 
-export const ChatCapabilitiesDialog = memo(function ChatCapabilitiesDialog({
-  open,
-  onOpenChange,
+function ChatCapabilitiesContent({
   tools,
   toolPermissions,
   globalToolPermissions,
@@ -188,6 +190,67 @@ export const ChatCapabilitiesDialog = memo(function ChatCapabilitiesDialog({
   thinkingMode,
   onThinkingModeChange,
   disabled = false,
+}: ChatCapabilitiesProps) {
+  return (
+    <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+      <div className="grid gap-4">
+        <section className="min-w-0 space-y-2">
+          <Label htmlFor="chat-thinking-mode" className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
+            Thinking mode
+          </Label>
+          <div className="grid gap-1.5">
+            <Select value={thinkingMode} onValueChange={(value) => onThinkingModeChange(value as ChatThinkingMode)} disabled={disabled}>
+              <SelectTrigger id="chat-thinking-mode" className="h-9">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="model_default">Model default</SelectItem>
+                <SelectItem value="off">No thinking</SelectItem>
+                <SelectItem value="low">Low</SelectItem>
+                <SelectItem value="medium">Medium</SelectItem>
+                <SelectItem value="high">High</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-sm leading-5 text-muted-foreground">Availability is controlled by global settings and mode permissions. Chat-level tool and agent overrides were removed.</p>
+          </div>
+        </section>
+
+        <CapabilitySection
+          title="Tools"
+          icon={<Wrench className="size-4" />}
+          items={tools}
+          permissions={toolPermissions}
+          globalPermissions={globalToolPermissions}
+          modePermissions={modeToolPermissions}
+          modeName={modeName}
+        />
+        <CapabilitySection
+          title="Skills"
+          icon={<BookOpen className="size-4" />}
+          items={skills}
+          permissions={skillPermissions}
+          globalPermissions={globalSkillPermissions}
+          modePermissions={modeSkillPermissions}
+          modeName={modeName}
+        />
+        <CapabilitySection
+          title="Agents"
+          icon={<Bot className="size-4" />}
+          items={agents}
+          permissions={agentPermissions}
+          globalPermissions={globalAgentPermissions}
+          modePermissions={modeAgentPermissions}
+          modeName={modeName}
+        />
+      </div>
+    </div>
+  );
+}
+
+export const ChatCapabilitiesDialog = memo(function ChatCapabilitiesDialog({
+  open,
+  onOpenChange,
+  ...props
 }: ChatCapabilitiesDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -199,59 +262,44 @@ export const ChatCapabilitiesDialog = memo(function ChatCapabilitiesDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-          <div className="grid gap-4">
-            <section className="min-w-0 space-y-2">
-              <Label htmlFor="chat-thinking-mode" className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
-                Thinking mode
-              </Label>
-              <div className="grid gap-1.5">
-                <Select value={thinkingMode} onValueChange={(value) => onThinkingModeChange(value as ChatThinkingMode)} disabled={disabled}>
-                  <SelectTrigger id="chat-thinking-mode" className="h-9">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="model_default">Model default</SelectItem>
-                    <SelectItem value="off">No thinking</SelectItem>
-                    <SelectItem value="low">Low</SelectItem>
-                    <SelectItem value="medium">Medium</SelectItem>
-                    <SelectItem value="high">High</SelectItem>
-                  </SelectContent>
-                </Select>
-                <p className="text-sm leading-5 text-muted-foreground">Availability is controlled by global settings and mode permissions. Chat-level tool and agent overrides were removed.</p>
-              </div>
-            </section>
-
-            <CapabilitySection
-              title="Tools"
-              icon={<Wrench className="size-4" />}
-              items={tools}
-              permissions={toolPermissions}
-              globalPermissions={globalToolPermissions}
-              modePermissions={modeToolPermissions}
-              modeName={modeName}
-            />
-            <CapabilitySection
-              title="Skills"
-              icon={<BookOpen className="size-4" />}
-              items={skills}
-              permissions={skillPermissions}
-              globalPermissions={globalSkillPermissions}
-              modePermissions={modeSkillPermissions}
-              modeName={modeName}
-            />
-            <CapabilitySection
-              title="Agents"
-              icon={<Bot className="size-4" />}
-              items={agents}
-              permissions={agentPermissions}
-              globalPermissions={globalAgentPermissions}
-              modePermissions={modeAgentPermissions}
-              modeName={modeName}
-            />
-          </div>
-        </div>
+        <ChatCapabilitiesContent {...props} />
       </DialogContent>
     </Dialog>
+  );
+});
+
+export const ChatCapabilitiesSidebar = memo(function ChatCapabilitiesSidebar({
+  width,
+  onClose,
+  ...props
+}: ChatCapabilitiesProps & {
+  width?: number;
+  onClose: () => void;
+}) {
+  return (
+    <aside
+      className="z-20 flex h-dvh min-w-[560px] shrink-0 flex-col border-l bg-background text-base leading-6 shadow-xl"
+      style={{ width: width ?? 680 }}
+    >
+      <div className="flex min-w-0 items-center gap-3 border-b py-2 pl-4 pr-2">
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-sm font-medium text-foreground">
+            Chat capabilities
+          </div>
+        </div>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          className="shrink-0"
+          onClick={onClose}
+          title="Close chat capabilities"
+          aria-label="Close chat capabilities"
+        >
+          <X className="size-4" />
+        </Button>
+      </div>
+      <ChatCapabilitiesContent {...props} />
+    </aside>
   );
 });

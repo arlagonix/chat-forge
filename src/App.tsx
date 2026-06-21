@@ -1,20 +1,49 @@
 "use client";
 
-import { ChevronDown } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  ArrowLeft,
+  ChevronDown,
+  Menu,
+  Plus,
+  Settings,
+  Settings2,
+} from "lucide-react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 
 import { AgentsDialog } from "@/components/agents-dialog";
-import { ChatCapabilitiesDialog } from "@/components/ai-chat/chat-capabilities-dialog";
+import { ChatCapabilitiesSidebar } from "@/components/ai-chat/chat-capabilities-dialog";
 import {
   ChatComposer,
   type ChatComposerHandle,
   type ToolMentionOption,
 } from "@/components/ai-chat/chat-composer";
-import { ChatMessageList } from "@/components/ai-chat/chat-message-list";
+import {
+  ChatMessageList,
+  GenerationInfoSidebar,
+} from "@/components/ai-chat/chat-message-list";
 import { ComposerFooter } from "@/components/ai-chat/composer-footer";
+import {
+  ContextUsageIndicator,
+  ContextUsageSidebar,
+} from "@/components/ai-chat/context-usage-indicator";
 import { EmptyChatState } from "@/components/ai-chat/empty-chat-state";
 import { FindBar } from "@/components/ai-chat/find-bar";
-import { ToolExecutionBlock } from "@/components/ai-chat/tool-execution-block";
+import {
+  AgentTranscriptChatView,
+  AgentTranscriptSidebar,
+} from "@/components/ai-chat/agent-transcript-dialog";
+import {
+  ToolExecutionBlock,
+  ToolExecutionDetailsSidebar,
+  type ToolExecutionDetails,
+} from "@/components/ai-chat/tool-execution-block";
 import { WorkspaceRootsControl } from "@/components/ai-chat/workspace-roots-control";
 import { ChatSidebar } from "@/components/chat-sidebar";
 import { SystemPromptDialog } from "@/components/dialogs/system-prompt-dialog";
@@ -31,6 +60,11 @@ import { useChatGeneration } from "@/hooks/use-chat-generation";
 import { useMessageContextMenu } from "@/hooks/use-message-context-menu";
 import { useStableCallback } from "@/hooks/use-stable-callback";
 import { estimateAttachmentsTokens } from "@/lib/ai-chat/attachment-limits";
+import {
+  collectAgentRunsFromMessages,
+  findAgentRunItem,
+  findAgentCallInMessages,
+} from "@/lib/ai-chat/agent-runs";
 import {
   createBuiltInAgents,
   isBuiltInAgentName,
@@ -136,7 +170,9 @@ import { generateTitleFromChatContext } from "@/lib/ai-chat/title-generation";
 import type {
   AgentsSettings,
   AppSettings,
+  ChatAgentCall,
   ChatAttachment,
+  ChatAssistantVariant,
   ChatFolder,
   ChatMessage,
   ChatSession,
@@ -176,10 +212,98 @@ const APP_VERSION_LABEL = `v${__APP_VERSION__}`;
 const APP_TITLE = `${APP_NAME} ${APP_VERSION_LABEL}`;
 
 const SIDEBAR_COLLAPSED_STORAGE_KEY = "molten-forge-sidebar-collapsed";
+const LEFT_SIDEBAR_WIDTH_STORAGE_KEY = "molten-forge-left-sidebar-width";
+const RIGHT_SIDEBAR_WIDTH_STORAGE_KEY = "molten-forge-right-sidebar-width";
 const COMPOSER_DRAFTS_STORAGE_KEY = "molten-forge-composer-drafts";
 // Draft-state key for the unsaved "New chat" composer. A real chat is only
 // created (and persisted) once the user sends the first message.
 const NEW_CHAT_DRAFT_KEY = "__new_chat_draft__";
+
+function clampPanelWidth(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, Math.round(value)));
+}
+
+function loadStoredPanelWidth(key: string, fallback: number, min: number, max: number) {
+  if (typeof window === "undefined") return fallback;
+
+  const stored = Number(window.localStorage.getItem(key));
+  if (!Number.isFinite(stored)) return fallback;
+  return clampPanelWidth(stored, min, max);
+}
+
+function estimateTokens(value: unknown): number {
+  if (typeof value === "string") return Math.ceil(value.length / 4);
+  if (typeof value === "number" || typeof value === "boolean") {
+    return Math.ceil(String(value).length / 4);
+  }
+  if (Array.isArray(value)) {
+    return value.reduce((sum, item) => sum + estimateTokens(item), 0);
+  }
+  if (value && typeof value === "object") {
+    return Object.values(value as Record<string, unknown>).reduce(
+      (sum, item) => sum + estimateTokens(item),
+      0,
+    );
+  }
+  return 0;
+}
+
+function buildAgentContextMessages(agentCall: ChatAgentCall): ChatMessage[] {
+  const estimatedInputTokens = estimateTokens(agentCall.task);
+  const estimatedOutputTokens =
+    estimateTokens(agentCall.output) + estimateTokens(agentCall.reasoning);
+  const estimatedToolTokens =
+    estimateTokens(agentCall.toolCalls ?? []) +
+    estimateTokens(agentCall.toolResults ?? []);
+  const totalTokens =
+    estimatedInputTokens + estimatedOutputTokens + estimatedToolTokens;
+
+  return [
+    {
+      id: `${agentCall.id}:task`,
+      role: "user",
+      content: agentCall.task,
+      createdAt: agentCall.startedAt,
+    },
+    {
+      id: `${agentCall.id}:assistant`,
+      role: "assistant",
+      activeVariantIndex: 0,
+      createdAt: agentCall.startedAt,
+      variants: [
+        {
+          id: `${agentCall.id}:variant`,
+          content: agentCall.output,
+          reasoning: agentCall.reasoning,
+          status:
+            agentCall.status === "running" || agentCall.status === "pending"
+              ? "streaming"
+              : agentCall.status === "failed"
+                ? "error"
+                : "done",
+          createdAt: agentCall.startedAt,
+          metrics: {
+            startedAt: agentCall.startedAt,
+            completedAt: agentCall.completedAt,
+            tokenUsage: {
+              promptTokens: estimatedInputTokens,
+              completionTokens: estimatedOutputTokens + estimatedToolTokens,
+              totalTokens,
+              breakdown: {
+                input: estimatedInputTokens,
+                output: estimatedOutputTokens + estimatedToolTokens,
+              },
+            },
+            providerName: agentCall.providerName,
+            model: agentCall.model,
+          },
+          toolCalls: agentCall.toolCalls,
+          toolResults: agentCall.toolResults,
+        },
+      ],
+    },
+  ];
+}
 
 function loadComposerDrafts(): Record<string, string> {
   if (typeof window === "undefined") return {};
@@ -367,6 +491,29 @@ export default function Home() {
     Record<string, ProjectInstructionsState | undefined>
   >({});
   const [activeChatId, setActiveChatId] = useState<string | undefined>();
+  const [selectedAgentChatId, setSelectedAgentChatId] = useState<
+    string | undefined
+  >();
+  const [selectedAgentSidebarId, setSelectedAgentSidebarId] = useState<
+    string | undefined
+  >();
+  const [selectedAgentSidebarStack, setSelectedAgentSidebarStack] = useState<
+    string[]
+  >([]);
+  const [isContextUsageSidebarOpen, setIsContextUsageSidebarOpen] =
+    useState(false);
+  const [isChatCapabilitiesSidebarOpen, setIsChatCapabilitiesSidebarOpen] =
+    useState(false);
+  const [selectedToolSidebarDetails, setSelectedToolSidebarDetails] =
+    useState<ToolExecutionDetails>();
+  const [selectedGenerationInfoVariant, setSelectedGenerationInfoVariant] =
+    useState<ChatAssistantVariant>();
+  const [leftSidebarWidth, setLeftSidebarWidth] = useState(() =>
+    loadStoredPanelWidth(LEFT_SIDEBAR_WIDTH_STORAGE_KEY, 320, 240, 520),
+  );
+  const [rightSidebarWidth, setRightSidebarWidth] = useState(() =>
+    loadStoredPanelWidth(RIGHT_SIDEBAR_WIDTH_STORAGE_KEY, 680, 560, 920),
+  );
   // When true, we're composing an unsaved "New chat". No chat exists yet; the
   // real chat is created on first send. The composer draft lives under
   // NEW_CHAT_DRAFT_KEY so it survives switching to another chat and back.
@@ -375,6 +522,10 @@ export default function Home() {
     chatId: string;
     content: string;
     attachments: ChatAttachment[];
+  } | null>(null);
+  const pendingAgentSubchatSwitchRef = useRef<{
+    chatId: string;
+    agentCallId: string;
   } | null>(null);
   const [chatSwitchLoadingChatId, setChatSwitchLoadingChatId] = useState<
     string | null
@@ -421,8 +572,6 @@ export default function Home() {
   const [sidebarModelSearchValue, setSidebarModelSearchValue] = useState("");
   const [isModePickerOpen, setIsModePickerOpen] = useState(false);
   const [modeSearchValue, setModeSearchValue] = useState("");
-  const [isChatCapabilitiesDialogOpen, setIsChatCapabilitiesDialogOpen] =
-    useState(false);
   const [isChatToolPickerOpen, setIsChatToolPickerOpen] = useState(false);
   const [chatToolSearchValue, setChatToolSearchValue] = useState("");
   const [isWorkspacePickerOpen, setIsWorkspacePickerOpen] = useState(false);
@@ -557,6 +706,20 @@ export default function Home() {
       String(isSidebarCollapsed),
     );
   }, [isSidebarCollapsed]);
+
+  useEffect(() => {
+    window.localStorage.setItem(
+      LEFT_SIDEBAR_WIDTH_STORAGE_KEY,
+      String(leftSidebarWidth),
+    );
+  }, [leftSidebarWidth]);
+
+  useEffect(() => {
+    window.localStorage.setItem(
+      RIGHT_SIDEBAR_WIDTH_STORAGE_KEY,
+      String(rightSidebarWidth),
+    );
+  }, [rightSidebarWidth]);
 
   function runFindInPage(
     query: string,
@@ -703,6 +866,41 @@ export default function Home() {
   const hasMessages = messages.length > 0;
   const activeChatProvider = activeProvider;
   const activeChatModel = getProviderFallbackModel(activeChatProvider);
+  const agentSubchats = useMemo(
+    () => collectAgentRunsFromMessages(messages),
+    [messages],
+  );
+  const selectedAgentChat = useMemo(
+    () => findAgentCallInMessages(messages, selectedAgentChatId),
+    [messages, selectedAgentChatId],
+  );
+  const selectedAgentChatItem = useMemo(
+    () => findAgentRunItem(agentSubchats, selectedAgentChatId),
+    [agentSubchats, selectedAgentChatId],
+  );
+  const selectedAgentSidebarCall = useMemo(
+    () => findAgentCallInMessages(messages, selectedAgentSidebarId),
+    [messages, selectedAgentSidebarId],
+  );
+  useEffect(() => {
+    if (selectedAgentChatId && !selectedAgentChat) {
+      setSelectedAgentChatId(undefined);
+    }
+  }, [selectedAgentChat, selectedAgentChatId]);
+  useEffect(() => {
+    if (selectedAgentSidebarId && !selectedAgentSidebarCall) {
+      setSelectedAgentSidebarId(undefined);
+      setSelectedAgentSidebarStack([]);
+    }
+  }, [selectedAgentSidebarCall, selectedAgentSidebarId]);
+  useEffect(() => {
+    const pending = pendingAgentSubchatSwitchRef.current;
+    if (!pending) return;
+    if (activeChatId !== pending.chatId) return;
+
+    pendingAgentSubchatSwitchRef.current = null;
+    setSelectedAgentChatId(pending.agentCallId);
+  }, [activeChatId]);
   const isSending = activeChat
     ? generatingChatIds.includes(activeChat.id)
     : false;
@@ -731,6 +929,22 @@ export default function Home() {
     messages,
     systemPrompt,
   ]);
+  const selectedAgentContextUsage = useMemo(() => {
+    if (!selectedAgentChat) return undefined;
+
+    const context = getEffectiveModelContext(
+      activeChatProvider,
+      selectedAgentChat.model || activeChatModel,
+    );
+    const details = buildContextUsageDetails({
+      messages: buildAgentContextMessages(selectedAgentChat),
+      contextLimit: context.length,
+      limitSource: context.source,
+      systemPrompt: selectedAgentChat.description ?? selectedAgentChat.agentName,
+    });
+
+    return details.usedTokens && details.usedTokens > 0 ? details : undefined;
+  }, [activeChatModel, activeChatProvider, selectedAgentChat]);
   const visibleProviderGroups = useMemo(() => {
     const search = sidebarModelSearchValue.trim().toLowerCase();
 
@@ -1729,6 +1943,7 @@ export default function Home() {
     status,
     isCollapsed,
     onToggleCollapsed,
+    returnToAgentCallId,
   }: {
     id: string;
     toolCall: ChatToolCall;
@@ -1736,6 +1951,7 @@ export default function Home() {
     status?: ToolExecutionStatus;
     isCollapsed?: boolean;
     onToggleCollapsed?: (stepId: string, nextCollapsed: boolean) => void;
+    returnToAgentCallId?: string;
   }) {
     return (
       <ToolExecutionBlock
@@ -1747,6 +1963,16 @@ export default function Home() {
         loadedTools={executableTools}
         isCollapsed={isCollapsed ?? isToolExecutionCollapsed(id)}
         onToggleCollapsed={onToggleCollapsed ?? toggleToolExecutionCollapsed}
+        returnToAgentCallId={returnToAgentCallId}
+        onOpenDetails={(details) => {
+          setSelectedToolSidebarDetails(details);
+          setSelectedGenerationInfoVariant(undefined);
+          setIsContextUsageSidebarOpen(false);
+          setIsChatCapabilitiesSidebarOpen(false);
+          if (details.returnToAgentCallId) {
+            setSelectedAgentSidebarId(details.returnToAgentCallId);
+          }
+        }}
       />
     );
   }
@@ -2771,10 +2997,103 @@ export default function Home() {
   const stableHandleAssistantVisualStreamingChange = useStableCallback(
     handleAssistantVisualStreamingChange,
   );
+  const stableOpenAgentSidebar = useStableCallback((agentCallId: string) => {
+    setSelectedToolSidebarDetails(undefined);
+    setSelectedGenerationInfoVariant(undefined);
+    setIsContextUsageSidebarOpen(false);
+    setIsChatCapabilitiesSidebarOpen(false);
+    setSelectedAgentSidebarStack((current) =>
+      selectedAgentSidebarId && selectedAgentSidebarId !== agentCallId
+        ? [...current, selectedAgentSidebarId]
+        : current,
+    );
+    setSelectedAgentSidebarId(agentCallId);
+  });
+  const stableOpenAgentChat = useStableCallback((agentCallId: string) => {
+    setSelectedAgentChatId(agentCallId);
+  });
+  const stableOpenAgentSubchat = useStableCallback(
+    (chatId: string, agentCallId: string) => {
+      setSelectedAgentSidebarId(undefined);
+      setSelectedAgentSidebarStack([]);
+      setSelectedToolSidebarDetails(undefined);
+      setSelectedGenerationInfoVariant(undefined);
+      setIsContextUsageSidebarOpen(false);
+      setIsChatCapabilitiesSidebarOpen(false);
+      if (chatId !== activeChat?.id) {
+        pendingAgentSubchatSwitchRef.current = { chatId, agentCallId };
+        setSelectedAgentChatId(undefined);
+        setCompletedGenerationChatIds((currentChatIds) =>
+          currentChatIds.filter((currentChatId) => currentChatId !== chatId),
+        );
+        switchChatWithLoading(chatId);
+        return;
+      }
+      pendingAgentSubchatSwitchRef.current = null;
+      setSelectedAgentChatId(agentCallId);
+    },
+  );
+  const selectedAgentParentId = selectedAgentChatItem?.parentId;
+  const selectedAgentParent = useMemo(
+    () => findAgentCallInMessages(messages, selectedAgentParentId),
+    [messages, selectedAgentParentId],
+  );
+  const handleLeftSidebarResizePointerDown = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      event.preventDefault();
+      const startX = event.clientX;
+      const startWidth = leftSidebarWidth;
+
+      const handlePointerMove = (moveEvent: PointerEvent) => {
+        setLeftSidebarWidth(
+          clampPanelWidth(startWidth + moveEvent.clientX - startX, 240, 520),
+        );
+      };
+      const handlePointerUp = () => {
+        document.removeEventListener("pointermove", handlePointerMove);
+        document.removeEventListener("pointerup", handlePointerUp);
+      };
+
+      document.addEventListener("pointermove", handlePointerMove);
+      document.addEventListener("pointerup", handlePointerUp);
+    },
+    [leftSidebarWidth],
+  );
+  const handleRightSidebarResizePointerDown = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      event.preventDefault();
+      const startX = event.clientX;
+      const startWidth = rightSidebarWidth;
+
+      const handlePointerMove = (moveEvent: PointerEvent) => {
+        setRightSidebarWidth(
+          clampPanelWidth(startWidth + startX - moveEvent.clientX, 560, 920),
+        );
+      };
+      const handlePointerUp = () => {
+        document.removeEventListener("pointermove", handlePointerMove);
+        document.removeEventListener("pointerup", handlePointerUp);
+      };
+
+      document.addEventListener("pointermove", handlePointerMove);
+      document.addEventListener("pointerup", handlePointerUp);
+    },
+    [rightSidebarWidth],
+  );
 
   const showChatSwitchLoading = Boolean(chatSwitchLoadingChatId);
   const chatWidth = appSettings.chatWidth ?? "896";
   const chatWidthClassName = CHAT_WIDTH_CLASS_NAMES[chatWidth];
+  const isViewingAgentChat = Boolean(selectedAgentChat);
+  const headerTitle =
+    selectedAgentChat?.agentName || activeChat?.title || APP_NAME;
+  const headerContextUsage = selectedAgentChat
+    ? selectedAgentContextUsage
+    : latestContextUsage;
+  const isCapabilitiesThinkingDisabled =
+    isViewingAgentChat ||
+    isSending ||
+    Boolean(activeChat && generatingChatIds.includes(activeChat.id));
 
   if (!mounted) {
     return (
@@ -2798,11 +3117,21 @@ export default function Home() {
         folders={appSettings.chatFolders}
         activeChatId={activeChat?.id}
         isCollapsed={isSidebarCollapsed}
+        width={leftSidebarWidth}
+        onResizePointerDown={handleLeftSidebarResizePointerDown}
         generatingChatIds={generatingChatIds}
         completedGenerationChatIds={completedGenerationChatIds}
         titleGenerationChatIds={titleGenerationChatIds}
         onCollapsedChange={setIsSidebarCollapsed}
         onSwitchChat={(chatId) => {
+          setSelectedAgentChatId(undefined);
+          setSelectedAgentSidebarId(undefined);
+          setSelectedAgentSidebarStack([]);
+          setSelectedToolSidebarDetails(undefined);
+          setSelectedGenerationInfoVariant(undefined);
+          setIsContextUsageSidebarOpen(false);
+          setIsChatCapabilitiesSidebarOpen(false);
+          pendingAgentSubchatSwitchRef.current = null;
           setCompletedGenerationChatIds((currentChatIds) =>
             currentChatIds.filter((currentChatId) => currentChatId !== chatId),
           );
@@ -2829,6 +3158,9 @@ export default function Home() {
         onClearFolderWorkspace={clearFolderWorkspaces}
         onMoveChatToFolder={moveChatToFolder}
         onRemoveChatFromFolder={removeChatFromFolder}
+        agentSubchats={agentSubchats}
+        activeAgentCallId={selectedAgentChatId}
+        onOpenAgentSubchat={stableOpenAgentSubchat}
         onClearChat={(chatId) => {
           setCompletedGenerationChatIds((currentChatIds) =>
             currentChatIds.filter((currentChatId) => currentChatId !== chatId),
@@ -2837,7 +3169,111 @@ export default function Home() {
         }}
       />
 
-      <section className="relative grid min-h-0 flex-1 grid-rows-[1fr_auto] bg-background px-4">
+      <section className="relative grid min-h-0 flex-1 grid-rows-[auto_1fr_auto] bg-background px-4">
+        <div className="-mx-4 grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 border-b px-2 py-2">
+          <div className="flex min-w-0 items-center gap-1">
+            {isSidebarCollapsed ? (
+              <>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  className="shrink-0"
+                  onClick={() => setIsSidebarCollapsed(false)}
+                  title="Show sidebar"
+                  aria-label="Show sidebar"
+                >
+                  <Menu className="size-4" />
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  className="shrink-0"
+                  onClick={createNewChatWithEmptyDraftState}
+                  title="New chat (Ctrl+N)"
+                  aria-label="New chat"
+                >
+                  <Plus className="size-4" />
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  className="shrink-0"
+                  onClick={() => setSettingsOpen(true)}
+                  title="Settings"
+                  aria-label="Settings"
+                >
+                  <Settings className="size-4" />
+                </Button>
+              </>
+            ) : null}
+            {isViewingAgentChat ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                className="shrink-0"
+                onClick={() =>
+                  selectedAgentParent
+                    ? setSelectedAgentChatId(selectedAgentParent.id)
+                    : setSelectedAgentChatId(undefined)
+                }
+                title={
+                  selectedAgentParent
+                    ? "Back to parent agent"
+                    : "Back to main chat"
+                }
+                aria-label={
+                  selectedAgentParent
+                    ? "Back to parent agent"
+                    : "Back to main chat"
+                }
+              >
+                <ArrowLeft className="size-4" />
+              </Button>
+            ) : null}
+          </div>
+          <div className="min-w-0 text-center">
+            <div className="truncate text-sm font-medium leading-5 text-foreground">
+              {headerTitle}
+            </div>
+          </div>
+          <div className="flex min-w-0 items-center justify-end gap-1">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              className="shrink-0"
+              disabled={!activeChat && !isNewChatDraft}
+              onClick={() => {
+                setSelectedToolSidebarDetails(undefined);
+                setSelectedGenerationInfoVariant(undefined);
+                setSelectedAgentSidebarId(undefined);
+                setIsContextUsageSidebarOpen(false);
+                setIsChatCapabilitiesSidebarOpen(true);
+              }}
+              title="Chat capabilities"
+              aria-label="Chat capabilities"
+            >
+              <Settings2 className="size-4" />
+            </Button>
+            {headerContextUsage ? (
+              <ContextUsageIndicator
+                usage={headerContextUsage}
+                onOpen={() => {
+                  setSelectedToolSidebarDetails(undefined);
+                  setSelectedGenerationInfoVariant(undefined);
+                  setSelectedAgentSidebarId(undefined);
+                  setIsChatCapabilitiesSidebarOpen(false);
+                  setIsContextUsageSidebarOpen(true);
+                }}
+              />
+            ) : null}
+          </div>
+        </div>
+
         {findBarOpen && (
           <FindBar
             inputRef={findInputRef}
@@ -2874,18 +3310,30 @@ export default function Home() {
               "chat-scrollbar min-h-0 flex-1 w-full [overflow-anchor:none]",
               hasMessages
                 ? "overflow-y-auto pt-3 pb-3 md:pt-6 md:pb-6"
-                : "overflow-hidden",
+                : selectedAgentChat
+                  ? "overflow-y-auto"
+                  : "overflow-hidden",
             )}
           >
             <div
               ref={chatContentRef}
               className={cn(
                 "mx-auto flex w-full min-w-0 flex-col [overflow-anchor:none]",
-                chatWidthClassName,
-                hasMessages ? "gap-5" : "h-full",
+                selectedAgentChat ? "max-w-4xl" : chatWidthClassName,
+                hasMessages || selectedAgentChat ? "gap-5" : "h-full",
               )}
             >
-              {!hasMessages ? (
+              {selectedAgentChat ? (
+                <AgentTranscriptChatView
+                  agentCall={selectedAgentChat}
+                  renderToolExecutionBlock={stableRenderToolExecutionBlock}
+                  canSubmitAskUserResponse={stableCanSubmitAskUserResponse}
+                  onSubmitAskUserResponse={stableSubmitAskUserResponse}
+                  onCancelAskUserRequest={stableCancelAskUserRequest}
+                  onAskUserLayoutChange={stableHandleAskUserLayoutChange}
+                  onOpenAgentCall={stableOpenAgentSidebar}
+                />
+              ) : !hasMessages ? (
                 <EmptyChatState
                   onOpenProviders={() => setProviderSettingsOpen(true)}
                 />
@@ -2949,6 +3397,15 @@ export default function Home() {
                   onAssistantVisualStreamingChange={
                     stableHandleAssistantVisualStreamingChange
                   }
+                  onOpenAgentCall={stableOpenAgentSidebar}
+                  onOpenGenerationInfo={(variant) => {
+                    setSelectedGenerationInfoVariant(variant);
+                    setSelectedToolSidebarDetails(undefined);
+                    setSelectedAgentSidebarId(undefined);
+                    setSelectedAgentSidebarStack([]);
+                    setIsContextUsageSidebarOpen(false);
+                    setIsChatCapabilitiesSidebarOpen(false);
+                  }}
                 />
               )}
               <div
@@ -2956,13 +3413,16 @@ export default function Home() {
                 aria-hidden="true"
                 className={cn(
                   "w-full shrink-0",
-                  hasMessages ? "h-[10vh] min-h-10" : "h-px",
+                  hasMessages && !selectedAgentChat
+                    ? "h-[10vh] min-h-10"
+                    : "h-px",
                 )}
               />
             </div>
           </div>
 
           {hasMessages &&
+            !selectedAgentChat &&
             isChatScrollable &&
             !isNearChatBottom &&
             showScrollToBottomButton && (
@@ -2995,6 +3455,7 @@ export default function Home() {
 
         </div>
 
+        {!selectedAgentChat ? (
         <ChatComposer
           ref={chatComposerRef}
           disabled={!activeChat && !isNewChatDraft}
@@ -3006,7 +3467,6 @@ export default function Home() {
           onAttachmentsChange={updateActiveComposerAttachments}
           onSend={handleComposerSend}
           onStop={stopGeneration}
-          contextUsage={latestContextUsage}
           supportsVision={modelSupportsVision(
             activeChatProvider,
             activeChatModel,
@@ -3042,7 +3502,6 @@ export default function Home() {
                   onOpenRoot={openWorkspaceRoot}
                 />
               }
-              onOpenCapabilities={() => setIsChatCapabilitiesDialogOpen(true)}
             />
           }
           contentWidthClassName={chatWidthClassName}
@@ -3050,32 +3509,113 @@ export default function Home() {
           skillMentionOptions={skillMentionOptions}
           agentMentionOptions={agentMentionOptions}
         />
+        ) : null}
       </section>
 
-      <ChatCapabilitiesDialog
-        open={isChatCapabilitiesDialogOpen}
-        onOpenChange={setIsChatCapabilitiesDialogOpen}
-        tools={availableTools}
-        toolPermissions={effectiveToolPermissions}
-        globalToolPermissions={globalToolPermissions}
-        modeToolPermissions={activeModeToolPermissions}
-        skills={availableSkills}
-        skillPermissions={effectiveSkillPermissions}
-        globalSkillPermissions={globalSkillPermissions}
-        modeSkillPermissions={activeModeSkillPermissions}
-        agents={availableAgents}
-        agentPermissions={effectiveAgentPermissions}
-        globalAgentPermissions={globalAgentPermissions}
-        modeAgentPermissions={activeModeAgentPermissions}
-        modeName={activeMode.name || "Default"}
-        thinkingMode={
-          isNewChatDraft
-            ? (newChatDraftSettings?.thinkingMode ?? "model_default")
-            : (activeChat?.thinkingMode ?? "model_default")
-        }
-        onThinkingModeChange={setActiveOrDraftChatThinkingMode}
-        disabled={isSending}
-      />
+      {selectedToolSidebarDetails ||
+      selectedGenerationInfoVariant ||
+      selectedAgentSidebarCall ||
+      isChatCapabilitiesSidebarOpen ||
+      (isContextUsageSidebarOpen && headerContextUsage) ? (
+        <div
+          className="relative z-20 h-dvh shrink-0"
+          style={{ width: rightSidebarWidth }}
+        >
+          <div
+            className="group absolute inset-y-0 left-0 z-30 w-2 -translate-x-1/2 cursor-col-resize"
+            onPointerDown={handleRightSidebarResizePointerDown}
+            title="Resize right sidebar"
+            aria-hidden="true"
+          >
+            <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border opacity-0 transition-opacity group-hover:opacity-100" />
+          </div>
+          {selectedToolSidebarDetails ? (
+            <ToolExecutionDetailsSidebar
+              details={selectedToolSidebarDetails}
+              loadedTools={executableTools}
+              width={rightSidebarWidth}
+              onBack={
+                selectedToolSidebarDetails.returnToAgentCallId
+                  ? () => setSelectedToolSidebarDetails(undefined)
+                  : undefined
+              }
+              onClose={() => setSelectedToolSidebarDetails(undefined)}
+            />
+          ) : selectedGenerationInfoVariant ? (
+            <GenerationInfoSidebar
+              variant={selectedGenerationInfoVariant}
+              width={rightSidebarWidth}
+              onClose={() => setSelectedGenerationInfoVariant(undefined)}
+            />
+          ) : selectedAgentSidebarCall ? (
+            <AgentTranscriptSidebar
+              agentCall={selectedAgentSidebarCall}
+              width={rightSidebarWidth}
+              renderToolExecutionBlock={stableRenderToolExecutionBlock}
+              canSubmitAskUserResponse={stableCanSubmitAskUserResponse}
+              onSubmitAskUserResponse={stableSubmitAskUserResponse}
+              onCancelAskUserRequest={stableCancelAskUserRequest}
+              onAskUserLayoutChange={stableHandleAskUserLayoutChange}
+              onOpenAgentCall={stableOpenAgentSidebar}
+              onBack={
+                selectedAgentSidebarStack.length > 0
+                  ? () => {
+                      const nextStack = [...selectedAgentSidebarStack];
+                      const previousAgentId = nextStack.pop();
+                      if (previousAgentId) {
+                        setSelectedAgentSidebarId(previousAgentId);
+                      }
+                      setSelectedAgentSidebarStack(nextStack);
+                    }
+                  : undefined
+              }
+              onOpenAsChat={(agentCallId) => {
+                setSelectedAgentChatId(agentCallId);
+                setSelectedAgentSidebarId(undefined);
+                setSelectedAgentSidebarStack([]);
+                setSelectedToolSidebarDetails(undefined);
+                setIsContextUsageSidebarOpen(false);
+                setIsChatCapabilitiesSidebarOpen(false);
+              }}
+              onClose={() => {
+                setSelectedAgentSidebarId(undefined);
+                setSelectedAgentSidebarStack([]);
+              }}
+            />
+          ) : isChatCapabilitiesSidebarOpen ? (
+            <ChatCapabilitiesSidebar
+              width={rightSidebarWidth}
+              tools={availableTools}
+              toolPermissions={effectiveToolPermissions}
+              globalToolPermissions={globalToolPermissions}
+              modeToolPermissions={activeModeToolPermissions}
+              skills={availableSkills}
+              skillPermissions={effectiveSkillPermissions}
+              globalSkillPermissions={globalSkillPermissions}
+              modeSkillPermissions={activeModeSkillPermissions}
+              agents={availableAgents}
+              agentPermissions={effectiveAgentPermissions}
+              globalAgentPermissions={globalAgentPermissions}
+              modeAgentPermissions={activeModeAgentPermissions}
+              modeName={activeMode.name || "Default"}
+              thinkingMode={
+                isNewChatDraft
+                  ? (newChatDraftSettings?.thinkingMode ?? "model_default")
+                  : (activeChat?.thinkingMode ?? "model_default")
+              }
+              onThinkingModeChange={setActiveOrDraftChatThinkingMode}
+              disabled={isCapabilitiesThinkingDisabled}
+              onClose={() => setIsChatCapabilitiesSidebarOpen(false)}
+            />
+          ) : (
+            <ContextUsageSidebar
+              usage={isContextUsageSidebarOpen ? headerContextUsage : undefined}
+              width={rightSidebarWidth}
+              onClose={() => setIsContextUsageSidebarOpen(false)}
+            />
+          )}
+        </div>
+      ) : null}
 
       <SettingsDialog
         open={settingsOpen}

@@ -1,9 +1,9 @@
 import { Bot, Maximize2 } from "lucide-react";
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo } from "react";
 
 import type { RenderAgentToolExecutionBlock } from "@/components/ai-chat/agent-call-utils";
 import { AgentStatusInline } from "@/components/ai-chat/agent-status-inline";
-import { AgentTranscriptDialog } from "@/components/ai-chat/agent-transcript-dialog";
+import { getAgentRunStatusLabel } from "@/lib/ai-chat/agent-status-label";
 import { ASK_USER_TOOL_NAME } from "@/lib/ai-chat/builtin-tools";
 import type {
   AgentCallStatus,
@@ -38,16 +38,20 @@ function hasPendingAskUser(
 }
 
 const AgentCallSummaryButton = memo(function AgentCallSummaryButton({
+  agentCall,
   agentName,
   status,
-  model,
   onOpen,
 }: {
+  agentCall: ChatAgentCall;
   agentName: string;
   status: AgentCallStatus;
-  model: string;
   onOpen: () => void;
 }) {
+  const statusLabel = getAgentRunStatusLabel(agentCall);
+  const task = agentCall.task.trim();
+  const shouldShowStatusText = statusLabel !== "Complete";
+
   return (
     <div
       role="button"
@@ -70,16 +74,28 @@ const AgentCallSummaryButton = memo(function AgentCallSummaryButton({
               <Bot className="size-3.5 group-hover:hidden group-focus:hidden" />
               <Maximize2 className="hidden size-3.5 group-hover:block group-focus:block" />
             </span>
-            <span className="truncate text-muted-foreground/85">
+            <span className="shrink-0 truncate text-muted-foreground/85">
               {agentName}
             </span>
-            <span className="text-muted-foreground/60">·</span>
-            <AgentStatusInline status={status} />
-            {model ? (
+            {shouldShowStatusText ? (
               <>
                 <span className="text-muted-foreground/60">·</span>
-                <span className="truncate font-normal normal-case tracking-normal text-muted-foreground/85">
-                  {model}
+                <span className="min-w-fit font-normal normal-case tracking-normal text-muted-foreground/85">
+                  {statusLabel}
+                </span>
+              </>
+            ) : null}
+            {status === "complete" ? (
+              <>
+                <span className="text-muted-foreground/60">·</span>
+                <AgentStatusInline status={status} />
+              </>
+            ) : null}
+            {task ? (
+              <>
+                <span className="text-muted-foreground/60">·</span>
+                <span className="min-w-0 truncate font-normal normal-case tracking-normal text-muted-foreground/85">
+                  {task}
                 </span>
               </>
             ) : null}
@@ -98,6 +114,7 @@ export const AgentCallBlock = memo(function AgentCallBlock({
   onSubmitAskUserResponse,
   onCancelAskUserRequest,
   onAskUserLayoutChange,
+  onOpenAgentCall,
 }: {
   id: string;
   agentCall: ChatAgentCall;
@@ -111,43 +128,30 @@ export const AgentCallBlock = memo(function AgentCallBlock({
   ) => void | Promise<void>;
   onCancelAskUserRequest: (toolCallId: string) => void;
   onAskUserLayoutChange?: () => void;
+  onOpenAgentCall: (agentCallId: string) => void;
 }) {
-  const [expandedOpen, setExpandedOpen] = useState(false);
   const effectiveStatus = getEffectiveStatus(agentCall, status);
   const agentName = agentCall.agentName;
-  const model = agentCall.model?.trim() ?? "";
-  const handleOpen = useCallback(() => setExpandedOpen(true), []);
+  const handleOpen = useCallback(
+    () => onOpenAgentCall(agentCall.id),
+    [agentCall.id, onOpenAgentCall],
+  );
   const shouldOpenForAskUser = useMemo(
     () => hasPendingAskUser(agentCall, canSubmitAskUserResponse),
     [agentCall, canSubmitAskUserResponse],
   );
-  const shouldRenderTranscriptDialog = expandedOpen || shouldOpenForAskUser;
-
   useEffect(() => {
-    if (shouldOpenForAskUser) setExpandedOpen(true);
-  }, [shouldOpenForAskUser]);
+    if (shouldOpenForAskUser) onOpenAgentCall(agentCall.id);
+  }, [agentCall.id, onOpenAgentCall, shouldOpenForAskUser]);
 
   return (
     <article className="flex min-w-0 max-w-full justify-start">
       <AgentCallSummaryButton
+        agentCall={agentCall}
         agentName={agentName}
         status={effectiveStatus}
-        model={model}
         onOpen={handleOpen}
       />
-
-      {shouldRenderTranscriptDialog ? (
-        <AgentTranscriptDialog
-          open={expandedOpen}
-          onOpenChange={setExpandedOpen}
-          agentCall={agentCall}
-          renderToolExecutionBlock={renderToolExecutionBlock}
-          canSubmitAskUserResponse={canSubmitAskUserResponse}
-          onSubmitAskUserResponse={onSubmitAskUserResponse}
-          onCancelAskUserRequest={onCancelAskUserRequest}
-          onAskUserLayoutChange={onAskUserLayoutChange}
-        />
-      ) : null}
     </article>
   );
 });

@@ -12,6 +12,7 @@ import {
   RefreshCcw,
   Trash2,
   Wrench,
+  X,
 } from "lucide-react";
 import type {
   MouseEvent as ReactMouseEvent,
@@ -32,7 +33,6 @@ import { createPortal } from "react-dom";
 import { AgentCallBlock } from "@/components/ai-chat/agent-call-block";
 import { AttachmentChips } from "@/components/ai-chat/attachment-chips";
 import { type ToolMentionOption } from "@/components/ai-chat/chat-composer";
-import { MarkdownMessage } from "@/components/ai-chat/markdown-message";
 import { SmoothAssistantMessageContent } from "@/components/ai-chat/smooth-assistant-message";
 import { ThinkingBlock } from "@/components/ai-chat/thinking-block";
 import {
@@ -49,18 +49,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
 import { Spinner } from "@/components/ui/spinner";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { getActiveVariant } from "@/lib/ai-chat/chat-utils";
+import { getAssistantGenerationStatusLabel } from "@/lib/ai-chat/generation-status-label";
 import {
   getToolBatchGroupLabel,
   getVisibleAssistantProcessSteps,
@@ -68,11 +59,11 @@ import {
   type VisibleAssistantProcessStep as SharedVisibleAssistantProcessStep,
   type VisibleAssistantProcessStepGroup as SharedVisibleAssistantProcessStepGroup,
 } from "@/lib/ai-chat/process-step-groups";
-import { getAssistantGenerationStatusLabel } from "@/lib/ai-chat/generation-status-label";
 import { getToolBuildingVisibleMetadata } from "@/lib/ai-chat/tool-building";
 import type {
   AskUserRequest,
   AskUserResponse,
+  ChatAssistantProcessStep,
   ChatAssistantVariant,
   ChatAttachment,
   ChatMessage,
@@ -163,6 +154,7 @@ type RenderToolExecutionBlockArgs = {
   toolCall: ChatToolCall;
   toolResult?: ChatToolResult;
   status?: ToolExecutionStatus;
+  returnToAgentCallId?: string;
 };
 
 type ChatMessageListProps = {
@@ -246,63 +238,263 @@ type ChatMessageListProps = {
     streamingMessageId: string,
     isStreaming: boolean,
   ) => void;
+  onOpenAgentCall: (agentCallId: string) => void;
+  onOpenGenerationInfo: (variant: ChatAssistantVariant) => void;
 };
 
-function formatJsonLikeCodeBlock(value: string) {
-  const trimmed = value.trim();
-  if (!trimmed) return "{}";
-
-  try {
-    return JSON.stringify(JSON.parse(trimmed), null, 2);
-  } catch {
-    return trimmed;
+function formatHumanDuration(durationMs?: number) {
+  if (!durationMs || !Number.isFinite(durationMs) || durationMs <= 0) {
+    return "";
   }
+
+  let seconds = Math.max(1, Math.round(durationMs / 1000));
+  const days = Math.floor(seconds / 86400);
+  seconds -= days * 86400;
+  const hours = Math.floor(seconds / 3600);
+  seconds -= hours * 3600;
+  const minutes = Math.floor(seconds / 60);
+  seconds -= minutes * 60;
+
+  const parts: string[] = [];
+  if (days) parts.push(`${days}d`);
+  if (hours) parts.push(`${hours}h`);
+  if (minutes) parts.push(`${minutes}m`);
+  if (seconds || parts.length === 0) parts.push(`${seconds}s`);
+  return parts.join(" ");
 }
 
-function renderJsonCodeBlock(
-  value: string,
-  className = "chat-markdown-compact",
+function formatNumber(value?: number) {
+  return typeof value === "number" && Number.isFinite(value)
+    ? value.toLocaleString()
+    : "—";
+}
+
+function formatTps(value?: number) {
+  return typeof value === "number" && Number.isFinite(value)
+    ? `${value.toFixed(value >= 10 ? 1 : 2)} tok/s`
+    : "—";
+}
+
+function parseDateMs(value?: string) {
+  if (!value) return undefined;
+  const time = new Date(value).getTime();
+  return Number.isFinite(time) ? time : undefined;
+}
+
+function getAgentDurationMs(agentCall: {
+  startedAt: string;
+  completedAt?: string;
+}) {
+  const startedAt = parseDateMs(agentCall.startedAt);
+  const completedAt = parseDateMs(agentCall.completedAt);
+  if (startedAt === undefined || completedAt === undefined) return 0;
+  return Math.max(0, completedAt - startedAt);
+}
+
+function getStepDurationMs(step: ChatAssistantProcessStep) {
+  if ("startedAt" in step && "completedAt" in step) {
+    const startedAt = parseDateMs(step.startedAt);
+    const completedAt = parseDateMs(step.completedAt);
+    if (startedAt !== undefined && completedAt !== undefined) {
+      return Math.max(0, completedAt - startedAt);
+    }
+  }
+  return 0;
+}
+
+function getKnownNonGenerationDurationMs(
+  steps: ChatAssistantProcessStep[] = [],
 ) {
-  const normalized = formatJsonLikeCodeBlock(value);
+  return steps.reduce((total, step) => {
+    if (
+      step.type === "tool_execution" ||
+      step.type === "tasks" ||
+      step.type === "user_input" ||
+      step.type === "approval" ||
+      step.type === "file_approval"
+    ) {
+      return (
+        total +
+        (getStepDurationMs(step) || step.toolResult?.terminal?.durationMs || 0)
+      );
+    }
+    if (step.type === "agent_call") {
+      return total + getAgentDurationMs(step.agentCall);
+    }
+    return total;
+  }, 0);
+}
+
+function getAdjustedTokensPerSecond(variant?: ChatAssistantVariant) {
+  const metrics = variant?.metrics;
+  if (!metrics?.durationMs) return undefined;
+
+  const outputTokens =
+    metrics.outputTokens ?? metrics.tokenUsage?.completionTokens;
+  if (!outputTokens || outputTokens <= 0) return undefined;
+
+  const nonGenerationMs = getKnownNonGenerationDurationMs(variant.processSteps);
+  const activeDurationMs = Math.max(1000, metrics.durationMs - nonGenerationMs);
+  return outputTokens / (activeDurationMs / 1000);
+}
+
+function GenerationStatCard({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
   return (
-    <MarkdownMessage
-      className={className}
-      content={`~~~json\n${normalized}\n~~~`}
-    />
+    <div className="min-w-0 rounded-lg bg-muted/50 px-4 py-3">
+      <div className="truncate text-sm text-muted-foreground">{label}</div>
+      <div
+        className="mt-1 truncate text-base font-medium tabular-nums text-foreground"
+        title={value}
+      >
+        {value}
+      </div>
+    </div>
   );
 }
 
-function formatGenerationInfoJson(metrics: ChatAssistantVariant["metrics"]) {
-  if (!metrics) return "{}";
+function GenerationInfoDetails({
+  variant,
+}: {
+  variant?: ChatAssistantVariant;
+}) {
+  const metrics = variant?.metrics;
+  if (!metrics) return null;
 
-  const usage = metrics.tokenUsage
-    ? Object.fromEntries(
-        Object.entries({
-          prompt_tokens: metrics.tokenUsage.promptTokens,
-          completion_tokens: metrics.tokenUsage.completionTokens,
-          total_tokens: metrics.tokenUsage.totalTokens,
-        }).filter(([, value]) => value !== undefined),
-      )
-    : undefined;
+  const adjustedTps = getAdjustedTokensPerSecond(variant);
+  const knownWaitingMs = getKnownNonGenerationDurationMs(variant.processSteps);
+  const completionTokens =
+    metrics.tokenUsage?.completionTokens ?? metrics.outputTokens;
 
-  const info = Object.fromEntries(
-    Object.entries({
-      model: metrics.model,
-      mode: metrics.modeName,
-      provider: metrics.providerName,
-      finish_reason: metrics.finishReason,
-      usage: usage && Object.keys(usage).length > 0 ? usage : undefined,
-      duration_ms: metrics.durationMs,
-      output_tokens: metrics.outputTokens,
-      tokens_per_second: metrics.tokensPerSecond,
-      is_approximate: metrics.isApproximate,
-      started_at: metrics.startedAt,
-      completed_at: metrics.completedAt,
-    }).filter(([, value]) => value !== undefined && value !== ""),
+  return (
+    <div className="space-y-5">
+      <div className="rounded-lg bg-muted/50 px-5 py-4">
+        <div className="flex items-baseline justify-between gap-4">
+          <span className="text-sm text-muted-foreground">Generation</span>
+          <span className="text-sm tabular-nums text-muted-foreground">
+            {formatHumanDuration(metrics.durationMs) || "—"}
+          </span>
+        </div>
+        <div className="mt-2 truncate text-sm font-medium text-foreground">
+          {metrics.model || "Unknown model"}
+        </div>
+        <div className="mt-1 truncate text-sm text-muted-foreground">
+          {metrics.providerName || "Unknown provider"} ·{" "}
+          {metrics.modeName || "Default"}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <GenerationStatCard
+          label="Active TPS"
+          value={formatTps(adjustedTps ?? metrics.tokensPerSecond)}
+        />
+        <GenerationStatCard
+          label="Wait excluded"
+          value={formatHumanDuration(knownWaitingMs) || "—"}
+        />
+        <GenerationStatCard
+          label="Total tokens"
+          value={formatNumber(metrics.tokenUsage?.totalTokens)}
+        />
+        <GenerationStatCard
+          label="Finish"
+          value={metrics.finishReason || "—"}
+        />
+      </div>
+
+      <div className="rounded-lg bg-muted/50 px-5 py-4">
+        <div className="mb-3 text-sm text-muted-foreground">Token usage</div>
+        <div className="grid grid-cols-3 gap-x-5 gap-y-3">
+          {[
+            ["Prompt", metrics.tokenUsage?.promptTokens],
+            ["Completion", completionTokens],
+            ["Total", metrics.tokenUsage?.totalTokens],
+          ].map(([label, value]) => (
+            <div key={label}>
+              <div className="text-sm text-muted-foreground">{label}</div>
+              <div className="mt-1 tabular-nums text-foreground">
+                {formatNumber(typeof value === "number" ? value : undefined)}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="rounded-lg bg-muted/50 px-5 py-4">
+        <div className="mb-3 text-sm text-muted-foreground">Timing</div>
+        <div className="grid gap-3">
+          <div>
+            <div className="text-sm text-muted-foreground">Started</div>
+            <div className="mt-1 text-sm text-foreground">
+              {metrics.startedAt
+                ? new Date(metrics.startedAt).toLocaleString()
+                : "—"}
+            </div>
+          </div>
+          <div>
+            <div className="text-sm text-muted-foreground">Completed</div>
+            <div className="mt-1 text-sm text-foreground">
+              {metrics.completedAt
+                ? new Date(metrics.completedAt).toLocaleString()
+                : "—"}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {metrics.isApproximate ? (
+        <div className="rounded-sm border bg-muted/40 px-2 py-1.5 text-xs text-muted-foreground">
+          Token counts are approximate for this provider response.
+        </div>
+      ) : null}
+    </div>
   );
-
-  return JSON.stringify(info, null, 2);
 }
+
+export const GenerationInfoSidebar = memo(function GenerationInfoSidebar({
+  variant,
+  width,
+  onClose,
+}: {
+  variant?: ChatAssistantVariant;
+  width?: number;
+  onClose: () => void;
+}) {
+  if (!variant?.metrics) return null;
+
+  return (
+    <aside
+      className="z-20 flex h-dvh min-w-[560px] shrink-0 flex-col border-l bg-background text-base leading-6 shadow-xl"
+      style={{ width: width ?? 680 }}
+    >
+      <div className="flex min-w-0 items-center gap-3 border-b py-2 pl-4 pr-2">
+        <div className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
+          Generation info
+        </div>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          className="shrink-0"
+          onClick={onClose}
+          title="Close generation info"
+          aria-label="Close generation info"
+        >
+          <X className="size-4" />
+        </Button>
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 chat-message-scrollbar">
+        <GenerationInfoDetails variant={variant} />
+      </div>
+    </aside>
+  );
+});
 
 const UserMessageContent = memo(function UserMessageContent({
   content,
@@ -581,6 +773,8 @@ const ChatMessageItem = memo(
     onAskUserLayoutChange,
     onAssistantVisualProgress,
     onAssistantVisualStreamingChange,
+    onOpenAgentCall,
+    onOpenGenerationInfo,
   }: ChatMessageItemProps) {
     const activeVariant =
       message.role === "assistant" ? getActiveVariant(message) : undefined;
@@ -614,8 +808,12 @@ const ChatMessageItem = memo(
     const metrics = activeVariant?.metrics;
     const generatedModelName = metrics?.model?.trim() ?? "";
     const generatedModeName = metrics?.modeName?.trim() || "Default";
+    const generatedDuration = formatHumanDuration(metrics?.durationMs);
+    const generatedModeAndDuration = generatedDuration
+      ? `${generatedModeName} · ${generatedDuration}`
+      : generatedModeName;
     const generatedModelAndMode = generatedModelName
-      ? `${generatedModelName} · ${generatedModeName}`
+      ? `${generatedModelName} · ${generatedModeAndDuration}`
       : "";
     const isMessageStreaming = status === "streaming";
     const generationStatusLabel =
@@ -786,6 +984,7 @@ const ChatMessageItem = memo(
             onSubmitAskUserResponse={onSubmitAskUserResponse}
             onCancelAskUserRequest={onCancelAskUserRequest}
             onAskUserLayoutChange={onAskUserLayoutChange}
+            onOpenAgentCall={onOpenAgentCall}
           />
         );
       }
@@ -893,16 +1092,11 @@ const ChatMessageItem = memo(
               "grid gap-2 bg-transparent",
               insideThinkingToolGroup || insideRuntimeGroup
                 ? ""
-                : "rounded-lg border border-dashed px-2 py-2 shadow-xs",
+                : "rounded-sm border border-dashed px-2 py-2 shadow-xs",
             )}
           >
             {groupLabel ? (
-              <div
-                className={cn(
-                  "text-xs text-muted-foreground/80",
-                  !insideThinkingToolGroup && !insideRuntimeGroup && "px-1",
-                )}
-              >
+              <div className={cn("text-xs text-muted-foreground/80 uppercase")}>
                 {groupLabel}
               </div>
             ) : null}
@@ -1397,38 +1591,18 @@ const ChatMessageItem = memo(
                     </div>
                   )}
 
-                  <Popover>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <PopoverTrigger asChild>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon-sm"
-                            className="h-6 w-6  text-muted-foreground"
-                            disabled={metrics?.durationMs === undefined}
-                            title="Generation info"
-                            aria-label="Generation info"
-                          >
-                            <Info className="size-3" />
-                          </Button>
-                        </PopoverTrigger>
-                      </TooltipTrigger>
-                      <TooltipContent>Generation info</TooltipContent>
-                    </Tooltip>
-                    <PopoverContent
-                      align="end"
-                      className="w-[min(26rem,calc(100vw-2rem))]  p-3"
-                    >
-                      <div className="mb-2 text-sm font-medium text-popover-foreground">
-                        Generation info
-                      </div>
-                      {renderJsonCodeBlock(
-                        formatGenerationInfoJson(metrics),
-                        "chat-markdown-compact max-h-120 overflow-auto text-sm",
-                      )}
-                    </PopoverContent>
-                  </Popover>
+                  <TooltipIconButton
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    label="Generation info"
+                    onClick={() =>
+                      activeVariant && onOpenGenerationInfo(activeVariant)
+                    }
+                    disabled={metrics?.durationMs === undefined}
+                  >
+                    <Info className="size-3" />
+                  </TooltipIconButton>
 
                   <TooltipIconButton
                     type="button"

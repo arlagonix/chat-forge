@@ -1,4 +1,4 @@
-import { Check, ChevronsUpDown, Settings2 } from "lucide-react";
+import { Check, ChevronsUpDown } from "lucide-react";
 import { memo, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -43,7 +43,6 @@ type ComposerFooterProps = {
   onModeSearchValueChange: (value: string) => void;
   onSelectMode: (modeId: string) => void;
   workspaceControl?: ReactNode;
-  onOpenCapabilities: () => void;
 };
 
 export const ComposerFooter = memo(function ComposerFooter({
@@ -65,7 +64,6 @@ export const ComposerFooter = memo(function ComposerFooter({
   onModeSearchValueChange,
   onSelectMode,
   workspaceControl,
-  onOpenCapabilities,
 }: ComposerFooterProps) {
   return (
     <div className="flex min-w-0 flex-wrap items-center gap-2">
@@ -216,23 +214,6 @@ export const ComposerFooter = memo(function ComposerFooter({
       </Popover>
 
       {workspaceControl}
-
-      <Button
-        type="button"
-        variant="outline"
-        size="icon"
-        disabled={!activeChatExists || isSending}
-        onClick={onOpenCapabilities}
-        title={
-          isSending
-            ? "Wait until this chat finishes generating"
-            : "Configure tools, skills, and agents for this chat"
-        }
-        aria-label="Configure tools, skills, and agents for this chat"
-        className="h-9 w-9 shrink-0"
-      >
-        <Settings2 className="size-4 opacity-70" />
-      </Button>
     </div>
   );
 });

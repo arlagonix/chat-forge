@@ -1,4 +1,5 @@
 import {
+  Bot,
   ChevronDown,
   ChevronRight,
   Copy,
@@ -17,7 +18,12 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import type { DragEvent, UIEvent as ReactUIEvent } from "react";
+import type {
+  DragEvent,
+  PointerEvent as ReactPointerEvent,
+  ReactNode,
+  UIEvent as ReactUIEvent,
+} from "react";
 import { memo, useEffect, useMemo, useState } from "react";
 
 import {
@@ -45,6 +51,10 @@ import {
 import { GroupHeading } from "@/components/ui/group-heading";
 import { Input } from "@/components/ui/input";
 import { useRelativeTimeNow } from "@/hooks/use-relative-time-now";
+import {
+  collectAgentRunsFromMessages,
+  type AgentRunListItem,
+} from "@/lib/ai-chat/agent-runs";
 import {
   formatChatActivityDate,
   formatRelativeChatActivityDate,
@@ -109,6 +119,11 @@ type ChatSidebarProps = {
   onClearFolderWorkspace: (folderId: string) => void;
   onMoveChatToFolder: (chatId: string, folderId: string) => void;
   onRemoveChatFromFolder: (chatId: string) => void;
+  agentSubchats?: AgentRunListItem[];
+  activeAgentCallId?: string;
+  onOpenAgentSubchat?: (chatId: string, agentCallId: string) => void;
+  width?: number;
+  onResizePointerDown?: (event: ReactPointerEvent<HTMLDivElement>) => void;
 };
 
 type FolderNameInputProps = {
@@ -241,6 +256,11 @@ export const ChatSidebar = memo(function ChatSidebar({
   onClearFolderWorkspace,
   onMoveChatToFolder,
   onRemoveChatFromFolder,
+  agentSubchats = [],
+  activeAgentCallId,
+  onOpenAgentSubchat,
+  width,
+  onResizePointerDown,
 }: ChatSidebarProps) {
   const activeChatFolderId = activeChatId
     ? chats.find((chat) => chat.id === activeChatId)?.folderId
@@ -278,10 +298,56 @@ export const ChatSidebar = memo(function ChatSidebar({
   const [renamingFolderId, setRenamingFolderId] = useState<string | null>(null);
   const [dragOverFolderId, setDragOverFolderId] = useState<string | null>(null);
   const [isRootChatsDragOver, setIsRootChatsDragOver] = useState(false);
+  const [expandedAgentSubchatIds, setExpandedAgentSubchatIds] = useState<
+    Record<string, boolean>
+  >({});
+  const [expandedChatSubchatIds, setExpandedChatSubchatIds] = useState<
+    Record<string, boolean>
+  >({});
   const [deleteFolderTarget, setDeleteFolderTarget] =
     useState<ChatFolder | null>(null);
   const normalizedChatSearchQuery = chatSearchQuery.trim().toLocaleLowerCase();
   const isSearching = normalizedChatSearchQuery.length > 0;
+
+  useEffect(() => {
+    if (!activeAgentCallId) return;
+
+    const itemsById = new Map(agentSubchats.map((item) => [item.id, item]));
+    const expandedAncestors: Record<string, boolean> = {};
+    let current = itemsById.get(activeAgentCallId);
+
+    while (current?.parentId) {
+      expandedAncestors[current.parentId] = true;
+      current = itemsById.get(current.parentId);
+    }
+
+    if (Object.keys(expandedAncestors).length === 0) return;
+    setExpandedAgentSubchatIds((existing) => ({
+      ...existing,
+      ...expandedAncestors,
+    }));
+  }, [activeAgentCallId, agentSubchats]);
+
+  useEffect(() => {
+    if (!activeChatId || !activeAgentCallId) return;
+    setExpandedChatSubchatIds((current) => ({
+      ...current,
+      [activeChatId]: true,
+    }));
+  }, [activeAgentCallId, activeChatId]);
+
+  const agentSubchatsByChatId = useMemo(
+    () =>
+      new Map(
+        chats.map((chat) => [
+          chat.id,
+          chat.id === activeChatId
+            ? agentSubchats
+            : collectAgentRunsFromMessages(chat.messages),
+        ]),
+      ),
+    [activeChatId, agentSubchats, chats],
+  );
 
   useEffect(() => {
     if (!activeChatFolderId) return;
@@ -571,7 +637,7 @@ export const ChatSidebar = memo(function ChatSidebar({
   }
 
   function renderChatRow(chat: ChatSession) {
-    const isActive = chat.id === activeChatId;
+    const isActive = chat.id === activeChatId && !activeAgentCallId;
     const isRenaming = renamingChatId === chat.id;
     const isGenerating = generatingChatIds.includes(chat.id);
     const hasCompletedGeneration =
@@ -584,74 +650,179 @@ export const ChatSidebar = memo(function ChatSidebar({
       !isChatOptionsActive && (isGenerating || hasCompletedGeneration);
     const activityDate = getChatActivityDate(chat);
     const moveToFolderItems = renderMoveToFolderItems(chat);
+    const chatAgentSubchats = agentSubchatsByChatId.get(chat.id) ?? [];
+    const hasAgentSubchats = chatAgentSubchats.length > 0;
+    const areChatSubchatsExpanded =
+      expandedChatSubchatIds[chat.id] === true;
+    const visibleAgentSubchats =
+      !isSearching && !isCollapsed && areChatSubchatsExpanded
+        ? chatAgentSubchats
+        : [];
+    const agentChildrenByParentId = new Map<
+      string | undefined,
+      AgentRunListItem[]
+    >();
+    for (const agentRun of visibleAgentSubchats) {
+      const children = agentChildrenByParentId.get(agentRun.parentId) ?? [];
+      children.push(agentRun);
+      agentChildrenByParentId.set(agentRun.parentId, children);
+    }
+
+    const renderAgentSubchatRows = (
+      parentId: string | undefined,
+      depth = 0,
+    ): ReactNode[] =>
+      (agentChildrenByParentId.get(parentId) ?? []).flatMap((agentRun) => {
+        const children = agentChildrenByParentId.get(agentRun.id) ?? [];
+        const hasChildren = children.length > 0;
+        const isExpanded = expandedAgentSubchatIds[agentRun.id] === true;
+        const isAgentActive = agentRun.id === activeAgentCallId;
+        const title = agentRun.task.trim()
+          ? `${agentRun.agentName}: ${agentRun.task.trim()}`
+          : agentRun.agentName;
+        const rows: ReactNode[] = [
+          <button
+            key={agentRun.id}
+            type="button"
+            className={cn(
+              "group/agent flex min-w-0 items-center gap-1.5 rounded-sm px-2 py-0.5 text-left text-muted-foreground outline-none transition-none focus-visible:ring-2 focus-visible:ring-ring",
+              isAgentActive
+                ? "bg-accent text-accent-foreground hover:bg-accent hover:text-accent-foreground"
+                : "hover:bg-muted/60 hover:text-foreground",
+            )}
+            style={{ paddingLeft: `${8 + depth * 12}px` }}
+            onClick={() => onOpenAgentSubchat?.(chat.id, agentRun.id)}
+            title={title}
+          >
+            {hasChildren ? (
+              <span
+                className="-ml-1 inline-flex size-4 shrink-0 items-center justify-center rounded-sm hover:bg-muted"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setExpandedAgentSubchatIds((current) => ({
+                    ...current,
+                    [agentRun.id]: !isExpanded,
+                  }));
+                }}
+                title={isExpanded ? "Collapse subagents" : "Expand subagents"}
+              >
+                {isExpanded ? (
+                  <ChevronDown className="size-3.5" />
+                ) : (
+                  <ChevronRight className="size-3.5" />
+                )}
+              </span>
+            ) : null}
+            <Bot className="size-3.5 shrink-0 opacity-70" />
+            <span className="min-w-0 flex-1 truncate text-base leading-6">
+              {agentRun.task.trim() || agentRun.agentName}
+            </span>
+          </button>,
+        ];
+
+        if (hasChildren && isExpanded) {
+          rows.push(...renderAgentSubchatRows(agentRun.id, depth + 1));
+        }
+
+        return rows;
+      });
 
     return (
-      <div
-        key={chat.id}
-        role="button"
-        tabIndex={0}
-        draggable={!isRenaming}
-        className={cn(
-          "group flex min-w-0 cursor-pointer items-center gap-1 rounded-sm border px-2 py-1 outline-none focus-visible:ring-2 focus-visible:ring-ring",
-          isActive
-            ? "border-primary/30 bg-accent text-accent-foreground"
-            : "border-transparent hover:border-border hover:bg-muted/60",
-        )}
-        onClick={() => {
-          if (!isRenaming) onSwitchChat(chat.id);
-        }}
-        onKeyDown={(event) => {
-          if (isRenaming) return;
-          if (event.key === "Enter" || event.key === " ") {
-            event.preventDefault();
-            onSwitchChat(chat.id);
-          }
-        }}
-        onDragStart={(event) => handleChatDragStart(event, chat)}
-        title={chat.title}
-      >
-        <div className="min-w-0 flex-1 text-left">
-          {isRenaming ? (
-            <Input
-              value={renameValue}
-              autoFocus
-              className="h-7 px-2 py-1 text-base leading-6"
-              onChange={(event) => setRenameValue(event.target.value)}
-              onClick={(event) => event.stopPropagation()}
-              onFocus={(event) => event.currentTarget.select()}
-              onBlur={() => commitRenamingChat(chat.id)}
-              onKeyDown={(event) => {
-                event.stopPropagation();
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  commitRenamingChat(chat.id);
-                }
-                if (event.key === "Escape") {
-                  event.preventDefault();
-                  cancelRenamingChat();
-                }
-              }}
-            />
-          ) : (
-            <div className="truncate text-base leading-6">{chat.title}</div>
+      <div key={chat.id} className="grid gap-[1px]">
+        <div
+          role="button"
+          tabIndex={0}
+          draggable={!isRenaming}
+          className={cn(
+            "group flex min-w-0 cursor-pointer items-center gap-1 rounded-sm border px-2 py-1 outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            isActive
+              ? "border-primary/30 bg-accent text-accent-foreground"
+              : "border-transparent hover:border-border hover:bg-muted/60",
           )}
-        </div>
-
-        {!isRenaming ? (
-          <div className="relative h-7 w-9 shrink-0">
-            {showStatusIndicator && isGenerating ? (
-              <Loader2 className="pointer-events-none absolute left-[calc(50%+4px)] top-1/2 z-0 size-3.5 -translate-x-1/2 -translate-y-1/2 animate-spin text-muted-foreground transition-none group-hover:opacity-0" />
-            ) : showStatusIndicator && hasCompletedGeneration ? (
-              <span className="pointer-events-none absolute left-1/2 top-1/2 z-0 size-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary transition-none group-hover:opacity-0" />
-            ) : !isChatOptionsActive ? (
-              <ChatActivityTimeLabel value={activityDate} />
-            ) : null}
-            <DropdownMenu
-              open={isChatOptionsOpen}
-              onOpenChange={(open) =>
-                setOpenChatOptionsChatId(open ? chat.id : null)
+          onClick={() => {
+            if (!isRenaming) onSwitchChat(chat.id);
+          }}
+          onKeyDown={(event) => {
+            if (isRenaming) return;
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              onSwitchChat(chat.id);
+            }
+          }}
+          onDragStart={(event) => handleChatDragStart(event, chat)}
+          title={chat.title}
+        >
+          {!isRenaming && hasAgentSubchats ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              className="h-6 w-6 shrink-0 transition-none hover:bg-muted"
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={(event) => {
+                event.stopPropagation();
+                setExpandedChatSubchatIds((current) => ({
+                  ...current,
+                  [chat.id]: !areChatSubchatsExpanded,
+                }));
+              }}
+              title={
+                areChatSubchatsExpanded ? "Hide subchats" : "Show subchats"
+              }
+              aria-label={
+                areChatSubchatsExpanded ? "Hide subchats" : "Show subchats"
               }
             >
+              {areChatSubchatsExpanded ? (
+                <ChevronDown className="size-3.5" />
+              ) : (
+                <ChevronRight className="size-3.5" />
+              )}
+            </Button>
+          ) : null}
+
+          <div className="min-w-0 flex-1 text-left">
+            {isRenaming ? (
+              <Input
+                value={renameValue}
+                autoFocus
+                className="h-7 px-2 py-1 text-base leading-6"
+                onChange={(event) => setRenameValue(event.target.value)}
+                onClick={(event) => event.stopPropagation()}
+                onFocus={(event) => event.currentTarget.select()}
+                onBlur={() => commitRenamingChat(chat.id)}
+                onKeyDown={(event) => {
+                  event.stopPropagation();
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    commitRenamingChat(chat.id);
+                  }
+                  if (event.key === "Escape") {
+                    event.preventDefault();
+                    cancelRenamingChat();
+                  }
+                }}
+              />
+            ) : (
+              <div className="truncate text-base leading-6">{chat.title}</div>
+            )}
+          </div>
+
+          {!isRenaming ? (
+            <div className="relative h-7 w-9 shrink-0">
+              {showStatusIndicator && isGenerating ? (
+                <Loader2 className="pointer-events-none absolute left-[calc(50%+4px)] top-1/2 z-0 size-3.5 -translate-x-1/2 -translate-y-1/2 animate-spin text-muted-foreground transition-none group-hover:opacity-0" />
+              ) : showStatusIndicator && hasCompletedGeneration ? (
+                <span className="pointer-events-none absolute left-1/2 top-1/2 z-0 size-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary transition-none group-hover:opacity-0" />
+              ) : !isChatOptionsActive ? (
+                <ChatActivityTimeLabel value={activityDate} />
+              ) : null}
+              <DropdownMenu
+                open={isChatOptionsOpen}
+                onOpenChange={(open) =>
+                  setOpenChatOptionsChatId(open ? chat.id : null)
+                }
+              >
               <DropdownMenuTrigger asChild>
                 <Button
                   type="button"
@@ -770,6 +941,13 @@ export const ChatSidebar = memo(function ChatSidebar({
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
+            </div>
+          ) : null}
+        </div>
+
+        {visibleAgentSubchats.length > 0 ? (
+          <div className="grid gap-[1px] pl-2">
+            {renderAgentSubchatRows(undefined)}
           </div>
         ) : null}
       </div>
@@ -1067,12 +1245,24 @@ export const ChatSidebar = memo(function ChatSidebar({
     <>
       <aside
         data-sidebar
+        style={width ? { width } : undefined}
         className={cn(
-          "w-80 shrink-0 flex-col border-r bg-card/80",
+          "relative shrink-0 flex-col border-r bg-card/80",
+          !width && "w-80",
           isCollapsed ? "flex md:hidden" : "flex",
         )}
       >
-        <div className="py-3 pl-3 pr-2">
+        {onResizePointerDown ? (
+          <div
+            className="group absolute inset-y-0 right-0 z-20 w-2 translate-x-1/2 cursor-col-resize"
+            onPointerDown={onResizePointerDown}
+            title="Resize sidebar"
+            aria-hidden="true"
+          >
+            <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border opacity-0 transition-opacity group-hover:opacity-100" />
+          </div>
+        ) : null}
+        <div className="p-2">
           <div className="flex items-center justify-between gap-2">
             <Button
               type="button"
@@ -1207,30 +1397,6 @@ export const ChatSidebar = memo(function ChatSidebar({
           </Button>
         </div>
       </aside>
-
-      {isCollapsed ? (
-        <div className="absolute left-2 top-2 z-30 hidden items-center gap-1 rounded-lg border bg-card/95 p-1 shadow-sm md:flex">
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            onClick={() => onCollapsedChange(false)}
-            title="Show sidebar"
-          >
-            <Menu className="size-4" />
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            onClick={onCreateNewChat}
-            title="New chat (Ctrl+N)"
-          >
-            <Plus className="size-4" />
-          </Button>
-          {renderSettingsButton()}
-        </div>
-      ) : null}
 
       <AlertDialog
         open={Boolean(deleteFolderTarget)}

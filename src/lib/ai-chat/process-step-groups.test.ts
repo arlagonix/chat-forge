@@ -88,6 +88,44 @@ describe("getToolBatchGroupLabel", () => {
       }),
     ).toBe("");
   });
+
+  it("labels agent-only batches as delegation", () => {
+    const agentStep: VisibleAssistantProcessStep = {
+      id: "agent-1",
+      type: "agent_call",
+      toolBatchId: "agents-1",
+      status: "running",
+      toolCall: {
+        id: "call-agent-1",
+        type: "function",
+        function: {
+          name: "call_agent",
+          arguments: '{"agentName":"general","task":"Inspect files"}',
+        },
+      },
+      agentCall: {
+        id: "agent-call-1",
+        agentName: "general",
+        task: "Inspect files",
+        status: "running",
+        contextMode: "task_only",
+        depth: 1,
+        startedAt: "2026-01-01T00:00:00.000Z",
+        output: "",
+        messages: [],
+        childAgentCalls: [],
+      },
+      sourceStepIds: ["agent-1"],
+    };
+
+    expect(
+      getToolBatchGroupLabel({
+        kind: "tool_batch",
+        toolBatchId: "agents-1",
+        steps: [agentStep, { ...agentStep, id: "agent-2" }],
+      }),
+    ).toBe("Delegating to agents");
+  });
 });
 
 describe("groupVisibleAssistantProcessSteps", () => {
@@ -224,6 +262,94 @@ describe("groupVisibleAssistantProcessSteps", () => {
         kind: "thinking_tool_group",
         thinkingStep: { id: "thinking-1" },
         toolGroups: [{ kind: "single", step: { id: "tool-1" } }],
+      },
+    ]);
+  });
+
+  it("keeps adjacent call_agent and agent batches separate", () => {
+    const callAgentToolCall = {
+      id: "call-agent-1",
+      type: "function" as const,
+      function: {
+        name: "call_agent",
+        arguments: '{"agentName":"general","task":"Inspect files"}',
+      },
+    };
+    const visibleSteps = getVisibleAssistantProcessSteps([
+      {
+        id: "tool-1",
+        type: "tool_execution",
+        toolBatchId: "tools-1",
+        status: "complete",
+        toolCall: callAgentToolCall,
+        toolResult: {
+          toolCallId: callAgentToolCall.id,
+          toolName: "call_agent",
+          content: "Agent dispatched.",
+        },
+      },
+      {
+        id: "tool-2",
+        type: "tool_execution",
+        toolBatchId: "tools-1",
+        status: "complete",
+        toolCall: { ...callAgentToolCall, id: "call-agent-2" },
+        toolResult: {
+          toolCallId: "call-agent-2",
+          toolName: "call_agent",
+          content: "Agent dispatched.",
+        },
+      },
+      {
+        id: "agent-1",
+        type: "agent_call",
+        toolBatchId: "agents-1",
+        status: "running",
+        toolCall: callAgentToolCall,
+        agentCall: {
+          id: "agent-call-1",
+          agentName: "general",
+          task: "Inspect files",
+          status: "running",
+          contextMode: "task_only",
+          depth: 1,
+          startedAt: "2026-01-01T00:00:00.000Z",
+          output: "",
+          messages: [],
+          childAgentCalls: [],
+        },
+      },
+      {
+        id: "agent-2",
+        type: "agent_call",
+        toolBatchId: "agents-1",
+        status: "running",
+        toolCall: { ...callAgentToolCall, id: "call-agent-2" },
+        agentCall: {
+          id: "agent-call-2",
+          agentName: "general",
+          task: "Inspect more files",
+          status: "running",
+          contextMode: "task_only",
+          depth: 1,
+          startedAt: "2026-01-01T00:00:00.000Z",
+          output: "",
+          messages: [],
+          childAgentCalls: [],
+        },
+      },
+    ]);
+
+    expect(groupVisibleAssistantProcessSteps(visibleSteps)).toMatchObject([
+      {
+        kind: "tool_batch",
+        toolBatchId: "tools-1",
+        steps: [{ id: "tool-1" }, { id: "tool-2" }],
+      },
+      {
+        kind: "tool_batch",
+        toolBatchId: "agents-1",
+        steps: [{ id: "agent-1" }, { id: "agent-2" }],
       },
     ]);
   });

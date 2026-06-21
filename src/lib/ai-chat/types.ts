@@ -368,6 +368,8 @@ export type ChatAssistantProcessStep =
       status?: ToolExecutionStatus;
       toolCall: ChatToolCall;
       toolResult?: ChatToolResult;
+      startedAt?: string;
+      completedAt?: string;
     }
   | {
       id: string;
@@ -386,6 +388,8 @@ export type ChatAssistantProcessStep =
       request: AskUserRequest;
       response?: AskUserResponse;
       toolResult?: ChatToolResult;
+      startedAt?: string;
+      completedAt?: string;
     }
   | {
       id: string;
@@ -396,6 +400,8 @@ export type ChatAssistantProcessStep =
       request: ToolApprovalRequest;
       response?: ToolApprovalResponse;
       toolResult?: ChatToolResult;
+      startedAt?: string;
+      completedAt?: string;
     }
   | {
       id: string;
@@ -404,6 +410,8 @@ export type ChatAssistantProcessStep =
       status?: ToolExecutionStatus;
       toolCall: ChatToolCall;
       toolResult?: ChatToolResult;
+      startedAt?: string;
+      completedAt?: string;
     };
 
 export type ChatAssistantVariant = {

@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
+import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -21,7 +22,11 @@ vi.mock("sonner", () => ({
   toast: mocks.toast,
 }));
 
-import { ToolExecutionBlock } from "@/components/ai-chat/tool-execution-block";
+import {
+  ToolExecutionBlock,
+  ToolExecutionDetailsSidebar,
+  type ToolExecutionDetails,
+} from "@/components/ai-chat/tool-execution-block";
 import { BASH_TOOL_NAME, READ_TOOL_NAME } from "@/lib/ai-chat/builtin-tools";
 import type {
   ChatToolCall,
@@ -38,19 +43,42 @@ const toolCall: ChatToolCall = {
   },
 };
 
-describe("ToolExecutionBlock", () => {
-  it("does not build heavy details until the details dialog opens", () => {
-    mocks.buildToolExecutionPreviewForCall.mockClear();
+function ToolBlockWithSidebar({
+  call = toolCall,
+  result,
+  loadedTools = [],
+}: {
+  call?: ChatToolCall;
+  result?: ChatToolResult;
+  loadedTools?: LoadedToolInfo[];
+}) {
+  const [details, setDetails] = useState<ToolExecutionDetails>();
 
-    render(
+  return (
+    <>
       <ToolExecutionBlock
-        id="tool-call-1"
-        toolCall={toolCall}
-        loadedTools={[]}
+        id={call.id}
+        toolCall={call}
+        toolResult={result}
+        loadedTools={loadedTools}
         isCollapsed
         onToggleCollapsed={vi.fn()}
-      />,
-    );
+        onOpenDetails={setDetails}
+      />
+      <ToolExecutionDetailsSidebar
+        details={details}
+        loadedTools={loadedTools}
+        onClose={() => setDetails(undefined)}
+      />
+    </>
+  );
+}
+
+describe("ToolExecutionBlock", () => {
+  it("does not build heavy details until the details sidebar opens", () => {
+    mocks.buildToolExecutionPreviewForCall.mockClear();
+
+    render(<ToolBlockWithSidebar />);
 
     expect(mocks.buildToolExecutionPreviewForCall).not.toHaveBeenCalled();
 
@@ -81,15 +109,7 @@ describe("ToolExecutionBlock", () => {
       },
     };
 
-    render(
-      <ToolExecutionBlock
-        id="mcp-tool-call-1"
-        toolCall={mcpToolCall}
-        loadedTools={[]}
-        isCollapsed
-        onToggleCollapsed={vi.fn()}
-      />,
-    );
+    render(<ToolBlockWithSidebar call={mcpToolCall} />);
 
     fireEvent.click(screen.getAllByTitle("Open tool call details")[0]);
 
@@ -129,15 +149,7 @@ describe("ToolExecutionBlock", () => {
       },
     ];
 
-    render(
-      <ToolExecutionBlock
-        id="mcp-tool-call-2"
-        toolCall={mcpToolCall}
-        loadedTools={loadedTools}
-        isCollapsed
-        onToggleCollapsed={vi.fn()}
-      />,
-    );
+    render(<ToolBlockWithSidebar call={mcpToolCall} loadedTools={loadedTools} />);
 
     fireEvent.click(screen.getAllByTitle("Open tool call details")[0]);
 

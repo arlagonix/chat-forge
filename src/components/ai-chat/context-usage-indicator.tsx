@@ -1,13 +1,6 @@
-import { memo, useState } from "react";
+import { X } from "lucide-react";
+import { memo } from "react";
 
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import type { ContextUsageDetails } from "@/lib/ai-chat/context-usage";
 import { cn } from "@/lib/utils";
@@ -262,10 +255,11 @@ function ContextUsageModalContent({ usage }: { usage: ContextUsageInfo }) {
 
 export const ContextUsageIndicator = memo(function ContextUsageIndicator({
   usage,
+  onOpen,
 }: {
   usage: ContextUsageInfo;
+  onOpen?: () => void;
 }) {
-  const [open, setOpen] = useState(false);
   const hasLimit =
     usage.limitTokens !== undefined &&
     Number.isFinite(usage.limitTokens) &&
@@ -276,33 +270,58 @@ export const ContextUsageIndicator = memo(function ContextUsageIndicator({
   const colorClass = getUsageColor(usage.usagePercent);
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
+    <Button
+      type="button"
+      variant="ghost"
+      size="sm"
+      className={cn(
+        "context-usage-token-label h-8 shrink-0 px-2 text-sm font-normal leading-none tabular-nums",
+        colorClass,
+      )}
+      onClick={onOpen}
+      title="Context usage"
+      aria-label="Context usage"
+    >
+      {label}
+    </Button>
+  );
+});
+
+export const ContextUsageSidebar = memo(function ContextUsageSidebar({
+  usage,
+  width,
+  onClose,
+}: {
+  usage?: ContextUsageInfo;
+  width?: number;
+  onClose: () => void;
+}) {
+  if (!usage) return null;
+
+  return (
+    <aside
+      className="z-20 flex h-dvh min-w-[560px] shrink-0 flex-col border-l bg-background text-base leading-6 shadow-xl"
+      style={{ width: width ?? 620 }}
+    >
+      <div className="flex min-w-0 items-center gap-3 border-b py-2 pl-4 pr-2">
+        <div className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
+          Context usage
+        </div>
         <Button
           type="button"
           variant="ghost"
-          size="sm"
-          className={cn(
-            "context-usage-token-label h-9 shrink-0 px-2 text-sm font-normal leading-none tabular-nums",
-            colorClass,
-          )}
-          title="Context usage"
-          aria-label="Context usage"
+          size="icon-sm"
+          className="shrink-0"
+          onClick={onClose}
+          title="Close context usage"
+          aria-label="Close context usage"
         >
-          {label}
+          <X className="size-4" />
         </Button>
-      </DialogTrigger>
-      <DialogContent className="max-h-[min(720px,calc(100dvh-2rem))] overflow-y-auto p-0 sm:max-w-[460px]">
-        <DialogHeader className="border-b px-5 py-4">
-          <DialogTitle>Context usage</DialogTitle>
-          <DialogDescription className="sr-only">
-            Detailed token and context usage for the current chat.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="px-5 py-5">
-          <ContextUsageModalContent usage={usage} />
-        </div>
-      </DialogContent>
-    </Dialog>
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 chat-message-scrollbar">
+        <ContextUsageModalContent usage={usage} />
+      </div>
+    </aside>
   );
 });

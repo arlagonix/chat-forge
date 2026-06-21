@@ -1,4 +1,4 @@
-import { Bot, Maximize2 } from "lucide-react";
+import { ArrowLeft, Bot, Maximize2, X } from "lucide-react";
 import {
   Fragment,
   memo,
@@ -14,12 +14,14 @@ import { AgentStatusInline } from "@/components/ai-chat/agent-status-inline";
 import { MarkdownMessage } from "@/components/ai-chat/markdown-message";
 import { ThinkingBlock } from "@/components/ai-chat/thinking-block";
 import { AskUserBlock } from "@/components/ai-chat/tool-interaction-blocks";
+import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { getAgentRunStatusLabel } from "@/lib/ai-chat/agent-status-label";
 import {
   ASK_USER_TOOL_NAME,
   parseAskUserRequestFromToolCall,
@@ -195,7 +197,7 @@ function MiniChatMessage({
         className={cn(
           "min-w-0 max-w-full text-base leading-6 [overflow-wrap:anywhere]",
           isUser
-            ? "max-w-[85%] rounded-lg bg-primary px-4 py-3 text-primary-foreground shadow-xs"
+            ? "w-full rounded-lg bg-primary px-4 py-3 text-primary-foreground shadow-xs"
             : "w-full px-0 py-1 text-card-foreground shadow-xs",
         )}
       >
@@ -229,23 +231,19 @@ function FallbackToolCallBlock({
 }
 
 function AgentModalHeader({ agentCall }: { agentCall: ChatAgentCall }) {
+  const statusLabel = getAgentRunStatusLabel(agentCall);
+
   return (
     <DialogHeader className="border-b px-5 py-4">
       <DialogTitle className="flex min-w-0 items-center gap-2 overflow-hidden text-sm font-medium uppercase tracking-wide text-muted-foreground">
         <Bot className="size-4 shrink-0" />
-        <span className="min-w-0 truncate text-muted-foreground/85">
+        <span className="min-w-0 shrink-0 truncate text-muted-foreground/85">
           {agentCall.agentName}
         </span>
         <span className="text-muted-foreground/60">·</span>
-        <AgentStatusInline status={agentCall.status} />
-        {agentCall.model?.trim() ? (
-          <>
-            <span className="text-muted-foreground/60">·</span>
-            <span className="min-w-0 truncate font-normal normal-case tracking-normal text-muted-foreground/85">
-              {agentCall.model.trim()}
-            </span>
-          </>
-        ) : null}
+        <span className="min-w-fit font-normal normal-case tracking-normal text-muted-foreground/85">
+          {statusLabel}
+        </span>
       </DialogTitle>
       {agentCall.description?.trim() ? (
         <div className="line-clamp-2 text-sm text-muted-foreground">
@@ -271,6 +269,7 @@ type AgentTranscriptBodyProps = {
   agentCall: ChatAgentCall;
   renderToolExecutionBlock?: RenderAgentToolExecutionBlock;
   nested?: boolean;
+  returnToolDetailsToAgentSidebar?: boolean;
   onOpenChildAgent: (agentCallId: string) => void;
 } & AgentInteractionProps;
 
@@ -297,6 +296,7 @@ function AgentTranscriptFlatBody({
   onCancelAskUserRequest,
   onAskUserLayoutChange,
   onOpenChildAgent,
+  returnToolDetailsToAgentSidebar,
 }: AgentTranscriptBodyProps) {
   const visibleToolCalls = agentCall.toolCalls ?? [];
   const visibleToolResults = agentCall.toolResults ?? [];
@@ -415,6 +415,9 @@ function AgentTranscriptFlatBody({
             toolResult,
             status: getToolStatus(toolResult),
             isCollapsed,
+            returnToAgentCallId: returnToolDetailsToAgentSidebar
+              ? agentCall.id
+              : undefined,
             onToggleCollapsed: (stepId, nextCollapsed) =>
               setCollapsedInteractionIds((current) => ({
                 ...current,
@@ -463,6 +466,7 @@ function AgentTranscriptStepsBody({
   onCancelAskUserRequest,
   onAskUserLayoutChange,
   onOpenChildAgent,
+  returnToolDetailsToAgentSidebar,
 }: AgentTranscriptBodyProps) {
   const [collapsedInteractionIds, setCollapsedInteractionIds] = useState<
     Record<string, boolean>
@@ -617,6 +621,9 @@ function AgentTranscriptStepsBody({
                 : "complete"
               : "running"),
           isCollapsed,
+          returnToAgentCallId: returnToolDetailsToAgentSidebar
+            ? agentCall.id
+            : undefined,
           onToggleCollapsed: (stepId, nextCollapsed) =>
             setCollapsedInteractionIds((current) => ({
               ...current,
@@ -648,6 +655,9 @@ function AgentTranscriptStepsBody({
               : "complete"
             : "running",
           isCollapsed,
+          returnToAgentCallId: returnToolDetailsToAgentSidebar
+            ? agentCall.id
+            : undefined,
           onToggleCollapsed: (stepId, nextCollapsed) =>
             setCollapsedInteractionIds((current) => ({
               ...current,
@@ -667,6 +677,9 @@ function AgentTranscriptStepsBody({
           toolResult: step.toolResult,
           status: step.status === "failed" ? "failed" : "complete",
           isCollapsed: collapsedInteractionIds[step.id] ?? false,
+          returnToAgentCallId: returnToolDetailsToAgentSidebar
+            ? agentCall.id
+            : undefined,
           onToggleCollapsed: (stepId, nextCollapsed) =>
             setCollapsedInteractionIds((current) => ({
               ...current,
@@ -699,15 +712,12 @@ function AgentTranscriptStepsBody({
             "grid gap-2 bg-transparent",
             insideThinkingToolGroup || insideRuntimeGroup
               ? ""
-              : "rounded-lg border border-dashed px-2 py-2 shadow-xs",
+              : "rounded-sm border border-dashed px-2 py-2 shadow-xs",
           )}
         >
           {groupLabel ? (
             <div
-              className={cn(
-                "text-xs text-muted-foreground/80",
-                !insideThinkingToolGroup && !insideRuntimeGroup && "px-1",
-              )}
+              className={cn("text-xs text-muted-foreground/80 text-uppercase")}
             >
               {groupLabel}
             </div>
@@ -781,6 +791,7 @@ function ChildAgentBlock({
   onOpenChildAgent: (agentCallId: string) => void;
   canSubmitAskUserResponse: (toolCallId: string) => boolean;
 }) {
+  const statusLabel = getAgentRunStatusLabel(child);
   const shouldOpenForAskUser = hasPendingAskUser(
     child,
     canSubmitAskUserResponse,
@@ -813,20 +824,28 @@ function ChildAgentBlock({
                 <Bot className="size-3.5 group-hover:hidden group-focus:hidden" />
                 <Maximize2 className="hidden size-3.5 group-hover:block group-focus:block" />
               </span>
-              <span className="truncate text-muted-foreground/85">
+              <span className="shrink-0 truncate text-muted-foreground/85">
                 {child.agentName}
               </span>
-              {child.status !== "complete" ? (
+              {statusLabel !== "Complete" ? (
+                <>
+                  <span className="text-muted-foreground/60">·</span>
+                  <span className="min-w-fit font-normal normal-case tracking-normal text-muted-foreground/85">
+                    {statusLabel}
+                  </span>
+                </>
+              ) : null}
+              {child.status === "complete" ? (
                 <>
                   <span className="text-muted-foreground/60">·</span>
                   <AgentStatusInline status={child.status} />
                 </>
               ) : null}
-              {child.model?.trim() ? (
+              {child.task.trim() ? (
                 <>
                   <span className="text-muted-foreground/60">·</span>
                   <span className="truncate font-normal normal-case tracking-normal text-muted-foreground/85">
-                    {child.model.trim()}
+                    {child.task.trim()}
                   </span>
                 </>
               ) : null}
@@ -909,5 +928,132 @@ export const AgentTranscriptDialog = memo(function AgentTranscriptDialog({
         />
       ) : null}
     </Fragment>
+  );
+});
+
+export const AgentTranscriptSidebar = memo(function AgentTranscriptSidebar({
+  agentCall,
+  renderToolExecutionBlock,
+  canSubmitAskUserResponse,
+  onSubmitAskUserResponse,
+  onCancelAskUserRequest,
+  onAskUserLayoutChange,
+  onOpenAgentCall,
+  onOpenAsChat,
+  onBack,
+  onClose,
+  width,
+}: {
+  agentCall?: ChatAgentCall;
+  renderToolExecutionBlock?: RenderAgentToolExecutionBlock;
+  onOpenAgentCall: (agentCallId: string) => void;
+  onOpenAsChat?: (agentCallId: string) => void;
+  onBack?: () => void;
+  onClose: () => void;
+  width?: number;
+} & AgentInteractionProps) {
+  if (!agentCall) return null;
+
+  const statusLabel = getAgentRunStatusLabel(agentCall);
+
+  return (
+    <aside
+      className="z-20 flex h-dvh min-w-[560px] shrink-0 flex-col border-l bg-background text-base leading-6 shadow-xl"
+      style={{ width: width ?? 440 }}
+    >
+      <div className="flex min-w-0 items-center gap-3 border-b py-2 pl-4 pr-2">
+        {onBack ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            className="shrink-0"
+            onClick={onBack}
+            title="Back to parent agent"
+            aria-label="Back to parent agent"
+          >
+            <ArrowLeft className="size-4" />
+          </Button>
+        ) : null}
+        <Bot className="size-4 shrink-0 text-muted-foreground" />
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 items-center gap-2 text-sm font-medium text-muted-foreground">
+            <span className="shrink-0 truncate text-muted-foreground/90">
+              {agentCall.agentName}
+            </span>
+            <span className="text-muted-foreground/60">·</span>
+            <span className="min-w-fit font-normal normal-case tracking-normal text-muted-foreground/85">
+              {statusLabel}
+            </span>
+          </div>
+        </div>
+        {onOpenAsChat ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            className="shrink-0"
+            onClick={() => onOpenAsChat(agentCall.id)}
+            title="Open as subchat"
+            aria-label="Open as subchat"
+          >
+            <Maximize2 className="size-4" />
+          </Button>
+        ) : null}
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          className="shrink-0"
+          onClick={onClose}
+          title="Close agent run"
+          aria-label="Close agent run"
+        >
+          <X className="size-4" />
+        </Button>
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 chat-message-scrollbar">
+        <AgentTranscriptBody
+          agentCall={agentCall}
+          renderToolExecutionBlock={renderToolExecutionBlock}
+          returnToolDetailsToAgentSidebar
+          canSubmitAskUserResponse={canSubmitAskUserResponse}
+          onSubmitAskUserResponse={onSubmitAskUserResponse}
+          onCancelAskUserRequest={onCancelAskUserRequest}
+          onAskUserLayoutChange={onAskUserLayoutChange}
+          onOpenChildAgent={onOpenAgentCall}
+        />
+      </div>
+    </aside>
+  );
+});
+
+export const AgentTranscriptChatView = memo(function AgentTranscriptChatView({
+  agentCall,
+  renderToolExecutionBlock,
+  canSubmitAskUserResponse,
+  onSubmitAskUserResponse,
+  onCancelAskUserRequest,
+  onAskUserLayoutChange,
+  onOpenAgentCall,
+}: {
+  agentCall: ChatAgentCall;
+  renderToolExecutionBlock?: RenderAgentToolExecutionBlock;
+  onOpenAgentCall: (agentCallId: string) => void;
+} & AgentInteractionProps) {
+  return (
+    <div className="mx-auto flex w-full max-w-4xl min-w-0 flex-col gap-5 px-0 py-0">
+      <AgentTranscriptBody
+        agentCall={agentCall}
+        renderToolExecutionBlock={renderToolExecutionBlock}
+        canSubmitAskUserResponse={canSubmitAskUserResponse}
+        onSubmitAskUserResponse={onSubmitAskUserResponse}
+        onCancelAskUserRequest={onCancelAskUserRequest}
+        onAskUserLayoutChange={onAskUserLayoutChange}
+        onOpenChildAgent={onOpenAgentCall}
+      />
+      <div aria-hidden="true" className="h-[10vh] min-h-10 shrink-0" />
+    </div>
   );
 });

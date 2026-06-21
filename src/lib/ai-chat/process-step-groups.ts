@@ -33,6 +33,7 @@ export function getToolBatchGroupLabel(
       step.toolCall.function.name === "call_agent",
   );
   const hasAgentBlock = group.steps.some((step) => step.type === "agent_call");
+  const isAgentOnlyGroup = group.steps.every((step) => step.type === "agent_call");
   const hasApprovalStep = group.steps.some(
     (step) => step.type === "approval" || step.type === "file_approval",
   );
@@ -40,7 +41,8 @@ export function getToolBatchGroupLabel(
     (step) => step.type === "tool_execution",
   );
 
-  if (hasCallAgentTool && hasAgentBlock) return "Agent delegation";
+  if (isAgentOnlyGroup && hasAgentBlock) return "Delegating to agents";
+  if (hasCallAgentTool && hasAgentBlock) return "Delegating to agents";
   if (hasApprovalStep && hasToolExecutionStep) return "";
   return "Parallel tool calls";
 }
@@ -237,10 +239,17 @@ export function groupVisibleAssistantProcessSteps(
         if (!isRuntimeVisibleStep(runtimeStep)) break;
         if (runtimeStep.type === "thinking" && runtimeGroups.length > 0) break;
         if (getThinkingToolGroupLookahead(steps, index)) break;
+        if (
+          runtimeGroups.length > 0 &&
+          getVisibleStepToolBatchId(runtimeStep)
+        ) {
+          break;
+        }
 
         const result = readRuntimeBaseGroup(steps, index);
         runtimeGroups.push(result.group);
         index = result.nextIndex;
+        if (result.group.kind === "tool_batch") break;
       }
 
       if (

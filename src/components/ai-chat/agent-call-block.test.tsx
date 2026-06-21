@@ -1,10 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("@/components/ai-chat/agent-transcript-dialog", () => ({
-  AgentTranscriptDialog: () => <div data-testid="agent-transcript-dialog" />,
-}));
-
 import { AgentCallBlock } from "@/components/ai-chat/agent-call-block";
 import type { ChatAgentCall } from "@/lib/ai-chat/types";
 
@@ -29,21 +25,28 @@ const baseProps = {
   canSubmitAskUserResponse: vi.fn(() => false),
   onSubmitAskUserResponse: vi.fn(),
   onCancelAskUserRequest: vi.fn(),
+  onOpenAgentCall: vi.fn(),
 };
 
 describe("AgentCallBlock", () => {
-  it("does not mount the transcript dialog while closed", () => {
+  it("shows the agent name, live status, and task without the model", () => {
     render(<AgentCallBlock {...baseProps} />);
 
-    expect(screen.queryByTestId("agent-transcript-dialog")).toBeNull();
+    expect(screen.getByText("General")).toBeInTheDocument();
+    expect(screen.getByText("Composing")).toBeInTheDocument();
+    expect(screen.getByText("Inspect the project")).toBeInTheDocument();
+    expect(screen.queryByText("test-model")).not.toBeInTheDocument();
   });
 
-  it("mounts the transcript dialog when opened", () => {
-    render(<AgentCallBlock {...baseProps} />);
+  it("opens the global agent viewer when clicked", () => {
+    const onOpenAgentCall = vi.fn();
+    render(
+      <AgentCallBlock {...baseProps} onOpenAgentCall={onOpenAgentCall} />,
+    );
 
     fireEvent.click(screen.getByRole("button", { name: /general/i }));
 
-    expect(screen.getByTestId("agent-transcript-dialog")).toBeInTheDocument();
+    expect(onOpenAgentCall).toHaveBeenCalledWith("agent-call-1");
   });
 
   it("shows a muted checkmark for completed agents", () => {
