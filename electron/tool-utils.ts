@@ -1,6 +1,6 @@
 // Low-level utilities and types shared by the tool-execution code in the
 // Electron main process (command tools, web fetch, and the workspace file
-// tools in ./file-tools.ts). Kept dependency-free apart from Node built-ins so
+// tools in ./pi-tools.ts). Kept dependency-free apart from Node built-ins so
 // it can be imported from any of those modules without creating cycles.
 
 import path from "node:path";

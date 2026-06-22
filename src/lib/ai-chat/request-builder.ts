@@ -18,6 +18,10 @@ import {
   BASH_TOOL_NAME,
   EDIT_TOOL,
   EDIT_TOOL_NAME,
+  FILE_FIND_TOOL,
+  FILE_FIND_TOOL_NAME,
+  FILE_SEARCH_TOOL,
+  FILE_SEARCH_TOOL_NAME,
   WRITE_TOOL,
   WRITE_TOOL_NAME,
   isValidToolName,
@@ -108,6 +112,7 @@ export function getGlobalToolPermission(
   if (toolName === BASH_TOOL_NAME) return toolsSettings.bashEnabled ? (toolsSettings.bashAutoApproveEnabled ? "allow" : "ask") : "deny";
   if (toolName === EDIT_TOOL_NAME) return toolsSettings.editEnabled ? (toolsSettings.editAutoApproveEnabled ? "allow" : "ask") : "deny";
   if (toolName === WRITE_TOOL_NAME) return toolsSettings.writeEnabled ? (toolsSettings.writeAutoApproveEnabled ? "allow" : "ask") : "deny";
+  if (toolName === FILE_FIND_TOOL_NAME || toolName === FILE_SEARCH_TOOL_NAME) return "ask";
   if (toolName.startsWith("mcp_")) return "deny";
   return "ask";
 }
@@ -184,6 +189,8 @@ export function getGlobalEnabledTools({
     BASH_TOOL,
     EDIT_TOOL,
     WRITE_TOOL,
+    FILE_FIND_TOOL,
+    FILE_SEARCH_TOOL,
   ];
   const enabledBuiltIns = builtInTools
     .map((tool) => applyBuiltInToolSettings(tool, toolsSettings))
@@ -201,6 +208,8 @@ export function getGlobalEnabledTools({
             tool.name !== BASH_TOOL_NAME &&
             tool.name !== EDIT_TOOL_NAME &&
             tool.name !== WRITE_TOOL_NAME &&
+            tool.name !== FILE_FIND_TOOL_NAME &&
+            tool.name !== FILE_SEARCH_TOOL_NAME &&
             tool.name !== LOAD_SKILL_TOOL_NAME,
         )
         .map((tool) =>

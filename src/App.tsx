@@ -81,6 +81,8 @@ import {
   DEFAULT_SKILLS_SETTINGS,
   DEFAULT_TOOLS_SETTINGS,
   EDIT_TOOL,
+  FILE_FIND_TOOL,
+  FILE_SEARCH_TOOL,
   isBuiltInToolName,
   isValidToolName,
   READ_TOOL,
@@ -1010,6 +1012,8 @@ export default function Home() {
       BASH_TOOL,
       EDIT_TOOL,
       WRITE_TOOL,
+      FILE_FIND_TOOL,
+      FILE_SEARCH_TOOL,
       ...loadedTools,
       ...loadedMcpTools,
     ]) {

@@ -116,6 +116,35 @@ export function getClonedChatTitle(title: string) {
   return `${baseTitle} copy`;
 }
 
+export function getBranchedChatTitle(title: string) {
+  let baseTitle = normalizeManualChatTitle(title) || DEFAULT_CHAT_TITLE;
+  let branchNumber = 1;
+
+  for (;;) {
+    const suffixMatch = baseTitle.match(/\s+\(branch(?: #(\d+))?\)$/i);
+    if (!suffixMatch) break;
+
+    const parsedNumber = suffixMatch[1]
+      ? Number.parseInt(suffixMatch[1], 10)
+      : undefined;
+    const nextBranchNumber =
+      typeof parsedNumber === "number" && Number.isFinite(parsedNumber)
+        ? parsedNumber + 1
+        : branchNumber + 1;
+    branchNumber = Math.max(
+      branchNumber,
+      nextBranchNumber,
+    );
+    const suffixStart =
+      suffixMatch.index ?? baseTitle.length - suffixMatch[0].length;
+    baseTitle = normalizeManualChatTitle(
+      baseTitle.slice(0, suffixStart),
+    ) || DEFAULT_CHAT_TITLE;
+  }
+
+  return `${baseTitle} (branch #${branchNumber})`;
+}
+
 export function buildClonedChat(
   sourceChat: ChatSession,
   baseChat: ChatSession,

@@ -330,6 +330,8 @@ function normalizeToolsSettings(
       value?.writeAutoApproveEnabled ?? legacy.fileCreateAutoApproveEnabled,
       true,
     ),
+    file_find: "ask",
+    file_search: "ask",
     call_agent: "ask",
     ...permissionOverrides,
   };

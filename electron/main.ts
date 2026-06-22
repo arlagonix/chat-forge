@@ -424,6 +424,8 @@ const DEFAULT_TOOLS_SETTINGS: ToolsSettings = {
     bash: "ask",
     edit: "ask",
     write: "ask",
+    file_find: "ask",
+    file_search: "ask",
     call_agent: "ask",
   },
   builtInToolSettings: {},
@@ -719,6 +721,8 @@ function normalizeToolsSettings(value: unknown): ToolsSettings {
       value.writeAutoApproveEnabled ?? value.fileCreateAutoApproveEnabled,
       true,
     ),
+    file_find: "ask",
+    file_search: "ask",
     call_agent: "ask",
     ...permissionOverrides,
   };

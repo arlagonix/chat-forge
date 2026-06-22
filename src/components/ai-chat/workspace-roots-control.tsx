@@ -1,4 +1,4 @@
-import { Check, ExternalLink, File, FolderOpen, Lock, Plus, Trash2 } from "lucide-react";
+import { Check, ExternalLink, File, FolderOpen, Lock, Trash2 } from "lucide-react";
 import { memo } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -99,7 +99,7 @@ export const WorkspaceRootsControl = memo(function WorkspaceRootsControl({
                     onSelect={onAddRoot}
                     className="cursor-pointer gap-2 rounded-sm"
                   >
-                    <Plus className="size-4 shrink-0" />
+                    <FolderOpen className="size-4 shrink-0" />
                     <span>Add folder...</span>
                   </CommandItem>
                   <CommandItem

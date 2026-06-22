@@ -1,6 +1,8 @@
 import {
   BASH_TOOL_NAME,
   EDIT_TOOL_NAME,
+  FILE_FIND_TOOL_NAME,
+  FILE_SEARCH_TOOL_NAME,
   FILE_TOOL_NAMES,
   isFileToolName,
   isLegacyFileToolName,
@@ -54,6 +56,8 @@ export const DEFAULT_TOOLS_SETTINGS: ToolsSettings = {
     bash: "ask",
     edit: "ask",
     write: "ask",
+    file_find: "ask",
+    file_search: "ask",
     call_agent: "ask",
   },
   builtInToolSettings: {},
@@ -109,6 +113,8 @@ export const BUILT_IN_TOOL_TIMEOUTS_MS: Record<string, number> = {
   [BASH_TOOL_NAME]: 30_000,
   [EDIT_TOOL_NAME]: 30_000,
   [WRITE_TOOL_NAME]: 30_000,
+  [FILE_FIND_TOOL_NAME]: 30_000,
+  [FILE_SEARCH_TOOL_NAME]: 30_000,
 };
 
 export function supportsBuiltInToolTimeout(toolName: string) {
@@ -200,6 +206,8 @@ export const CALL_AGENT_TOOL: LoadedToolInfo = {
 export {
   BASH_TOOL_NAME,
   EDIT_TOOL_NAME,
+  FILE_FIND_TOOL_NAME,
+  FILE_SEARCH_TOOL_NAME,
   FILE_TOOL_NAMES,
   isFileToolName,
   READ_TOOL_NAME,
@@ -500,6 +508,166 @@ export const WRITE_TOOL: LoadedToolInfo = {
   requiresApproval: true,
 };
 
+export const FILE_FIND_TOOL: LoadedToolInfo = {
+  id: "builtin-file-find",
+  name: FILE_FIND_TOOL_NAME,
+  description:
+    "Find files and folders inside accessible paths. Use this before read/edit/write when you do not know the exact absolute path. All parameters are optional: omit path to search every accessible folder. By default this lists immediate children only; set recursive to true for deep search. Use include/exclude for glob filters. Use the returned absolute path with read/edit/write. Respects .gitignore/.ignore/.rgignore and skips hidden files by default unless options say otherwise.",
+  parameters: {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      path: {
+        type: "string",
+        description:
+          "Optional absolute or relative folder/path to search. Absolute paths must be inside accessible paths. Relative paths are resolved under every accessible folder where they exist.",
+      },
+      query: {
+        type: "string",
+        description:
+          "Optional case-insensitive substring to match against relative paths and file/folder names.",
+      },
+      include: {
+        type: "array",
+        description:
+          "Optional glob patterns to include, such as *.ts or **/*.tsx.",
+        items: { type: "string" },
+      },
+      exclude: {
+        type: "array",
+        description:
+          "Optional glob/path fragments to exclude in addition to built-in noisy folders.",
+        items: { type: "string" },
+      },
+      includeDirectories: {
+        type: "boolean",
+        description:
+          "Whether to include matching directories. Defaults to true when recursive is false and false when recursive is true.",
+      },
+      recursive: {
+        type: "boolean",
+        description:
+          "Whether to search recursively under the path. Defaults to false.",
+      },
+      depth: {
+        type: "number",
+        description:
+          "Optional maximum folder depth from the search path. Overrides recursive depth behavior when provided.",
+      },
+      maxResults: {
+        type: "number",
+        description: "Maximum results to return. Defaults to 100.",
+      },
+      respectGitIgnore: {
+        type: "boolean",
+        description:
+          "Whether to respect .gitignore/.ignore/.rgignore files. Defaults to true.",
+      },
+      includeHidden: {
+        type: "boolean",
+        description:
+          "Whether to include hidden files and folders. Defaults to false.",
+      },
+      includeMetadata: {
+        type: "boolean",
+        description:
+          "Whether to include sizeBytes and modifiedAt for each result. Defaults to false.",
+      },
+    },
+  },
+  command: "",
+  args: [],
+  input: "none",
+  timeoutMs: 0,
+  requiresApproval: true,
+};
+
+export const FILE_SEARCH_TOOL: LoadedToolInfo = {
+  id: "builtin-file-search",
+  name: FILE_SEARCH_TOOL_NAME,
+  description:
+    "Search text file contents inside accessible paths and return absolute paths, line numbers, and snippets. Use literal mode by default; use regex mode only when pattern matching is needed. Set resultMode to count when you only need match counts. Omit path to search every accessible folder. Respects .gitignore/.ignore/.rgignore and skips hidden files by default unless options say otherwise.",
+  parameters: {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      path: {
+        type: "string",
+        description:
+          "Optional absolute or relative folder/path to search. Absolute paths must be inside accessible paths. Relative paths are resolved under every accessible folder where they exist.",
+      },
+      query: {
+        type: "string",
+        description: "Text or regex pattern to search for.",
+      },
+      mode: {
+        type: "string",
+        enum: ["literal", "regex"],
+        description:
+          "Search mode. Defaults to literal. Use regex only when pattern matching is needed.",
+      },
+      resultMode: {
+        type: "string",
+        enum: ["matches", "count"],
+        description:
+          "Whether to return match snippets or only aggregate counts. Defaults to matches.",
+      },
+      match: {
+        type: "string",
+        enum: ["contains", "word", "whole"],
+        description:
+          "Match style. contains is the default; word matches word boundaries; whole matches whole lines.",
+      },
+      include: {
+        type: "array",
+        description:
+          "Optional glob patterns to include, such as *.ts or **/*.tsx.",
+        items: { type: "string" },
+      },
+      exclude: {
+        type: "array",
+        description:
+          "Optional glob/path fragments to exclude in addition to built-in noisy folders.",
+        items: { type: "string" },
+      },
+      caseSensitive: {
+        type: "boolean",
+        description: "Whether matching is case-sensitive. Defaults to false.",
+      },
+      contextLines: {
+        type: "number",
+        description:
+          "Number of context lines before and after each match. Defaults to 0.",
+      },
+      maxSnippetBytes: {
+        type: "number",
+        description:
+          "Maximum UTF-8 bytes per returned snippet. Defaults to 2000.",
+      },
+      maxResults: {
+        type: "number",
+        description: "Maximum matches to return. Defaults to 100.",
+      },
+      respectGitIgnore: {
+        type: "boolean",
+        description:
+          "Whether to respect .gitignore/.ignore/.rgignore files. Defaults to true.",
+      },
+      includeHidden: {
+        type: "boolean",
+        description:
+          "Whether to include hidden files and folders. Defaults to false.",
+      },
+    },
+    required: ["query"],
+  },
+  command: "",
+  args: [],
+  input: "none",
+  timeoutMs: 0,
+  requiresApproval: true,
+};
+
 export function createCallAgentTool(
   agents: LoadedAgentInfo[],
 ): LoadedToolInfo | null {
@@ -736,6 +904,8 @@ export function getFileToolApprovalAction(toolName: string) {
   if (toolName === WRITE_TOOL_NAME) return "write";
   if (toolName === BASH_TOOL_NAME) return "command";
   if (toolName === READ_TOOL_NAME) return "read";
+  if (toolName === FILE_FIND_TOOL_NAME) return "file search";
+  if (toolName === FILE_SEARCH_TOOL_NAME) return "text search";
   return "operation";
 }
 
@@ -860,6 +1030,44 @@ export function createFileToolApprovalRequest(
       details: [
         { label: "Content length", value: String(content.length) },
         { label: "Parent folders", value: "Created automatically" },
+        { label: "Scope", value: "Accessible paths" },
+      ],
+    };
+  }
+
+  if (toolName === FILE_FIND_TOOL_NAME) {
+    return {
+      title: "Approve file finding",
+      description:
+        "The model wants to find files or folders inside accessible paths.",
+      toolName,
+      action: "operation",
+      path: filePath,
+      details: [{ label: "Scope", value: "Accessible paths" }],
+    };
+  }
+
+  if (toolName === FILE_SEARCH_TOOL_NAME) {
+    const queryValue =
+      typeof source.query === "string" ? source.query.trim() : "";
+    const modeValue = source.mode === "regex" ? "regex" : "literal";
+    const resultModeValue = source.resultMode === "count" ? "count" : "matches";
+    const matchValue =
+      source.match === "word" || source.match === "whole"
+        ? source.match
+        : "contains";
+    return {
+      title: "Approve text search",
+      description:
+        "The model wants to search text file contents inside accessible paths.",
+      toolName,
+      action: "operation",
+      path: filePath,
+      details: [
+        { label: "Query", value: queryValue || "Missing query" },
+        { label: "Mode", value: modeValue },
+        { label: "Result mode", value: resultModeValue },
+        { label: "Match", value: matchValue },
         { label: "Scope", value: "Accessible paths" },
       ],
     };

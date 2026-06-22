@@ -4,6 +4,7 @@ import {
   applyNewChatDraftSettings,
   buildClonedChat,
   buildNewChatDraftSettings,
+  getBranchedChatTitle,
   getFolderDefaultWorkspaceRoots,
   renameChatWithoutActivityUpdate,
 } from "./chat-session-actions";
@@ -252,6 +253,21 @@ describe("chat session actions", () => {
     );
 
     expect(clonedChat.isPinned).toBe(true);
+  });
+
+  it("numbers branch titles instead of stacking branch suffixes", () => {
+    expect(getBranchedChatTitle("initialize serena")).toBe(
+      "initialize serena (branch #1)",
+    );
+    expect(getBranchedChatTitle("initialize serena (branch #1)")).toBe(
+      "initialize serena (branch #2)",
+    );
+    expect(getBranchedChatTitle("initialize serena (branch #2)")).toBe(
+      "initialize serena (branch #3)",
+    );
+    expect(getBranchedChatTitle("initialize serena (branch) (branch)")).toBe(
+      "initialize serena (branch #3)",
+    );
   });
 
   it("renames a chat without changing its activity dates", () => {

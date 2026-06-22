@@ -22,6 +22,8 @@ import {
   CALL_AGENT_TOOL_NAME,
   EDIT_TOOL,
   EDIT_TOOL_NAME,
+  FILE_FIND_TOOL,
+  FILE_SEARCH_TOOL,
   LOAD_SKILL_TOOL_NAME,
   READ_TOOL,
   READ_TOOL_NAME,
@@ -42,6 +44,7 @@ import {
   FILE_FIND_TOOL_NAME,
   FILE_READ_TOOL_NAME,
   FILE_REPLACE_TEXT_TOOL_NAME,
+  FILE_SEARCH_TOOL_NAME,
   FILE_SEARCH_TEXT_TOOL_NAME,
 } from "@/lib/ai-chat/file-tool-names";
 import { TERMINAL_EXEC_TOOL_NAME } from "@/lib/ai-chat/terminal-tool";
@@ -69,6 +72,8 @@ const BUILTIN_TOOL_DESCRIPTIONS: Record<string, string> = {
   [BASH_TOOL.name]: BASH_TOOL.description,
   [EDIT_TOOL.name]: EDIT_TOOL.description,
   [WRITE_TOOL.name]: WRITE_TOOL.description,
+  [FILE_FIND_TOOL.name]: FILE_FIND_TOOL.description,
+  [FILE_SEARCH_TOOL.name]: FILE_SEARCH_TOOL.description,
   [LOAD_SKILL_TOOL_NAME]:
     "Load the full instructions for one relevant skill by name.",
   [CALL_AGENT_TOOL_NAME]:
@@ -594,12 +599,34 @@ function getToolHeaderDetail(
 
   if (toolCall.function.name === FILE_FIND_TOOL_NAME) {
     const query = getStringArgument(args, "query");
-    return query ? `query: ${query}` : "all workspace files";
+    const searchPath = compactPathLabel(getStringArgument(args, "path"));
+    const recursive =
+      typeof args.recursive === "boolean" ? args.recursive : false;
+    const include = Array.isArray(args.include)
+      ? args.include.filter((item): item is string => typeof item === "string")
+      : [];
+    const details = [
+      query ? `query: ${query}` : "",
+      include.length > 0
+        ? include.slice(0, 2).join(", ") + (include.length > 2 ? ", ..." : "")
+        : "",
+      searchPath,
+      recursive ? "recursive" : "",
+      !query && include.length === 0 && !searchPath && !recursive
+        ? "all accessible paths"
+        : "",
+    ].filter(Boolean);
+
+    return details.join(" · ");
   }
 
-  if (toolCall.function.name === FILE_SEARCH_TEXT_TOOL_NAME) {
+  if (
+    toolCall.function.name === FILE_SEARCH_TOOL_NAME ||
+    toolCall.function.name === FILE_SEARCH_TEXT_TOOL_NAME
+  ) {
     const query = getStringArgument(args, "query");
-    return query ? `query: ${query}` : "";
+    const pattern = getStringArgument(args, "pattern");
+    return query || pattern;
   }
 
   if (

@@ -3,12 +3,12 @@ import { toast } from "sonner";
 
 import {
   buildClonedChat,
+  getBranchedChatTitle,
   renameChatWithoutActivityUpdate,
 } from "@/lib/ai-chat/chat-session-actions";
 import {
   getActiveVariant,
   isAutoTitledChat,
-  normalizeManualChatTitle,
   sortChatsByUpdatedAt,
   titleFromMessage,
 } from "@/lib/ai-chat/chat-utils";
@@ -407,10 +407,9 @@ export function useChatActions({
     }
 
     const now = new Date().toISOString();
-    const baseTitle = normalizeManualChatTitle(activeChat.title) || "New chat";
     const chat: ChatSession = {
       ...createEmptyChat(),
-      title: `${baseTitle} (branch)`,
+      title: getBranchedChatTitle(activeChat.title),
       titleMode: "manual",
       messages: branchedMessages,
       modeId: activeChat.modeId,

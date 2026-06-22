@@ -4,6 +4,7 @@ import {
   Check,
   Copy,
   Download,
+  FolderSearch,
   FolderOpen,
   Globe,
   ListTodo,
@@ -97,11 +98,15 @@ const BUILTIN_READ_TOOL_NAME = "read";
 const BUILTIN_BASH_TOOL_NAME = "bash";
 const BUILTIN_EDIT_TOOL_NAME = "edit";
 const BUILTIN_WRITE_TOOL_NAME = "write";
+const BUILTIN_FILE_FIND_TOOL_NAME = "file_find";
+const BUILTIN_FILE_SEARCH_TOOL_NAME = "file_search";
 const BUILTIN_FILE_TOOL_NAMES = [
   BUILTIN_READ_TOOL_NAME,
   BUILTIN_BASH_TOOL_NAME,
   BUILTIN_EDIT_TOOL_NAME,
   BUILTIN_WRITE_TOOL_NAME,
+  BUILTIN_FILE_FIND_TOOL_NAME,
+  BUILTIN_FILE_SEARCH_TOOL_NAME,
 ];
 const BUILTIN_FILE_TOOL_META = [
   {
@@ -216,6 +221,150 @@ const BUILTIN_FILE_TOOL_META = [
         },
       },
       required: ["path", "content"],
+    },
+  },
+  {
+    id: "builtin-file-find",
+    name: BUILTIN_FILE_FIND_TOOL_NAME,
+    icon: FolderOpen,
+    description:
+      "Find files and folders inside accessible paths. By default, list immediate children; set recursive to true for deep search. Returned absolute paths can be passed directly to read/edit/write.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        path: {
+          type: "string",
+          description:
+            "Optional absolute or relative folder/path to search.",
+        },
+        query: {
+          type: "string",
+          description:
+            "Optional case-insensitive substring to match against paths and names.",
+        },
+        include: {
+          type: "array",
+          items: { type: "string" },
+          description: "Optional glob patterns to include.",
+        },
+        exclude: {
+          type: "array",
+          items: { type: "string" },
+          description:
+            "Optional glob/path fragments to exclude in addition to defaults.",
+        },
+        includeDirectories: {
+          type: "boolean",
+          description:
+            "Whether to include directories. Defaults to true when recursive is false and false when recursive is true.",
+        },
+        recursive: {
+          type: "boolean",
+          description:
+            "Whether to search recursively under the path. Defaults to false.",
+        },
+        depth: {
+          type: "number",
+          description:
+            "Optional maximum folder depth. Overrides recursive depth behavior when provided.",
+        },
+        maxResults: {
+          type: "number",
+          description: "Maximum results to return. Defaults to 100.",
+        },
+        respectGitIgnore: {
+          type: "boolean",
+          description:
+            "Whether to respect .gitignore/.ignore/.rgignore. Defaults to true.",
+        },
+        includeHidden: {
+          type: "boolean",
+          description:
+            "Whether to include hidden files and folders. Defaults to false.",
+        },
+        includeMetadata: {
+          type: "boolean",
+          description:
+            "Whether to include sizeBytes and modifiedAt for each result. Defaults to false.",
+        },
+      },
+    },
+  },
+  {
+    id: "builtin-file-search",
+    name: BUILTIN_FILE_SEARCH_TOOL_NAME,
+    icon: FolderSearch,
+    description:
+      "Search text file contents inside accessible paths. Supports literal search by default, regex when mode is set to regex, and count-only results.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        path: {
+          type: "string",
+          description:
+            "Optional absolute or relative folder/path to search.",
+        },
+        query: {
+          type: "string",
+          description: "Text or regex pattern to search for.",
+        },
+        mode: {
+          type: "string",
+          enum: ["literal", "regex"],
+          description: "Defaults to literal.",
+        },
+        resultMode: {
+          type: "string",
+          enum: ["matches", "count"],
+          description: "Return snippets or only aggregate counts. Defaults to matches.",
+        },
+        match: {
+          type: "string",
+          enum: ["contains", "word", "whole"],
+          description:
+            "Match style. contains is default; word uses word boundaries; whole matches whole lines.",
+        },
+        include: {
+          type: "array",
+          items: { type: "string" },
+          description: "Optional glob patterns to include.",
+        },
+        exclude: {
+          type: "array",
+          items: { type: "string" },
+          description:
+            "Optional glob/path fragments to exclude in addition to defaults.",
+        },
+        caseSensitive: {
+          type: "boolean",
+          description: "Defaults to false.",
+        },
+        contextLines: {
+          type: "number",
+          description: "Context lines around matches. Defaults to 0.",
+        },
+        maxSnippetBytes: {
+          type: "number",
+          description: "Maximum bytes per returned snippet. Defaults to 2000.",
+        },
+        maxResults: {
+          type: "number",
+          description: "Maximum matches to return. Defaults to 100.",
+        },
+        respectGitIgnore: {
+          type: "boolean",
+          description:
+            "Whether to respect .gitignore/.ignore/.rgignore. Defaults to true.",
+        },
+        includeHidden: {
+          type: "boolean",
+          description:
+            "Whether to include hidden files and folders. Defaults to false.",
+        },
+      },
+      required: ["query"],
     },
   },
 ];
@@ -454,6 +603,8 @@ const BUILTIN_TOOL_TIMEOUT_FALLBACKS_MS: Record<string, number> = {
   [BUILTIN_BASH_TOOL_NAME]: 30_000,
   [BUILTIN_EDIT_TOOL_NAME]: 30_000,
   [BUILTIN_WRITE_TOOL_NAME]: 30_000,
+  [BUILTIN_FILE_FIND_TOOL_NAME]: 30_000,
+  [BUILTIN_FILE_SEARCH_TOOL_NAME]: 30_000,
 };
 
 function supportsBuiltInTimeout(toolName: string) {
@@ -1070,7 +1221,8 @@ export const ToolsDialog = memo(function ToolsDialog({
     () => loadedMcpTools.find((tool) => tool.name === selectedToolName) ?? null,
     [loadedMcpTools, selectedToolName],
   );
-  const totalToolsCount = loadedTools.length + loadedMcpTools.length + 9;
+  const totalToolsCount =
+    loadedTools.length + loadedMcpTools.length + builtInToolNames.length;
   const enabledToolsCount = useMemo(() => {
     const builtInNames = [
       BUILTIN_ASK_USER_TOOL_NAME,

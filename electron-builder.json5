@@ -3,7 +3,10 @@
   $schema: "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
   appId: "com.moltenForge.moltenforge",
   asar: true,
-  asarUnpack: ["**/node_modules/7zip-bin/**"],
+  asarUnpack: [
+    "**/node_modules/7zip-bin/**",
+    "**/node_modules/@vscode/ripgrep/**",
+  ],
   productName: "Molten Forge",
   directories: {
     output: "release",
