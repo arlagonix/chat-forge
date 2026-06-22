@@ -72,28 +72,41 @@ function withConfiguredTimeout<T>(
   });
 }
 
-function getDefaultUserWorkspace(): WorkspaceRoot {
-  const homePath = os.homedir();
-  return {
-    id: "home",
-    name: path.basename(homePath) || "Home",
-    path: homePath,
-    kind: "manual",
-  };
-}
-
-function getSelectedWorkspace(context: ToolExecutionContext): WorkspaceRoot {
-  const roots = normalizeWorkspaceRoots(context.workspaceRoots);
-  return roots.find((candidate) => candidate.kind !== "skill") ?? getDefaultUserWorkspace();
-}
-
-function getToolRoots(context: ToolExecutionContext): WorkspaceRoot[] {
-  const roots = [
-    ...normalizeWorkspaceRoots(context.workspaceRoots),
-    ...normalizeWorkspaceRoots(context.allowedReadRoots),
+function getSystemAccessibleRoots(): WorkspaceRoot[] {
+  const skillsPath = path.join(os.homedir(), ".agents", "skills");
+  return [
+    {
+      id: "system:global-skills",
+      name: "Global skills",
+      path: skillsPath,
+      kind: "system",
+      pathKind: "folder",
+    },
   ];
-  const hasPrimaryRoot = roots.some((candidate) => candidate.kind !== "skill");
-  return hasPrimaryRoot ? roots : [getDefaultUserWorkspace(), ...roots];
+}
+
+function getToolRoots(
+  context: ToolExecutionContext,
+  options: { includeReadRoots?: boolean } = {},
+): WorkspaceRoot[] {
+  const configuredRoots = [
+    ...getSystemAccessibleRoots(),
+    ...normalizeWorkspaceRoots(context.workspaceRoots),
+  ];
+  const roots = options.includeReadRoots
+    ? [
+        ...configuredRoots,
+        ...normalizeWorkspaceRoots(context.allowedReadRoots),
+      ]
+    : configuredRoots;
+
+  const seen = new Set<string>();
+  return roots.filter((root) => {
+    const key = path.resolve(root.path).toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function isSubPathOrSame(candidate: string, parent: string) {
@@ -114,43 +127,48 @@ async function resolveToolPath(
   context: ToolExecutionContext,
   options: { forWrite?: boolean } = {},
 ): Promise<ResolvedToolPath> {
-  const roots = getToolRoots(context);
-  const primaryRoot = roots.find((candidate) => candidate.kind !== "skill") ?? getDefaultUserWorkspace();
+  const roots = getToolRoots(context, { includeReadRoots: !options.forWrite });
 
   const trimmedPath = requestedPath.trim();
   if (!trimmedPath) throw new Error("Path is required.");
+  if (!path.isAbsolute(trimmedPath)) {
+    throw new Error("Path must be an exact absolute path inside an accessible path.");
+  }
 
-  const primaryRootRealPath = await fs.realpath(primaryRoot.path);
-  const absolutePath = path.resolve(
-    path.isAbsolute(trimmedPath)
-      ? trimmedPath
-      : path.join(primaryRootRealPath, trimmedPath),
-  );
+  const absolutePath = path.resolve(trimmedPath);
   const targetRealPath = await realpathIfExists(absolutePath);
   const containmentPath = targetRealPath ?? absolutePath;
 
-  for (const allowedPath of context.allowedExactFilePaths ?? []) {
-    const allowedAbsolute = path.resolve(allowedPath);
-    const allowedRealPath = await realpathIfExists(allowedAbsolute);
-    const allowedContainmentPath = allowedRealPath ?? allowedAbsolute;
-    if (path.resolve(containmentPath) === path.resolve(allowedContainmentPath)) {
-      return {
-        root: {
-          id: "attachment",
-          name: "Attached file",
-          path: path.dirname(allowedAbsolute),
-          kind: "manual",
-        },
-        requestedPath: trimmedPath,
-        absolutePath,
-        relativePath: path.basename(absolutePath),
-      };
+  if (!options.forWrite) {
+    for (const allowedPath of context.allowedExactFilePaths ?? []) {
+      const allowedAbsolute = path.resolve(allowedPath);
+      const allowedRealPath = await realpathIfExists(allowedAbsolute);
+      const allowedContainmentPath = allowedRealPath ?? allowedAbsolute;
+      if (path.resolve(containmentPath) === path.resolve(allowedContainmentPath)) {
+        return {
+          root: {
+            id: "attachment",
+            name: "Attached file",
+            path: path.dirname(allowedAbsolute),
+            kind: "manual",
+            pathKind: "file",
+          },
+          requestedPath: trimmedPath,
+          absolutePath,
+          relativePath: path.basename(absolutePath),
+        };
+      }
     }
   }
 
   for (const root of roots) {
-    const rootRealPath = await fs.realpath(root.path);
-    if (isSubPathOrSame(containmentPath, rootRealPath)) {
+    const rootAbsolutePath = path.resolve(root.path);
+    const rootRealPath = await realpathIfExists(rootAbsolutePath) ?? rootAbsolutePath;
+    const rootPathKind = root.pathKind ?? "folder";
+    const isAllowed = rootPathKind === "file"
+      ? path.resolve(containmentPath) === path.resolve(rootRealPath)
+      : isSubPathOrSame(containmentPath, rootRealPath);
+    if (isAllowed) {
       return {
         root,
         requestedPath: trimmedPath,
@@ -165,8 +183,13 @@ async function resolveToolPath(
     const nearestParent = await findExistingParent(path.dirname(absolutePath));
     const parentRealPath = await fs.realpath(nearestParent);
     for (const root of roots) {
-      const rootRealPath = await fs.realpath(root.path);
-      if (isSubPathOrSame(parentRealPath, rootRealPath)) {
+      if ((root.pathKind ?? "folder") === "file") continue;
+      const rootAbsolutePath = path.resolve(root.path);
+      const rootRealPath = await realpathIfExists(rootAbsolutePath) ?? rootAbsolutePath;
+      if (
+        isSubPathOrSame(parentRealPath, rootRealPath) ||
+        isSubPathOrSame(path.resolve(absolutePath), rootRealPath)
+      ) {
         return {
           root,
           requestedPath: trimmedPath,
@@ -178,7 +201,32 @@ async function resolveToolPath(
     }
   }
 
-  throw new Error(`Path is outside the selected workspace, user home, or loaded skill folders: ${trimmedPath}`);
+  throw new Error(`Path is outside accessible paths: ${trimmedPath}`);
+}
+
+async function resolveBashCwd(requestedCwd: string, context: ToolExecutionContext) {
+  const trimmedCwd = requestedCwd.trim();
+  if (!trimmedCwd) throw new Error("Missing required bash tool argument: cwd");
+  if (!path.isAbsolute(trimmedCwd)) {
+    throw new Error("bash cwd must be an exact absolute path inside an accessible folder.");
+  }
+
+  const cwdAbsolute = path.resolve(trimmedCwd);
+  const cwdRealPath = await realpathIfExists(cwdAbsolute);
+  if (!cwdRealPath) throw new Error(`bash cwd does not exist: ${trimmedCwd}`);
+  const stat = await fs.stat(cwdRealPath);
+  if (!stat.isDirectory()) throw new Error(`bash cwd is not a folder: ${trimmedCwd}`);
+
+  for (const root of getToolRoots(context)) {
+    if ((root.pathKind ?? "folder") === "file") continue;
+    const rootAbsolutePath = path.resolve(root.path);
+    const rootRealPath = await realpathIfExists(rootAbsolutePath) ?? rootAbsolutePath;
+    if (isSubPathOrSame(cwdRealPath, rootRealPath)) {
+      return { cwd: cwdRealPath, root };
+    }
+  }
+
+  throw new Error(`bash cwd is outside accessible folders: ${trimmedCwd}`);
 }
 
 async function findExistingParent(startPath: string) {
@@ -384,6 +432,7 @@ async function executeBashTool(
   throwIfAborted(context.signal);
   const command = readRequiredRawString(args, "command").trim();
   if (!command) throw new Error("Missing required bash tool argument: command");
+  const cwdArg = readRequiredString(args, "cwd");
 
   const timeoutSeconds = readOptionalNonNegativeNumber(args, "timeout");
   const configuredTimeoutMs = normalizeContextTimeoutMs(context.timeoutMs);
@@ -393,8 +442,7 @@ async function executeBashTool(
       ? Math.min(requestedTimeoutMs, configuredTimeoutMs)
       : requestedTimeoutMs
     : configuredTimeoutMs;
-  const workspace = getSelectedWorkspace(context);
-  const cwd = await fs.realpath(workspace.path);
+  const { cwd, root } = await resolveBashCwd(cwdArg, context);
   const shellConfig = getShellConfig();
   const startedAt = performance.now();
   const warnings: string[] = [];
@@ -440,9 +488,9 @@ async function executeBashTool(
         command,
         shell: shellConfig.displayShell,
         cwd,
-        rootId: workspace.id,
-        rootName: workspace.name,
-        rootPath: workspace.path,
+        rootId: root.id,
+        rootName: root.name,
+        rootPath: root.path,
         stdout: stdoutTruncation.text,
         stderr: stderrTruncation.text,
         exitCode,
@@ -636,7 +684,7 @@ async function withFileMutationQueue<T>(filePath: string, task: () => Promise<T>
 async function executeEditTool(args: unknown, context: ToolExecutionContext): Promise<ToolCommandResult> {
   throwIfAborted(context.signal);
   const requestedPath = readRequiredString(args, "path");
-  const resolved = await resolveToolPath(requestedPath, context);
+  const resolved = await resolveToolPath(requestedPath, context, { forWrite: true });
   const edits = parseEditOperations(args);
 
   return withFileMutationQueue(resolved.absolutePath, async () => {

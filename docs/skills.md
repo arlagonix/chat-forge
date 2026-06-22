@@ -3,7 +3,11 @@
 Skills are filesystem folders that contain a `SKILL.md` file. Molten Forge discovers skills from:
 
 - the global skills folder: `~/.agents/skills`
-- the active workspace skills folder: `<workspace>/.agents/skills`
+
+Project-local skills inside accessible folders are not discovered automatically.
+If a user wants to use one, they can ask the model to read its exact
+`SKILL.md` path through the normal `read` tool and follow it as ordinary
+project-provided instructions.
 
 ## Searching skills
 
@@ -13,14 +17,11 @@ Use the search field in **Settings → Skills** to filter the list by skill name
 
 Use **Settings → Skills → Create skill**.
 
-During creation, choose where the skill should be stored:
-
-- **Global** creates `~/.agents/skills/<skill-name>/SKILL.md`.
-- **Workspace** creates `<workspace>/.agents/skills/<skill-name>/SKILL.md`. This option is only available when the current chat has a workspace.
+Global skills are created at `~/.agents/skills/<skill-name>/SKILL.md`.
 
 The skill name comes from the `name` field inside `SKILL.md` frontmatter. The name and description fields shown in the UI are readonly previews derived from `SKILL.md`, so the manifest remains the single source of truth.
 
-Skill names must be unique across global and workspace skills and must use 1–64 letters, numbers, underscores, or hyphens. `skill` is reserved for the built-in loader tool. Name validation appears directly under the readonly name preview because `SKILL.md` is the source of truth.
+Skill names must be unique across global skills and must use 1–64 letters, numbers, underscores, or hyphens. `skill` is reserved for the built-in loader tool. Name validation appears directly under the readonly name preview because `SKILL.md` is the source of truth.
 
 Newly created skills are allowed by default because loading a skill only injects instructions into the model context.
 
@@ -43,15 +44,6 @@ If the `name` in `SKILL.md` changes, Molten Forge attempts to rename the skill f
 Use the selected skill's options menu and choose **Clone**. This opens the create form with the selected skill's `SKILL.md` content prefilled. Extra files from the source skill folder are not copied.
 
 The cloned draft must be saved as a unique skill name before it can be created.
-
-## Moving skills
-
-When the current chat has a workspace, the selected skill's options menu includes:
-
-- **Move to workspace** for global skills.
-- **Make global** for workspace skills.
-
-Moving transfers the entire skill folder. The operation fails if another skill with the same name already exists in the target/global-workspace skill set.
 
 ## Deleting skills
 

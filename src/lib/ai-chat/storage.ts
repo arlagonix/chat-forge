@@ -460,9 +460,13 @@ function normalizeChatFolderWorkspaceRoots(
       if (!path) return undefined;
 
       const kind: ChatWorkspaceRoot["kind"] =
-        root.kind === "chat" || root.kind === "manual" || root.kind === "skill"
+        root.kind === "chat" || root.kind === "manual" || root.kind === "skill" || root.kind === "system"
           ? root.kind
           : undefined;
+      const pathKind: ChatWorkspaceRoot["pathKind"] =
+        root.pathKind === "file" || root.pathKind === "folder"
+          ? root.pathKind
+          : "folder";
 
       return {
         id,
@@ -478,11 +482,12 @@ function normalizeChatFolderWorkspaceRoots(
         automatic:
           typeof root.automatic === "boolean" ? root.automatic : undefined,
         kind,
+        pathKind,
       } satisfies ChatWorkspaceRoot;
     })
     .filter((root): root is NonNullable<typeof root> => Boolean(root));
 
-  return roots.length ? roots.slice(0, 1) : undefined;
+  return roots.length ? roots : undefined;
 }
 
 function normalizeChatFolders(value: unknown): ChatFolder[] {

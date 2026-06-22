@@ -38,7 +38,7 @@ function createBaseChat(): ChatSession {
 }
 
 describe("chat session actions", () => {
-  it("uses the first folder workspace as the new-chat default", () => {
+  it("uses all folder accessible paths as the new-chat default", () => {
     const folder: ChatFolder = {
       id: "folder-1",
       name: "Project folder",
@@ -62,12 +62,12 @@ describe("chat session actions", () => {
 
     const roots = getFolderDefaultWorkspaceRoots(folder);
 
-    expect(roots).toEqual([folder.workspaceRoots?.[0]]);
+    expect(roots).toEqual(folder.workspaceRoots);
     expect(roots).not.toBe(folder.workspaceRoots);
     expect(roots[0]).not.toBe(folder.workspaceRoots?.[0]);
   });
 
-  it("returns no default workspace when a folder has none", () => {
+  it("returns no default accessible paths when a folder has none", () => {
     expect(getFolderDefaultWorkspaceRoots()).toEqual([]);
     expect(
       getFolderDefaultWorkspaceRoots({

@@ -1,4 +1,4 @@
-import { Check, ExternalLink, FolderOpen, Plus, Trash2 } from "lucide-react";
+import { Check, ExternalLink, File, FolderOpen, Lock, Plus, Trash2 } from "lucide-react";
 import { memo } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -23,12 +23,13 @@ type WorkspaceRootsControlProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onAddRoot: () => void;
+  onAddFile: () => void;
   onRemoveRoot: (rootId: string) => void;
   onOpenRoot: (root: ChatWorkspaceRoot) => void;
 };
 
 function isAutomaticRoot(root: ChatWorkspaceRoot) {
-  return root.automatic === true || root.id === "chat" || root.id.startsWith("skill:");
+  return root.automatic === true || root.kind === "system" || root.id === "chat" || root.id.startsWith("skill:");
 }
 
 export const WorkspaceRootsControl = memo(function WorkspaceRootsControl({
@@ -38,11 +39,11 @@ export const WorkspaceRootsControl = memo(function WorkspaceRootsControl({
   open,
   onOpenChange,
   onAddRoot,
+  onAddFile,
   onRemoveRoot,
   onOpenRoot,
 }: WorkspaceRootsControlProps) {
-  const visibleRoots = roots.filter((root) => !isAutomaticRoot(root));
-  const label = visibleRoots.length === 0 ? "Workspace" : visibleRoots[0].name;
+  const label = roots.length === 0 ? "Paths" : `${roots.length} paths`;
 
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
@@ -55,16 +56,16 @@ export const WorkspaceRootsControl = memo(function WorkspaceRootsControl({
           aria-expanded={open}
           className={cn(
             "h-9 w-[9rem] max-w-full shrink-0 justify-start gap-2 px-3 font-normal",
-            visibleRoots.length === 0 && "text-muted-foreground",
+            roots.length === 0 && "text-muted-foreground",
           )}
           title={
             disabled
               ? "Wait until this chat finishes generating"
-              : visibleRoots.length > 0
-                ? `${label}: manage workspace for this chat`
-                : "Select a workspace folder for this chat"
+              : roots.length > 0
+                ? `${label}: manage accessible paths for this chat`
+                : "Add accessible files or folders for this chat"
           }
-          aria-label="Manage workspace folder for this chat"
+          aria-label="Manage accessible paths for this chat"
         >
           <FolderOpen className="size-4 shrink-0 opacity-70" />
           <span className="min-w-0 truncate font-normal">{label}</span>
@@ -73,22 +74,31 @@ export const WorkspaceRootsControl = memo(function WorkspaceRootsControl({
       <PopoverContent align="start" className="w-[min(26rem,calc(100vw-2rem))] p-0">
         <Command shouldFilter={false}>
           <CommandList>
-            <CommandGroup heading="Workspace">
+            <CommandGroup heading="Accessible paths">
               <CommandItem
-                value="add-workspace"
+                value="add-folder"
                 onSelect={onAddRoot}
                 className="cursor-pointer gap-2"
               >
                 <Plus className="size-4 shrink-0" />
-                <span>Select folder...</span>
+                <span>Add folder...</span>
               </CommandItem>
-              {visibleRoots.length === 0 ? (
+              <CommandItem
+                value="add-file"
+                onSelect={onAddFile}
+                className="cursor-pointer gap-2"
+              >
+                <File className="size-4 shrink-0" />
+                <span>Add file...</span>
+              </CommandItem>
+              {roots.length === 0 ? (
                 <div className="px-2 py-6 text-center text-sm text-muted-foreground">
-                  No workspace selected. Relative paths use your user home folder.
+                  No accessible paths configured.
                 </div>
               ) : (
-                visibleRoots.map((root) => {
+                roots.map((root) => {
                   const isAutomatic = isAutomaticRoot(root);
+                  const isFile = root.pathKind === "file";
 
                   return (
                     <CommandItem
@@ -98,15 +108,23 @@ export const WorkspaceRootsControl = memo(function WorkspaceRootsControl({
                       className="min-w-0 cursor-pointer items-start gap-2"
                       title={root.path}
                     >
-                      <Check className="mt-0.5 size-4 shrink-0 opacity-70" />
+                      {isFile ? (
+                        <File className="mt-0.5 size-4 shrink-0 opacity-70" />
+                      ) : (
+                        <Check className="mt-0.5 size-4 shrink-0 opacity-70" />
+                      )}
                       <div className="min-w-0 flex-1">
                         <div className="flex min-w-0 items-center gap-2">
                           <div className="truncate font-medium">{root.name}</div>
                           {isAutomatic ? (
-                            <span className="shrink-0 rounded-sm border px-1.5 py-0.5 text-[0.65rem] uppercase tracking-wide text-muted-foreground">
-                              Auto
+                            <span className="inline-flex shrink-0 items-center gap-1 rounded-sm border px-1.5 py-0.5 text-[0.65rem] uppercase tracking-wide text-muted-foreground">
+                              <Lock className="size-3" />
+                              Locked
                             </span>
                           ) : null}
+                          <span className="shrink-0 rounded-sm border px-1.5 py-0.5 text-[0.65rem] uppercase tracking-wide text-muted-foreground">
+                            {isFile ? "File" : "Folder"}
+                          </span>
                         </div>
                         <div className="truncate text-sm text-muted-foreground">{root.path}</div>
                       </div>

@@ -327,6 +327,7 @@ export function useChatGeneration({
   availableToolsByName,
   loadedSkills,
   availableSkillsByName,
+  systemAccessibleRoots,
   loadedAgents,
   availableAgentsByName,
   autoScrollEnabledRef,
@@ -362,6 +363,7 @@ export function useChatGeneration({
   availableToolsByName: Map<string, LoadedToolInfo>;
   loadedSkills: LoadedSkillInfo[];
   availableSkillsByName: Map<string, LoadedSkillInfo>;
+  systemAccessibleRoots: ChatWorkspaceRoot[];
   loadedAgents: LoadedAgentInfo[];
   availableAgentsByName: Map<string, LoadedAgentInfo>;
   autoScrollEnabledRef: MutableRefObject<boolean>;
@@ -1515,7 +1517,10 @@ export function useChatGeneration({
     activeSkillNames: string[] = [],
   ) {
     const effectiveWorkspaceRoots = getEffectiveWorkspaceRoots({
-      workspaceRoots: chat.workspaceRoots ?? [],
+      workspaceRoots: [
+        ...systemAccessibleRoots,
+        ...(chat.workspaceRoots ?? []),
+      ],
       activeSkillNames: [],
       availableSkillsByName,
     });
@@ -1608,7 +1613,10 @@ export function useChatGeneration({
     activeSkillNames: string[],
   ) {
     return getEffectiveWorkspaceRoots({
-      workspaceRoots: chat?.workspaceRoots ?? [],
+      workspaceRoots: [
+        ...systemAccessibleRoots,
+        ...(chat?.workspaceRoots ?? []),
+      ],
       activeSkillNames,
       availableSkillsByName,
     });
@@ -1694,7 +1702,10 @@ export function useChatGeneration({
       ),
       mode: getModeForChat(chat),
       effectiveWorkspaceRoots: getEffectiveWorkspaceRoots({
-        workspaceRoots: chat?.workspaceRoots ?? [],
+        workspaceRoots: [
+          ...systemAccessibleRoots,
+          ...(chat?.workspaceRoots ?? []),
+        ],
         activeSkillNames,
         availableSkillsByName,
       }),
@@ -2066,7 +2077,10 @@ export function useChatGeneration({
           .join("\n\n");
 
     const agentWorkspaceRoots = getEffectiveWorkspaceRoots({
-      workspaceRoots: activeChat?.workspaceRoots ?? [],
+      workspaceRoots: [
+        ...systemAccessibleRoots,
+        ...(activeChat?.workspaceRoots ?? []),
+      ],
       activeSkillNames: activeSkillNamesForAgent,
       availableSkillsByName,
     });
@@ -3077,7 +3091,7 @@ export function useChatGeneration({
     attachments: ChatAttachment[],
   ): Promise<{ chatForRun: ChatSession; attachmentsForRun: ChatAttachment[] }> {
     // Per-chat generated workspaces are intentionally disabled. Coding tools use
-    // only the single user-selected workspace for the chat.
+    // explicit accessible paths plus exact attachment file access.
     return { chatForRun: chat, attachmentsForRun: attachments };
   }
 

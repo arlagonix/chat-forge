@@ -4,6 +4,7 @@ import {
   ChevronRight,
   Copy,
   Edit3,
+  File,
   Folder,
   FolderOpen,
   Loader2,
@@ -115,8 +116,10 @@ type ChatSidebarProps = {
   onCreateFolder: (name: string) => void;
   onRenameFolder: (folderId: string, name: string) => void;
   onDeleteFolder: (folderId: string, mode: DeleteFolderMode) => void;
-  onSetFolderWorkspace: (folderId: string) => void;
-  onClearFolderWorkspace: (folderId: string) => void;
+  onAddFolderDefaultPath: (folderId: string) => void;
+  onAddFileDefaultPath: (folderId: string) => void;
+  onRemoveFolderDefaultPath: (folderId: string, rootId: string) => void;
+  onClearFolderDefaultPaths: (folderId: string) => void;
   onMoveChatToFolder: (chatId: string, folderId: string) => void;
   onRemoveChatFromFolder: (chatId: string) => void;
   agentSubchats?: AgentRunListItem[];
@@ -252,8 +255,10 @@ export const ChatSidebar = memo(function ChatSidebar({
   onCreateFolder,
   onRenameFolder,
   onDeleteFolder,
-  onSetFolderWorkspace,
-  onClearFolderWorkspace,
+  onAddFolderDefaultPath,
+  onAddFileDefaultPath,
+  onRemoveFolderDefaultPath,
+  onClearFolderDefaultPaths,
   onMoveChatToFolder,
   onRemoveChatFromFolder,
   agentSubchats = [],
@@ -967,7 +972,7 @@ export const ChatSidebar = memo(function ChatSidebar({
       !isSearching && visibleChats.length < folderChats.length;
     const isFolderOptionsOpen = openFolderOptionsFolderId === folder.id;
     const isDragOverFolder = dragOverFolderId === folder.id;
-    const folderWorkspaceRoot = folder.workspaceRoots?.[0];
+    const folderDefaultPaths = folder.workspaceRoots ?? [];
 
     return (
       <section
@@ -1097,45 +1102,92 @@ export const ChatSidebar = memo(function ChatSidebar({
                     Rename folder
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
-                  {folderWorkspaceRoot ? (
+                  {folderDefaultPaths.length > 0 ? (
                     <>
                       <DropdownMenuLabel
                         className="max-w-64 truncate font-normal text-muted-foreground"
-                        title={folderWorkspaceRoot.path}
+                        title={folderDefaultPaths
+                          .map((root) => root.path)
+                          .join("\n")}
                       >
-                        Workspace: {folderWorkspaceRoot.name}
+                        Default accessible paths: {folderDefaultPaths.length}
+                      </DropdownMenuLabel>
+                      {folderDefaultPaths.map((root) => {
+                        const isFile = root.pathKind === "file";
+                        const Icon = isFile ? File : FolderOpen;
+                        return (
+                          <DropdownMenuItem
+                            key={root.id}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              onRemoveFolderDefaultPath(folder.id, root.id);
+                            }}
+                            title={`${root.name}\n${root.path}`}
+                          >
+                            <Icon className="size-4" />
+                            <span className="min-w-0 flex-1 truncate">
+                              {root.name}
+                            </span>
+                            <X className="size-3.5 text-muted-foreground" />
+                          </DropdownMenuItem>
+                        );
+                      })}
+                      <DropdownMenuItem
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setOpenFolderOptionsFolderId(null);
+                          onAddFolderDefaultPath(folder.id);
+                        }}
+                      >
+                        <FolderOpen className="size-4" />
+                        Add folder
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setOpenFolderOptionsFolderId(null);
+                          onAddFileDefaultPath(folder.id);
+                        }}
+                      >
+                        <File className="size-4" />
+                        Add file
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onClearFolderDefaultPaths(folder.id);
+                        }}
+                      >
+                        <X className="size-4" />
+                        Remove all default paths
+                      </DropdownMenuItem>
+                    </>
+                  ) : (
+                    <>
+                      <DropdownMenuLabel className="font-normal text-muted-foreground">
+                        No default accessible paths
                       </DropdownMenuLabel>
                       <DropdownMenuItem
                         onClick={(event) => {
                           event.stopPropagation();
                           setOpenFolderOptionsFolderId(null);
-                          onSetFolderWorkspace(folder.id);
+                          onAddFolderDefaultPath(folder.id);
                         }}
                       >
                         <FolderOpen className="size-4" />
-                        Change workspace
+                        Add folder
                       </DropdownMenuItem>
                       <DropdownMenuItem
                         onClick={(event) => {
                           event.stopPropagation();
-                          onClearFolderWorkspace(folder.id);
+                          setOpenFolderOptionsFolderId(null);
+                          onAddFileDefaultPath(folder.id);
                         }}
                       >
-                        <X className="size-4" />
-                        Remove workspace
+                        <File className="size-4" />
+                        Add file
                       </DropdownMenuItem>
                     </>
-                  ) : (
-                    <DropdownMenuItem
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        setOpenFolderOptionsFolderId(null);
-                        onSetFolderWorkspace(folder.id);
-                      }}
-                    >
-                      <FolderOpen className="size-4" />
-                      Set workspace
-                    </DropdownMenuItem>
                   )}
                   <DropdownMenuSeparator />
                   <DropdownMenuItem

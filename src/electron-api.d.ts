@@ -215,6 +215,10 @@ declare global {
       selectFolder: () => Promise<
         { cancelled: true } | { cancelled: false; path: string; name: string }
       >;
+      selectFile: () => Promise<
+        { cancelled: true } | { cancelled: false; path: string; name: string }
+      >;
+      getSystemAccessiblePaths: () => Promise<ChatWorkspaceRoot[]>;
       openFolder: (folderPath: string) => Promise<void>;
       loadProjectInstructions: (request: {
         workspaceRoot: ChatWorkspaceRoot;

@@ -712,13 +712,11 @@ function AgentTranscriptStepsBody({
             "grid gap-2 bg-transparent",
             insideThinkingToolGroup || insideRuntimeGroup
               ? ""
-              : "rounded-sm border border-dashed px-2 py-2 shadow-xs",
+              : "rounded-sm border border-dashed bg-muted/70 px-2 py-2 shadow-xs",
           )}
         >
           {groupLabel ? (
-            <div
-              className={cn("text-xs text-muted-foreground/80 text-uppercase")}
-            >
+            <div className={cn("text-xs text-muted-foreground/80 uppercase")}>
               {groupLabel}
             </div>
           ) : null}
@@ -739,7 +737,7 @@ function AgentTranscriptStepsBody({
       return (
         <div
           key={`${key}:runtime-group`}
-          className="grid gap-2 rounded-sm border border-dashed bg-muted/10 px-2 py-2 shadow-xs"
+          className="grid gap-2 rounded-sm border border-dashed bg-muted/70 px-2 py-2 shadow-xs"
         >
           {group.groups.map((baseGroup) =>
             renderBaseGroup(baseGroup, { insideRuntimeGroup: true }),
@@ -752,7 +750,7 @@ function AgentTranscriptStepsBody({
       return (
         <div
           key={`${group.thinkingStep.id}:tool-group`}
-          className="grid gap-2 rounded-sm border border-dashed bg-muted/10 px-2 py-2 shadow-xs"
+          className="grid gap-2 rounded-sm border border-dashed bg-muted/70 px-2 py-2 shadow-xs"
         >
           {renderStep(group.thinkingStep)}
           {group.toolGroups.map((toolGroup) =>

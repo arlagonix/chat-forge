@@ -11,7 +11,7 @@ const root = {
 };
 
 describe("WorkspaceRootsControl", () => {
-  it("renders the selected workspace name with normal button text weight", () => {
+  it("renders the accessible paths label with normal button text weight", () => {
     render(
       <WorkspaceRootsControl
         activeChatExists
@@ -19,15 +19,16 @@ describe("WorkspaceRootsControl", () => {
         open={false}
         onOpenChange={vi.fn()}
         onAddRoot={vi.fn()}
+        onAddFile={vi.fn()}
         onRemoveRoot={vi.fn()}
         onOpenRoot={vi.fn()}
       />,
     );
 
     const trigger = screen.getByRole("combobox", {
-      name: "Manage workspace folder for this chat",
+      name: "Manage accessible paths for this chat",
     });
-    const label = screen.getByText("Project A");
+    const label = screen.getByText("1 paths");
 
     expect(trigger).toHaveClass("font-normal");
     expect(label).toHaveClass("font-normal");

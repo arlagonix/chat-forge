@@ -374,7 +374,7 @@ export const READ_TOOL: LoadedToolInfo = {
       path: {
         type: "string",
         description:
-          "Path to the file to read (relative to the selected workspace or absolute).",
+          "Exact absolute path to the file to read. The path must be inside an accessible path or match an attached file exactly.",
       },
       offset: {
         type: "number",
@@ -398,7 +398,7 @@ export const BASH_TOOL: LoadedToolInfo = {
   id: "builtin-bash",
   name: BASH_TOOL_NAME,
   description:
-    "Execute a bash command in the selected workspace. Returns stdout and stderr. Output is truncated to the last 2000 lines or 128KB (whichever is hit first). Optionally provide a timeout in seconds.",
+    "Execute a bash command from an exact accessible working directory. Returns stdout and stderr. Output is truncated to the last 2000 lines or 128KB (whichever is hit first). Optionally provide a timeout in seconds.",
   parameters: {
     type: "object",
     additionalProperties: false,
@@ -407,12 +407,17 @@ export const BASH_TOOL: LoadedToolInfo = {
         type: "string",
         description: "Bash command to execute.",
       },
+      cwd: {
+        type: "string",
+        description:
+          "Exact absolute working directory for the command. Must be an accessible folder.",
+      },
       timeout: {
         type: "number",
         description: "Timeout in seconds (optional, no default timeout).",
       },
     },
-    required: ["command"],
+    required: ["command", "cwd"],
   },
   command: "",
   args: [],
@@ -433,7 +438,7 @@ export const EDIT_TOOL: LoadedToolInfo = {
       path: {
         type: "string",
         description:
-          "Path to the file to edit (relative to the selected workspace or absolute).",
+          "Exact absolute path to the file to edit. The path must be inside an accessible path.",
       },
       edits: {
         type: "array",
@@ -479,7 +484,7 @@ export const WRITE_TOOL: LoadedToolInfo = {
       path: {
         type: "string",
         description:
-          "Path to the file to write (relative to the selected workspace or absolute).",
+          "Exact absolute path to write. The path must be inside an accessible path.",
       },
       content: {
         type: "string",
@@ -806,6 +811,8 @@ export function createFileToolApprovalRequest(
   if (toolName === BASH_TOOL_NAME) {
     const commandValue =
       typeof source.command === "string" ? source.command.trim() : "";
+    const cwdValue =
+      typeof source.cwd === "string" ? source.cwd.trim() : "";
     const timeoutValue =
       typeof source.timeout === "number" && Number.isFinite(source.timeout)
         ? `${Math.round(source.timeout)} s`
@@ -814,15 +821,12 @@ export function createFileToolApprovalRequest(
     return {
       title: "Approve bash command",
       description:
-        "The model wants to run a bash command inside the selected workspace.",
+        "The model wants to run a bash command inside an accessible folder.",
       toolName,
       action: "operation",
       details: [
         { label: "Command", value: commandValue || "Missing command" },
-        {
-          label: "Workspace",
-          value: workspaceRoots?.[0]?.path ?? "No workspace selected",
-        },
+        { label: "Working directory", value: cwdValue || "Missing cwd" },
         { label: "Timeout", value: timeoutValue },
         { label: "Approval mode", value: "Manual user approval required" },
       ],
@@ -833,13 +837,13 @@ export function createFileToolApprovalRequest(
     const edits = Array.isArray(source.edits) ? source.edits : [];
     return {
       title: "Approve file edit",
-      description: "The model wants to edit a file in the selected workspace.",
+      description: "The model wants to edit a file in accessible paths.",
       toolName,
       action: "replacement",
       path: filePath,
       details: [
         { label: "Edit count", value: String(edits.length) },
-        { label: "Scope", value: "Selected workspace" },
+        { label: "Scope", value: "Accessible paths" },
       ],
     };
   }
@@ -849,25 +853,25 @@ export function createFileToolApprovalRequest(
     return {
       title: "Approve file write",
       description:
-        "The model wants to create or overwrite a file in the selected workspace.",
+        "The model wants to create or overwrite a file in accessible paths.",
       toolName,
       action: "creation",
       path: filePath,
       details: [
         { label: "Content length", value: String(content.length) },
         { label: "Parent folders", value: "Created automatically" },
-        { label: "Scope", value: "Selected workspace" },
+        { label: "Scope", value: "Accessible paths" },
       ],
     };
   }
 
   return {
     title: "Approve file read",
-    description: "The model wants to read a file from the selected workspace.",
+    description: "The model wants to read a file from accessible paths.",
     toolName,
     action: "operation",
     path: filePath,
-    details: [{ label: "Scope", value: "Selected workspace" }],
+    details: [{ label: "Scope", value: "Accessible paths" }],
   };
 }
 

@@ -281,6 +281,14 @@ contextBridge.exposeInMainWorld("moltenForgeWorkspace", {
     return ipcRenderer.invoke("workspace:select-folder");
   },
 
+  selectFile() {
+    return ipcRenderer.invoke("workspace:select-file");
+  },
+
+  getSystemAccessiblePaths() {
+    return ipcRenderer.invoke("workspace:system-accessible-paths");
+  },
+
   openFolder(folderPath: unknown) {
     return ipcRenderer.invoke("workspace:open-folder", folderPath);
   },

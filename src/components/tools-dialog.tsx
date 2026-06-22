@@ -119,7 +119,7 @@ const BUILTIN_FILE_TOOL_META = [
         path: {
           type: "string",
           description:
-            "Path to the file to read (relative to the selected workspace or absolute).",
+            "Exact absolute path to the file to read. The path must be inside an accessible path or match an attached file exactly.",
         },
         offset: {
           type: "number",
@@ -140,18 +140,23 @@ const BUILTIN_FILE_TOOL_META = [
     autoApproveSetting: "bashAutoApproveEnabled" as const,
     icon: Terminal,
     description:
-      "Execute a bash command in the selected workspace. Uses Pi-style shell resolution, preferring Git Bash on Windows and bash/sh on Unix.",
+      "Execute a bash command from an exact accessible working directory. Uses Pi-style shell resolution, preferring Git Bash on Windows and bash/sh on Unix.",
     parameters: {
       type: "object",
       additionalProperties: false,
       properties: {
         command: { type: "string", description: "Bash command to execute." },
+        cwd: {
+          type: "string",
+          description:
+            "Exact absolute working directory for the command. Must be an accessible folder.",
+        },
         timeout: {
           type: "number",
           description: "Timeout in seconds (optional).",
         },
       },
-      required: ["command"],
+      required: ["command", "cwd"],
     },
   },
   {
@@ -169,7 +174,7 @@ const BUILTIN_FILE_TOOL_META = [
         path: {
           type: "string",
           description:
-            "Path to the file to edit (relative to the selected workspace or absolute).",
+            "Exact absolute path to the file to edit. The path must be inside an accessible path.",
         },
         edits: {
           type: "array",
@@ -203,7 +208,7 @@ const BUILTIN_FILE_TOOL_META = [
         path: {
           type: "string",
           description:
-            "Path to the file to write (relative to the selected workspace or absolute).",
+            "Exact absolute path to write. The path must be inside an accessible path.",
         },
         content: {
           type: "string",
@@ -2469,9 +2474,9 @@ export const ToolsDialog = memo(function ToolsDialog({
                       <Label>Behavior</Label>
                       <div className="grid gap-2 text-base leading-6 text-muted-foreground">
                         <p>
-                          Relative paths resolve from the selected workspace, or
-                          from the user home folder when no workspace is
-                          selected.
+                          File tools use exact absolute paths listed in
+                          Accessible paths. Bash requires an exact accessible
+                          working directory.
                         </p>
                         <p>
                           Use the global and mode permission selectors to choose

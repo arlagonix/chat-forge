@@ -72,7 +72,7 @@ describe("Pi-style attachment file access", () => {
 
     const result = await executePiTool(
       "read",
-      { path: "pixel.png" },
+      { path: imagePath },
       {
         workspaceRoots: [
           { id: "workspace", name: "Workspace", path: workspace },

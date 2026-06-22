@@ -18,7 +18,7 @@ export function cloneWorkspaceRoots(roots?: ChatWorkspaceRoot[]) {
 export function getFolderDefaultWorkspaceRoots(
   folder?: Pick<ChatFolder, "workspaceRoots">,
 ) {
-  return cloneWorkspaceRoots(folder?.workspaceRoots).slice(0, 1);
+  return cloneWorkspaceRoots(folder?.workspaceRoots);
 }
 
 export type NewChatDraftSettings = {
@@ -58,7 +58,7 @@ export function buildNewChatDraftSettings(
     disabledAgentNames: cloneStringArray(sourceChat.disabledAgentNames),
     activeSkillNames: cloneStringArray(sourceChat.activeSkillNames),
     workspaceRoots: sourceChat.workspaceRoots
-      ? cloneWorkspaceRoots(sourceChat.workspaceRoots).slice(0, 1)
+      ? cloneWorkspaceRoots(sourceChat.workspaceRoots)
       : undefined,
     fileToolAutoApproval: sourceChat.fileToolAutoApproval
       ? { ...sourceChat.fileToolAutoApproval }

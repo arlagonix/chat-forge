@@ -1094,7 +1094,7 @@ const ChatMessageItem = memo(
               "grid gap-2 bg-transparent",
               insideThinkingToolGroup || insideRuntimeGroup
                 ? ""
-                : "rounded-sm border border-dashed px-2 py-2 shadow-xs",
+                : "rounded-sm border border-dashed bg-muted/70 px-2 py-2 shadow-xs",
             )}
           >
             {groupLabel ? (
@@ -1121,7 +1121,7 @@ const ChatMessageItem = memo(
         return (
           <div
             key={`${key}:runtime-group`}
-            className="grid gap-2 rounded-sm border border-dashed bg-muted/10 px-2 py-2 shadow-xs"
+            className="grid gap-2 border border-dashed rounded-sm bg-muted/70 px-2 py-2 shadow-xs"
           >
             {group.groups.map((baseGroup) =>
               renderProcessStepGroup(baseGroup, { insideRuntimeGroup: true }),
@@ -1135,7 +1135,7 @@ const ChatMessageItem = memo(
         return (
           <div
             key={key}
-            className="grid gap-2 rounded-sm border border-dashed bg-muted/10 px-2 py-2 shadow-xs"
+            className="grid gap-2 rounded-sm border border-dashed bg-muted/70 px-2 py-2 shadow-xs"
           >
             {renderProcessStep(group.thinkingStep)}
             {group.toolGroups.map((toolGroup) =>

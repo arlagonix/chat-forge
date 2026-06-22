@@ -6,7 +6,7 @@ import type { AppSettings } from "./types";
 const oldDate = "2026-01-01T00:00:00.000Z";
 
 describe("chat storage normalization", () => {
-  it("preserves a folder default workspace across app settings save/load", () => {
+  it("preserves a folder default accessible path across app settings save/load", () => {
     const settings: AppSettings = {
       chatTitleGenerationMode: "local",
       fontFamily: "sans",
@@ -40,11 +40,12 @@ describe("chat storage normalization", () => {
         createdAt: oldDate,
         automatic: undefined,
         kind: "manual",
+        pathKind: "folder",
       },
     ]);
   });
 
-  it("keeps only the first persisted folder workspace", () => {
+  it("keeps all persisted folder accessible paths", () => {
     const normalized = normalizeAppSettings({
       chatTitleGenerationMode: "local",
       fontFamily: "sans",
@@ -72,10 +73,9 @@ describe("chat storage normalization", () => {
       ],
     });
 
-    expect(normalized.chatFolders[0]?.workspaceRoots).toHaveLength(1);
-    expect(normalized.chatFolders[0]?.workspaceRoots?.[0]?.path).toBe(
-      "/work/project-a",
-    );
+    expect(
+      normalized.chatFolders[0]?.workspaceRoots?.map((root) => root.path),
+    ).toEqual(["/work/project-a", "/work/project-b"]);
   });
 
   it("normalizes persisted folder workspaces without removing the folder workspace option", () => {
@@ -115,6 +115,7 @@ describe("chat storage normalization", () => {
         createdAt: oldDate,
         automatic: undefined,
         kind: "manual",
+        pathKind: "folder",
       },
     ]);
   });

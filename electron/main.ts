@@ -789,6 +789,7 @@ function normalizeChatFolderWorkspaceRoots(
     (root) =>
       ({
         ...root,
+        pathKind: root.pathKind ?? "folder",
         createdAt: root.createdAt ?? new Date().toISOString(),
       }) satisfies ChatWorkspaceRoot,
   );
@@ -1857,7 +1858,7 @@ async function executeWebFetchTool(
 
 async function selectWorkspaceFolder() {
   const options = {
-    title: "Select workspace folder",
+    title: "Select accessible folder",
     properties: ["openDirectory" as const, "createDirectory" as const],
   };
   const result = win
@@ -1874,6 +1875,42 @@ async function selectWorkspaceFolder() {
     path: folderPath,
     name: path.basename(folderPath) || folderPath,
   };
+}
+
+async function selectAccessibleFile() {
+  const options = {
+    title: "Select accessible file",
+    properties: ["openFile" as const],
+  };
+  const result = win
+    ? await dialog.showOpenDialog(win, options)
+    : await dialog.showOpenDialog(options);
+
+  if (result.canceled || result.filePaths.length === 0) {
+    return { cancelled: true as const };
+  }
+
+  const filePath = result.filePaths[0];
+  return {
+    cancelled: false as const,
+    path: filePath,
+    name: path.basename(filePath) || filePath,
+  };
+}
+
+function getSystemAccessiblePaths(): ChatWorkspaceRoot[] {
+  const skillsPath = path.join(app.getPath("home"), ".agents", "skills");
+  return [
+    {
+      id: "system:global-skills",
+      name: "Global skills",
+      path: skillsPath,
+      createdAt: new Date(0).toISOString(),
+      automatic: true,
+      kind: "system",
+      pathKind: "folder",
+    },
+  ];
 }
 
 async function openWorkspaceFolder(folderPath: unknown) {
@@ -4417,7 +4454,7 @@ async function openJsonToolsFolder() {
 // Editable filesystem skill discovery.
 //
 // Skills are folders with SKILL.md. Molten Forge discovers the global
-// ~/.agents/skills folder plus the selected workspace .agents/skills folder,
+// ~/.agents/skills folder,
 // lets the user edit the raw SKILL.md, and creates/deletes the whole skill
 // folder when requested.
 // ---------------------------------------------------------------------------
@@ -5852,6 +5889,12 @@ ipcMain.handle("mcp:cancel", async (_event, executionId: unknown) => {
 });
 
 ipcMain.handle("workspace:select-folder", async () => selectWorkspaceFolder());
+
+ipcMain.handle("workspace:select-file", async () => selectAccessibleFile());
+
+ipcMain.handle("workspace:system-accessible-paths", async () =>
+  getSystemAccessiblePaths(),
+);
 
 ipcMain.handle("workspace:open-folder", async (_event, folderPath: unknown) =>
   openWorkspaceFolder(folderPath),

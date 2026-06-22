@@ -21,20 +21,22 @@ function workspaceRoot(
 }
 
 describe("skills workspace and permission behavior", () => {
-  it("keeps a normal chat workspace available for workspace skill creation", () => {
+  it("ignores legacy automatic chat workspaces", () => {
     expect(
       getEffectiveWorkspaceRoots({
-        workspaceRoots: [workspaceRoot({ id: "chat", kind: "chat" })],
+        workspaceRoots: [
+          workspaceRoot({
+            id: "chat",
+            name: "Chat workspace",
+            kind: "chat",
+            automatic: true,
+            path: "/app/generated-chat-workspace",
+          }),
+        ],
         activeSkillNames: [],
         availableSkillsByName: new Map(),
       }),
-    ).toEqual([
-      {
-        ...workspaceRoot({ id: "chat", kind: "chat" }),
-        kind: "manual",
-        automatic: false,
-      },
-    ]);
+    ).toEqual([]);
   });
 
   it("ignores automatically injected skill folders as workspace roots", () => {
@@ -52,6 +54,7 @@ describe("skills workspace and permission behavior", () => {
         ...workspaceRoot({ id: "workspace-2", path: "/work/project-b" }),
         kind: "manual",
         automatic: false,
+        pathKind: "folder",
       },
     ]);
   });

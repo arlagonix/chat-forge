@@ -536,7 +536,8 @@ export type ChatWorkspaceRoot = {
   path: string;
   createdAt: string;
   automatic?: boolean;
-  kind?: "chat" | "manual" | "skill";
+  kind?: "chat" | "manual" | "skill" | "system";
+  pathKind?: "file" | "folder";
 };
 
 export type ChatFileToolAutoApproval = {

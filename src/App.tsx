@@ -551,6 +551,9 @@ export default function Home() {
   const [newChatDraftWorkspaceRoots, setNewChatDraftWorkspaceRoots] = useState<
     ChatWorkspaceRoot[]
   >([]);
+  const [systemAccessibleRoots, setSystemAccessibleRoots] = useState<
+    ChatWorkspaceRoot[]
+  >([]);
   const [newChatDraftFolderId, setNewChatDraftFolderId] = useState<
     string | undefined
   >();
@@ -1116,11 +1119,14 @@ export default function Home() {
   }, [availableSkills]);
 
   const activeChatVisibleWorkspaceRoots = useMemo(() => {
-    if (isNewChatDraft) return newChatDraftWorkspaceRoots;
-    if (!activeChat) return [];
+    const userRoots = isNewChatDraft
+      ? newChatDraftWorkspaceRoots
+      : activeChat
+        ? activeChat.workspaceRoots ?? []
+        : [];
 
     return getEffectiveWorkspaceRoots({
-      workspaceRoots: activeChat.workspaceRoots ?? [],
+      workspaceRoots: [...systemAccessibleRoots, ...userRoots],
       activeSkillNames: [],
       availableSkillsByName,
     });
@@ -1128,6 +1134,7 @@ export default function Home() {
     activeChat,
     isNewChatDraft,
     newChatDraftWorkspaceRoots,
+    systemAccessibleRoots,
     availableSkillsByName,
   ]);
 
@@ -1377,6 +1384,7 @@ export default function Home() {
           loadedToolManifests,
           loadedSkillManifests,
           loadedAgentManifests,
+          loadedSystemAccessibleRoots,
         ] = await Promise.all([
           loadProvidersState(),
           loadSystemPrompt(),
@@ -1391,6 +1399,8 @@ export default function Home() {
           loadTools(),
           loadSkills(),
           loadAgents(),
+          window.moltenForgeWorkspace?.getSystemAccessiblePaths?.() ??
+            Promise.resolve([]),
         ]);
 
         if (cancelled) return;
@@ -1437,6 +1447,7 @@ export default function Home() {
         setLoadedTools(loadedToolManifests);
         setLoadedSkills(loadedSkillManifests);
         setLoadedAgents(loadedAgentManifests);
+        setSystemAccessibleRoots(loadedSystemAccessibleRoots);
         savedChatSnapshotsRef.current = Object.fromEntries(
           nextChats.map((chat) => [chat.id, JSON.stringify(chat)]),
         );
@@ -1657,11 +1668,8 @@ export default function Home() {
   }
 
   function getProjectInstructionsRootForChat(chat: ChatSession | undefined) {
-    return getEffectiveWorkspaceRoots({
-      workspaceRoots: chat?.workspaceRoots ?? [],
-      activeSkillNames: [],
-      availableSkillsByName,
-    })[0];
+    void chat;
+    return undefined;
   }
 
   const ensureProjectInstructionsForChat = useStableCallback(
@@ -1856,6 +1864,8 @@ export default function Home() {
         name: result.name || result.path,
         path: result.path,
         createdAt: now,
+        kind: "manual",
+        pathKind: "folder",
       };
 
       if (isNewChatDraft) {
@@ -1864,9 +1874,9 @@ export default function Home() {
             return currentRoots;
           }
 
-          return [root];
+          return [...currentRoots, root];
         });
-        showSuccess("Workspace folder added.");
+        showSuccess("Accessible folder added.");
         return;
       }
 
@@ -1880,15 +1890,66 @@ export default function Home() {
 
         return {
           ...chat,
-          workspaceRoots: [root],
+          workspaceRoots: [...existingRoots, root],
           updatedAt: now,
         };
       });
 
-      showSuccess("Workspace folder added.");
+      showSuccess("Accessible folder added.");
     } catch (error) {
-      console.error("Failed to add workspace folder:", error);
-      showError("Failed to add workspace folder.", labelForError(error));
+      console.error("Failed to add accessible folder:", error);
+      showError("Failed to add accessible folder.", labelForError(error));
+    }
+  }
+
+  async function addActiveChatAccessibleFile() {
+    if (!activeChat && !isNewChatDraft) return;
+
+    try {
+      const result = await getWorkspaceBridge().selectFile();
+      if (result.cancelled) return;
+
+      const now = new Date().toISOString();
+      const root: ChatWorkspaceRoot = {
+        id: createId(),
+        name: result.name || result.path,
+        path: result.path,
+        createdAt: now,
+        kind: "manual",
+        pathKind: "file",
+      };
+
+      if (isNewChatDraft) {
+        setNewChatDraftWorkspaceRoots((currentRoots) => {
+          if (currentRoots.some((item) => item.path === root.path)) {
+            return currentRoots;
+          }
+
+          return [...currentRoots, root];
+        });
+        showSuccess("Accessible file added.");
+        return;
+      }
+
+      if (!activeChat) return;
+
+      updateChat(activeChat.id, (chat) => {
+        const existingRoots = chat.workspaceRoots ?? [];
+        if (existingRoots.some((item) => item.path === root.path)) {
+          return chat;
+        }
+
+        return {
+          ...chat,
+          workspaceRoots: [...existingRoots, root],
+          updatedAt: now,
+        };
+      });
+
+      showSuccess("Accessible file added.");
+    } catch (error) {
+      console.error("Failed to add accessible file:", error);
+      showError("Failed to add accessible file.", labelForError(error));
     }
   }
 
@@ -1897,7 +1958,7 @@ export default function Home() {
       setNewChatDraftWorkspaceRoots((currentRoots) =>
         currentRoots.filter((root) => root.id !== rootId),
       );
-      showSuccess("Workspace folder removed from chat.");
+      showSuccess("Accessible path removed from chat.");
       return;
     }
 
@@ -1910,7 +1971,7 @@ export default function Home() {
       ),
       updatedAt: new Date().toISOString(),
     }));
-    showSuccess("Workspace folder removed from chat.");
+    showSuccess("Accessible path removed from chat.");
   }
 
   async function openWorkspaceRoot(root: ChatWorkspaceRoot) {
@@ -2099,6 +2160,7 @@ export default function Home() {
     availableToolsByName,
     loadedSkills,
     availableSkillsByName,
+    systemAccessibleRoots,
     loadedAgents: availableAgents,
     availableAgentsByName,
     autoScrollEnabledRef,
@@ -2130,6 +2192,7 @@ export default function Home() {
           createdAt: new Date(0).toISOString(),
           automatic: true,
           kind: "skill" as const,
+          pathKind: "folder" as const,
         }));
       const workspaceRootsWithSkills = [
         ...(context?.workspaceRoots ?? []),
@@ -2269,7 +2332,6 @@ export default function Home() {
       // the new chat becomes the active chat (see the effect above).
       const emptyChat = createEmptyChat();
       const workspaceRoots = newChatDraftWorkspaceRoots
-        .slice(0, 1)
         .map((root) => ({ ...root }));
 
       const draftFolderId = appSettings.chatFolders.some(
@@ -2625,7 +2687,7 @@ export default function Home() {
     );
   }
 
-  async function addFolderWorkspace(folderId: string) {
+  async function addFolderDefaultFolder(folderId: string) {
     try {
       const result = await getWorkspaceBridge().selectFolder();
       if (result.cancelled) return;
@@ -2637,6 +2699,7 @@ export default function Home() {
         path: result.path,
         createdAt: now,
         kind: "manual",
+        pathKind: "folder",
       };
 
       updateChatFolders((folders) =>
@@ -2648,28 +2711,82 @@ export default function Home() {
 
           return {
             ...folder,
-            workspaceRoots: [root],
+            workspaceRoots: [...existingRoots, root],
             updatedAt: now,
           };
         }),
       );
-      showSuccess("Default workspace added to folder.");
+      showSuccess("Default accessible folder added.");
     } catch (error) {
-      console.error("Failed to add folder workspace:", error);
-      showError("Failed to add folder workspace.", labelForError(error));
+      console.error("Failed to add default accessible folder:", error);
+      showError("Failed to add default accessible folder.", labelForError(error));
     }
   }
 
-  function clearFolderWorkspaces(folderId: string) {
+  async function addFolderDefaultFile(folderId: string) {
+    try {
+      const result = await getWorkspaceBridge().selectFile();
+      if (result.cancelled) return;
+
+      const now = new Date().toISOString();
+      const root: ChatWorkspaceRoot = {
+        id: createId(),
+        name: result.name || result.path,
+        path: result.path,
+        createdAt: now,
+        kind: "manual",
+        pathKind: "file",
+      };
+
+      updateChatFolders((folders) =>
+        folders.map((folder) => {
+          if (folder.id !== folderId) return folder;
+          const existingRoots = folder.workspaceRoots ?? [];
+          if (existingRoots.some((item) => item.path === root.path))
+            return folder;
+
+          return {
+            ...folder,
+            workspaceRoots: [...existingRoots, root],
+            updatedAt: now,
+          };
+        }),
+      );
+      showSuccess("Default accessible file added.");
+    } catch (error) {
+      console.error("Failed to add default accessible file:", error);
+      showError("Failed to add default accessible file.", labelForError(error));
+    }
+  }
+
+  function removeFolderDefaultPath(folderId: string, rootId: string) {
+    const now = new Date().toISOString();
+    updateChatFolders((folders) =>
+      folders.map((folder) => {
+        if (folder.id !== folderId) return folder;
+        const workspaceRoots = (folder.workspaceRoots ?? []).filter(
+          (root) => root.id !== rootId,
+        );
+        return {
+          ...folder,
+          workspaceRoots: workspaceRoots.length ? workspaceRoots : undefined,
+          updatedAt: now,
+        };
+      }),
+    );
+    showSuccess("Default accessible path removed.");
+  }
+
+  function clearFolderDefaultPaths(folderId: string) {
     const now = new Date().toISOString();
     updateChatFolders((folders) =>
       folders.map((folder) =>
         folder.id === folderId
           ? { ...folder, workspaceRoots: undefined, updatedAt: now }
-          : folder,
+        : folder,
       ),
     );
-    showSuccess("Default workspace removed.");
+    showSuccess("Default accessible paths removed.");
   }
 
   function createNewChatInFolder(folderId: string) {
@@ -2915,8 +3032,14 @@ export default function Home() {
   const stableShowError = useStableCallback(showError);
 
   const activeWorkspaceRootsKey = useMemo(
-    () => activeChatVisibleWorkspaceRoots.map((root) => root.path).join("\n"),
-    [activeChatVisibleWorkspaceRoots],
+    () =>
+      (isNewChatDraft
+        ? newChatDraftWorkspaceRoots
+        : activeChat?.workspaceRoots ?? []
+      )
+        .map((root) => root.path)
+        .join("\n"),
+    [activeChat?.workspaceRoots, isNewChatDraft, newChatDraftWorkspaceRoots],
   );
 
   useEffect(() => {
@@ -2925,7 +3048,7 @@ export default function Home() {
     let cancelled = false;
     void (async () => {
       try {
-        const skills = await loadSkills(activeChatVisibleWorkspaceRoots);
+        const skills = await loadSkills();
         if (!cancelled) setLoadedSkills(skills);
       } catch (error) {
         if (!cancelled)
@@ -3164,8 +3287,10 @@ export default function Home() {
         onCreateFolder={createFolder}
         onRenameFolder={renameFolder}
         onDeleteFolder={deleteFolder}
-        onSetFolderWorkspace={addFolderWorkspace}
-        onClearFolderWorkspace={clearFolderWorkspaces}
+        onAddFolderDefaultPath={addFolderDefaultFolder}
+        onAddFileDefaultPath={addFolderDefaultFile}
+        onRemoveFolderDefaultPath={removeFolderDefaultPath}
+        onClearFolderDefaultPaths={clearFolderDefaultPaths}
         onMoveChatToFolder={moveChatToFolder}
         onRemoveChatFromFolder={removeChatFromFolder}
         agentSubchats={agentSubchats}
@@ -3507,6 +3632,7 @@ export default function Home() {
                     open={isWorkspacePickerOpen}
                     onOpenChange={setIsWorkspacePickerOpen}
                     onAddRoot={addActiveChatWorkspaceRoot}
+                    onAddFile={addActiveChatAccessibleFile}
                     onRemoveRoot={removeActiveChatWorkspaceRoot}
                     onOpenRoot={openWorkspaceRoot}
                   />
@@ -3700,7 +3826,7 @@ export default function Home() {
         loadedSkills={loadedSkills}
         onLoadedSkillsChange={setLoadedSkills}
         availableTools={availableTools}
-        workspaceRoots={activeChatVisibleWorkspaceRoots}
+        workspaceRoots={[]}
         showSuccess={stableShowSuccess}
         showError={stableShowError}
       />

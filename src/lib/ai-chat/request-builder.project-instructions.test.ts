@@ -13,7 +13,7 @@ function root(): ChatWorkspaceRoot {
 }
 
 describe("buildSystemPromptWithActiveSkills project instructions", () => {
-  it("injects AGENTS.md instructions after workspace context", () => {
+  it("injects AGENTS.md instructions after accessible paths context", () => {
     const prompt = buildSystemPromptWithActiveSkills({
       systemPrompt: "Base system prompt.",
       activeSkillNames: [],
@@ -29,10 +29,10 @@ describe("buildSystemPromptWithActiveSkills project instructions", () => {
       },
     });
 
-    expect(prompt).toContain("<workspace>");
+    expect(prompt).toContain("<accessible_paths>");
     expect(prompt).toContain("<workspace_project_instructions source=\"/work/project/AGENTS.md\">");
     expect(prompt).toContain("Always run focused tests.");
-    expect(prompt.indexOf("<workspace>")).toBeLessThan(
+    expect(prompt.indexOf("<accessible_paths>")).toBeLessThan(
       prompt.indexOf("<workspace_project_instructions"),
     );
   });

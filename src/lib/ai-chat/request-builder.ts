@@ -333,15 +333,25 @@ export function getEffectiveWorkspaceRoots({
   const selectedRoots: ChatWorkspaceRoot[] = [];
 
   for (const root of workspaceRoots) {
-    if (root.automatic || root.kind === "skill" || root.id.startsWith("skill:")) {
+    if (
+      root.kind === "skill" ||
+      root.kind === "chat" ||
+      root.id === "chat" ||
+      root.id.startsWith("skill:") ||
+      (root.automatic === true && root.kind !== "system")
+    ) {
       continue;
     }
 
     const normalizedPath = normalizeWorkspaceRootPathForCompare(root.path);
     if (!normalizedPath || seenPaths.has(normalizedPath)) continue;
     seenPaths.add(normalizedPath);
-    selectedRoots.push({ ...root, kind: "manual", automatic: false });
-    break;
+    selectedRoots.push({
+      ...root,
+      kind: root.kind ?? "manual",
+      automatic: root.automatic === true,
+      pathKind: root.pathKind ?? "folder",
+    });
   }
 
   return selectedRoots;
@@ -666,18 +676,23 @@ export function buildSystemPromptWithActiveSkills({
 
   const workspaceBlock = (effectiveWorkspaceRoots?.length ?? 0) > 0
     ? [
-        "<workspace>",
+        "<accessible_paths>",
         ...(effectiveWorkspaceRoots ?? []).map((root) =>
           [
-            "  <workspace_root>",
+            "  <path>",
             `    <id>${escapeXmlText(root.id)}</id>`,
             `    <name>${escapeXmlText(root.name)}</name>`,
+            `    <kind>${escapeXmlText(root.pathKind ?? "folder")}</kind>`,
+            `    <source>${escapeXmlText(root.kind ?? "manual")}</source>`,
+            `    <locked>${root.automatic === true ? "true" : "false"}</locked>`,
             `    <path>${escapeXmlText(root.path)}</path>`,
-            "  </workspace_root>",
+            "  </path>",
           ].join("\n"),
         ),
-        "</workspace>",
-        "The workspace root path is the base directory for your project files. When using file tools (read, write, edit) or bash, use paths relative to this workspace root or absolute paths within it.",
+        "</accessible_paths>",
+        "Use exact absolute paths when calling read, write, or edit. The path must be one of the listed files, inside one of the listed folders, or an attached file path shown in the user's message.",
+        "For bash, provide an exact absolute cwd. The cwd must be inside one of the listed accessible folders.",
+        "Project-local skills are not auto-loaded. If the user points you to a skill folder, read its SKILL.md by exact path and follow it as ordinary user-provided instructions.",
       ].join("\n")
     : "";
 
