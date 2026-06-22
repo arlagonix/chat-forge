@@ -584,6 +584,8 @@ export default function Home() {
   const [sidebarModelSearchValue, setSidebarModelSearchValue] = useState("");
   const [isModePickerOpen, setIsModePickerOpen] = useState(false);
   const [modeSearchValue, setModeSearchValue] = useState("");
+  const [isThinkingModePickerOpen, setIsThinkingModePickerOpen] =
+    useState(false);
   const [isChatToolPickerOpen, setIsChatToolPickerOpen] = useState(false);
   const [chatToolSearchValue, setChatToolSearchValue] = useState("");
   const [isWorkspacePickerOpen, setIsWorkspacePickerOpen] = useState(false);
@@ -1668,8 +1670,14 @@ export default function Home() {
   }
 
   function getProjectInstructionsRootForChat(chat: ChatSession | undefined) {
-    void chat;
-    return undefined;
+    return (chat?.workspaceRoots ?? []).find(
+      (root) =>
+        root.pathKind !== "file" &&
+        root.automatic !== true &&
+        root.kind !== "system" &&
+        root.kind !== "skill" &&
+        !root.id.startsWith("skill:"),
+    );
   }
 
   const ensureProjectInstructionsForChat = useStableCallback(
@@ -3223,10 +3231,12 @@ export default function Home() {
   const headerContextUsage = selectedAgentChat
     ? selectedAgentContextUsage
     : latestContextUsage;
-  const isCapabilitiesThinkingDisabled =
-    isViewingAgentChat ||
-    isSending ||
-    Boolean(activeChat && generatingChatIds.includes(activeChat.id));
+  const headerWorkspaceRoots = selectedAgentChat
+    ? (selectedAgentChat.workspaceRoots ?? activeChatVisibleWorkspaceRoots)
+    : activeChatVisibleWorkspaceRoots;
+  const activeOrDraftThinkingMode: ChatThinkingMode = isNewChatDraft
+    ? (newChatDraftSettings?.thinkingMode ?? "model_default")
+    : (activeChat?.thinkingMode ?? "model_default");
 
   if (!mounted) {
     return (
@@ -3369,6 +3379,20 @@ export default function Home() {
                 <ArrowLeft className="size-4" />
               </Button>
             ) : null}
+            <WorkspaceRootsControl
+              activeChatExists={
+                Boolean(activeChat) || isNewChatDraft || isViewingAgentChat
+              }
+              disabled={!isViewingAgentChat && isSending}
+              readOnly={isViewingAgentChat}
+              roots={headerWorkspaceRoots}
+              open={isWorkspacePickerOpen}
+              onOpenChange={setIsWorkspacePickerOpen}
+              onAddRoot={addActiveChatWorkspaceRoot}
+              onAddFile={addActiveChatAccessibleFile}
+              onRemoveRoot={removeActiveChatWorkspaceRoot}
+              onOpenRoot={openWorkspaceRoot}
+            />
           </div>
           <div className="min-w-0 text-center">
             <div className="truncate text-sm font-medium leading-5 text-foreground">
@@ -3624,19 +3648,10 @@ export default function Home() {
                 modeSearchValue={modeSearchValue}
                 onModeSearchValueChange={setModeSearchValue}
                 onSelectMode={selectActiveChatMode}
-                workspaceControl={
-                  <WorkspaceRootsControl
-                    activeChatExists={Boolean(activeChat) || isNewChatDraft}
-                    disabled={isSending}
-                    roots={activeChatVisibleWorkspaceRoots}
-                    open={isWorkspacePickerOpen}
-                    onOpenChange={setIsWorkspacePickerOpen}
-                    onAddRoot={addActiveChatWorkspaceRoot}
-                    onAddFile={addActiveChatAccessibleFile}
-                    onRemoveRoot={removeActiveChatWorkspaceRoot}
-                    onOpenRoot={openWorkspaceRoot}
-                  />
-                }
+                thinkingMode={activeOrDraftThinkingMode}
+                isThinkingModePickerOpen={isThinkingModePickerOpen}
+                onThinkingModePickerOpenChange={setIsThinkingModePickerOpen}
+                onThinkingModeChange={setActiveOrDraftChatThinkingMode}
               />
             }
             contentWidthClassName={chatWidthClassName}
@@ -3733,13 +3748,6 @@ export default function Home() {
               globalAgentPermissions={globalAgentPermissions}
               modeAgentPermissions={activeModeAgentPermissions}
               modeName={activeMode.name || "Default"}
-              thinkingMode={
-                isNewChatDraft
-                  ? (newChatDraftSettings?.thinkingMode ?? "model_default")
-                  : (activeChat?.thinkingMode ?? "model_default")
-              }
-              onThinkingModeChange={setActiveOrDraftChatThinkingMode}
-              disabled={isCapabilitiesThinkingDisabled}
               onClose={() => setIsChatCapabilitiesSidebarOpen(false)}
             />
           ) : (

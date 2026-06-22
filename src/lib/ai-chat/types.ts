@@ -256,6 +256,7 @@ export type ChatAgentCall = {
   messages: AgentTranscriptMessage[];
   toolCalls?: ChatToolCall[];
   toolResults?: ChatToolResult[];
+  workspaceRoots?: ChatWorkspaceRoot[];
   childAgentCalls: ChatAgentCall[];
   /**
    * Ordered timeline of this agent run (thinking, tool executions, nested

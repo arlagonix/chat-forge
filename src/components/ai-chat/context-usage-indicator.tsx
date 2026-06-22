@@ -275,7 +275,7 @@ export const ContextUsageIndicator = memo(function ContextUsageIndicator({
       variant="ghost"
       size="sm"
       className={cn(
-        "context-usage-token-label h-8 shrink-0 px-2 text-sm font-normal leading-none tabular-nums",
+        "context-usage-token-label h-8 shrink-0 px-2 text-sm font-medium leading-none tabular-nums",
         colorClass,
       )}
       onClick={onOpen}

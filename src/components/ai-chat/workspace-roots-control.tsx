@@ -19,6 +19,7 @@ import { cn } from "@/lib/utils";
 type WorkspaceRootsControlProps = {
   activeChatExists: boolean;
   disabled?: boolean;
+  readOnly?: boolean;
   roots: ChatWorkspaceRoot[];
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -32,9 +33,14 @@ function isAutomaticRoot(root: ChatWorkspaceRoot) {
   return root.automatic === true || root.kind === "system" || root.id === "chat" || root.id.startsWith("skill:");
 }
 
+function isManualFolderRoot(root: ChatWorkspaceRoot) {
+  return !isAutomaticRoot(root) && root.pathKind !== "file";
+}
+
 export const WorkspaceRootsControl = memo(function WorkspaceRootsControl({
   activeChatExists,
   disabled,
+  readOnly = false,
   roots,
   open,
   onOpenChange,
@@ -43,25 +49,36 @@ export const WorkspaceRootsControl = memo(function WorkspaceRootsControl({
   onRemoveRoot,
   onOpenRoot,
 }: WorkspaceRootsControlProps) {
-  const label = roots.length === 0 ? "Paths" : `${roots.length} paths`;
+  const manualFolderRoots = roots.filter(isManualFolderRoot);
+  const label =
+    manualFolderRoots.length === 0
+      ? "No paths"
+      : manualFolderRoots.length === 1
+        ? manualFolderRoots[0].name
+        : `${manualFolderRoots.length} paths`;
+  const canEdit = activeChatExists && !disabled && !readOnly;
 
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverTrigger asChild>
         <Button
           type="button"
-          variant="outline"
+          variant="ghost"
           role="combobox"
-          disabled={!activeChatExists || disabled}
+          disabled={!activeChatExists}
           aria-expanded={open}
           className={cn(
-            "h-9 w-[9rem] max-w-full shrink-0 justify-start gap-2 px-3 font-normal",
-            roots.length === 0 && "text-muted-foreground",
+            "h-8 max-w-[12rem] shrink-0 justify-start gap-2 overflow-hidden px-2 font-normal",
+            manualFolderRoots.length === 0 && "text-muted-foreground",
           )}
           title={
             disabled
               ? "Wait until this chat finishes generating"
-              : roots.length > 0
+              : readOnly
+                ? manualFolderRoots.length > 0
+                  ? `${label}: view accessible paths for this chat`
+                  : "No accessible paths configured for this chat"
+              : manualFolderRoots.length > 0
                 ? `${label}: manage accessible paths for this chat`
                 : "Add accessible files or folders for this chat"
           }
@@ -71,26 +88,30 @@ export const WorkspaceRootsControl = memo(function WorkspaceRootsControl({
           <span className="min-w-0 truncate font-normal">{label}</span>
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-[min(26rem,calc(100vw-2rem))] p-0">
+      <PopoverContent align="start" className="w-[min(26rem,calc(100vw-2rem))] overflow-hidden p-0">
         <Command shouldFilter={false}>
           <CommandList>
             <CommandGroup heading="Accessible paths">
-              <CommandItem
-                value="add-folder"
-                onSelect={onAddRoot}
-                className="cursor-pointer gap-2"
-              >
-                <Plus className="size-4 shrink-0" />
-                <span>Add folder...</span>
-              </CommandItem>
-              <CommandItem
-                value="add-file"
-                onSelect={onAddFile}
-                className="cursor-pointer gap-2"
-              >
-                <File className="size-4 shrink-0" />
-                <span>Add file...</span>
-              </CommandItem>
+              {canEdit ? (
+                <>
+                  <CommandItem
+                    value="add-folder"
+                    onSelect={onAddRoot}
+                    className="cursor-pointer gap-2 rounded-sm"
+                  >
+                    <Plus className="size-4 shrink-0" />
+                    <span>Add folder...</span>
+                  </CommandItem>
+                  <CommandItem
+                    value="add-file"
+                    onSelect={onAddFile}
+                    className="cursor-pointer gap-2 rounded-sm"
+                  >
+                    <File className="size-4 shrink-0" />
+                    <span>Add file...</span>
+                  </CommandItem>
+                </>
+              ) : null}
               {roots.length === 0 ? (
                 <div className="px-2 py-6 text-center text-sm text-muted-foreground">
                   No accessible paths configured.
@@ -105,7 +126,7 @@ export const WorkspaceRootsControl = memo(function WorkspaceRootsControl({
                       key={root.id}
                       value={`${root.name} ${root.path}`}
                       onSelect={() => onOpenRoot(root)}
-                      className="min-w-0 cursor-pointer items-start gap-2"
+                      className="min-w-0 cursor-pointer items-start gap-2 rounded-sm"
                       title={root.path}
                     >
                       {isFile ? (
@@ -142,7 +163,7 @@ export const WorkspaceRootsControl = memo(function WorkspaceRootsControl({
                       >
                         <ExternalLink className="size-3.5" />
                       </Button>
-                      {!isAutomatic ? (
+                      {!isAutomatic && canEdit ? (
                         <Button
                           type="button"
                           variant="ghost"

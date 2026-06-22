@@ -1622,6 +1622,25 @@ export function useChatGeneration({
     });
   }
 
+  function getEffectiveWorkspaceRootsForAgentCall(
+    chatId: string,
+    agentCall: ChatAgentCall,
+    activeSkillNames: string[],
+  ) {
+    if (agentCall.workspaceRoots) {
+      return getEffectiveWorkspaceRoots({
+        workspaceRoots: agentCall.workspaceRoots,
+        activeSkillNames,
+        availableSkillsByName,
+      });
+    }
+
+    return getEffectiveWorkspaceRootsForChat(
+      getCurrentChatSnapshot(chatId),
+      activeSkillNames,
+    );
+  }
+
   function getCurrentChatSnapshot(chatId: string) {
     return chatsRef.current.find((chat) => chat.id === chatId);
   }
@@ -1979,11 +1998,13 @@ export function useChatGeneration({
     task,
     depth,
     provider,
+    workspaceRoots,
   }: {
     agent: LoadedAgentInfo;
     task: string;
     depth: number;
     provider: ProviderConfig;
+    workspaceRoots: ChatWorkspaceRoot[];
   }): ChatAgentCall {
     return {
       id: createId(),
@@ -2002,6 +2023,7 @@ export function useChatGeneration({
       messages: [],
       toolCalls: [],
       toolResults: [],
+      workspaceRoots,
       childAgentCalls: [],
     };
   }
@@ -2246,7 +2268,20 @@ export function useChatGeneration({
     }
 
     const provider = resolveProviderForAgent(agent, parentProvider);
-    const agentCall = createAgentCall({ agent, task, depth, provider });
+    const initialAgentActiveSkillNames: string[] = isBuiltInAgentName(agent.name)
+      ? [...new Set<string>(inheritedActiveSkillNames)]
+      : [...new Set<string>(agent.loadedSkillNames ?? [])];
+    const agentWorkspaceRoots = getEffectiveWorkspaceRootsForChat(
+      getCurrentChatSnapshot(chatId),
+      initialAgentActiveSkillNames,
+    );
+    const agentCall = createAgentCall({
+      agent,
+      task,
+      depth,
+      provider,
+      workspaceRoots: agentWorkspaceRoots,
+    });
     const visibleToolCall = toolCall;
 
     if (parentAgentCallId) {
@@ -2282,9 +2317,7 @@ export function useChatGeneration({
     );
 
     const startedAt = new Date().toISOString();
-    let currentAgentActiveSkillNames: string[] = isBuiltInAgentName(agent.name)
-      ? [...new Set<string>(inheritedActiveSkillNames)]
-      : [...new Set<string>(agent.loadedSkillNames ?? [])];
+    let currentAgentActiveSkillNames: string[] = initialAgentActiveSkillNames;
     const chatForAgentCall = chats.find(
       (candidate) => candidate.id === chatId,
     ) ?? {
@@ -2598,8 +2631,9 @@ export function useChatGeneration({
                 request: createApprovalRequestForToolCall(
                   childToolCall,
                   childTool,
-                  getEffectiveWorkspaceRootsForChat(
-                    getCurrentChatSnapshot(chatId),
+                  getEffectiveWorkspaceRootsForAgentCall(
+                    chatId,
+                    agentCall,
                     currentAgentActiveSkillNames,
                   ),
                 ),
@@ -2782,8 +2816,9 @@ export function useChatGeneration({
                 stepId: `${agentCall.id}:${childToolCall.id}`,
                 signal,
                 activeSkillNames: currentAgentActiveSkillNames,
-                workspaceRoots: getEffectiveWorkspaceRootsForChat(
-                  getCurrentChatSnapshot(chatId),
+                workspaceRoots: getEffectiveWorkspaceRootsForAgentCall(
+                  chatId,
+                  agentCall,
                   currentAgentActiveSkillNames,
                 ),
                 fileToolAutoApproval: getChatFileToolAutoApproval(chatId),
@@ -2798,8 +2833,9 @@ export function useChatGeneration({
               return taskResult;
             }
 
-            const childWorkspaceRoots = getEffectiveWorkspaceRootsForChat(
-              getCurrentChatSnapshot(chatId),
+            const childWorkspaceRoots = getEffectiveWorkspaceRootsForAgentCall(
+              chatId,
+              agentCall,
               currentAgentActiveSkillNames,
             );
 

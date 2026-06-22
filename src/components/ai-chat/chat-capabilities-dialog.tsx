@@ -1,6 +1,7 @@
-import { Bot, BookOpen, Wrench, X } from "lucide-react";
+import { BookOpen, Bot, Info, Wrench, X } from "lucide-react";
 import { memo, type ReactNode } from "react";
 
+import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -8,7 +9,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -17,16 +17,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { FEATURE_PERMISSION_KEY } from "@/lib/ai-chat/modes";
 import type {
-  ChatThinkingMode,
   LoadedAgentInfo,
   LoadedSkillInfo,
   LoadedToolInfo,
-  Permission,
   ModeFeaturePermission,
+  Permission,
 } from "@/lib/ai-chat/types";
-import { FEATURE_PERMISSION_KEY } from "@/lib/ai-chat/modes";
-import { cn } from "@/lib/utils";
 
 type ChatCapabilitiesProps = {
   tools: LoadedToolInfo[];
@@ -42,9 +45,6 @@ type ChatCapabilitiesProps = {
   globalAgentPermissions: Map<string, Permission>;
   modeAgentPermissions?: Map<string, ModeFeaturePermission>;
   modeName: string;
-  thinkingMode: ChatThinkingMode;
-  onThinkingModeChange: (thinkingMode: ChatThinkingMode) => void;
-  disabled?: boolean;
 };
 
 type ChatCapabilitiesDialogProps = ChatCapabilitiesProps & {
@@ -61,7 +61,10 @@ function formatPermission(permission: Permission) {
 function PermissionSelect({ value }: { value: Permission }) {
   return (
     <Select value={value} disabled>
-      <SelectTrigger className="h-8 w-[6.25rem] shrink-0" onClick={(event) => event.stopPropagation()}>
+      <SelectTrigger
+        className="h-8 w-[6.25rem] shrink-0"
+        onClick={(event) => event.stopPropagation()}
+      >
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
@@ -70,6 +73,25 @@ function PermissionSelect({ value }: { value: Permission }) {
         <SelectItem value="deny">Deny</SelectItem>
       </SelectContent>
     </Select>
+  );
+}
+
+function PermissionSourceTooltip({ text }: { text: string }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          className="inline-flex size-5 shrink-0 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          aria-label="Permission source"
+        >
+          <Info className="size-3.5" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="top" className="max-w-[22rem] text-left">
+        {text}
+      </TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -96,7 +118,11 @@ function permissionSourceText({
   ) {
     return `Mode "${modeName}" master forces: ${formatPermission(modeFeaturePermission)}`;
   }
-  if (!modePermission || modePermission === "global" || modePermission === "custom") {
+  if (
+    !modePermission ||
+    modePermission === "global" ||
+    modePermission === "custom"
+  ) {
     if (permission === globalPermission)
       return `Uses global setting: ${formatPermission(globalPermission)}`;
     return `Mode "${modeName}" overrides global: ${formatPermission(globalPermission)} → ${formatPermission(permission)}`;
@@ -123,51 +149,65 @@ function CapabilitySection({
   modePermissions?: Map<string, ModeFeaturePermission>;
   modeName: string;
 }) {
-  const enabledCount = items.filter((item) => permissions.get(item.name) !== "deny").length;
+  const visibleItems = items.filter(
+    (item) => permissions.get(item.name) !== "deny",
+  );
   return (
     <section className="min-w-0 space-y-2">
       <div className="flex items-center justify-between gap-3">
-        <Label className="text-sm font-medium uppercase tracking-wide text-muted-foreground">{title}</Label>
-        <span className="text-sm text-muted-foreground">{enabledCount}/{items.length}</span>
+        <Label className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
+          {title}
+        </Label>
+        <span className="text-sm text-muted-foreground">
+          {visibleItems.length}
+        </span>
       </div>
       <div className="grid gap-1.5">
-        {items.map((item) => {
+        {visibleItems.map((item) => {
           const permission = permissions.get(item.name) ?? "ask";
-          const globalPermission = globalPermissions.get(item.name) ?? permission;
+          const globalPermission =
+            globalPermissions.get(item.name) ?? permission;
           const modePermission = modePermissions?.get(item.name);
-          const modeFeaturePermission = modePermissions?.get(FEATURE_PERMISSION_KEY);
-          const denied = permission === "deny";
+          const modeFeaturePermission = modePermissions?.get(
+            FEATURE_PERMISSION_KEY,
+          );
+          const sourceText = permissionSourceText({
+            modeName,
+            permission,
+            globalPermission,
+            modePermission,
+            modeFeaturePermission,
+          });
           return (
             <div
               key={item.name}
-              className={cn(
-                "flex min-w-0 items-start gap-3 rounded-lg border bg-card px-3 py-2",
-                denied && "bg-muted/30 text-muted-foreground opacity-70",
-              )}
+              className="flex min-w-0 items-start gap-3 rounded-sm border border-transparent bg-transparent py-2 transition-colors"
             >
-              <span className="mt-1 shrink-0 text-muted-foreground">{icon}</span>
+              <span className="mt-1 shrink-0 text-muted-foreground">
+                {icon}
+              </span>
               <div className="min-w-0 flex-1">
-                <div className="truncate text-base font-medium leading-6">{item.name}</div>
+                <div className="flex min-w-0 items-center gap-1.5">
+                  <div className="truncate text-base font-medium leading-6">
+                    {item.name}
+                  </div>
+                  <PermissionSourceTooltip text={sourceText} />
+                </div>
                 {item.description ? (
                   <div className="mt-0.5 line-clamp-2 text-sm leading-5 text-muted-foreground">
                     {item.description}
                   </div>
                 ) : null}
-                <div className="mt-1 text-xs leading-4 text-muted-foreground">
-                  {permissionSourceText({
-                    modeName,
-                    permission,
-                    globalPermission,
-                    modePermission,
-                    modeFeaturePermission,
-                  })}
-                </div>
               </div>
               <PermissionSelect value={permission} />
             </div>
           );
         })}
-        {items.length === 0 ? <div className="rounded-lg border border-dashed px-3 py-4 text-sm text-muted-foreground">No {title.toLowerCase()} configured.</div> : null}
+        {visibleItems.length === 0 ? (
+          <div className="rounded-sm border border-dashed px-3 py-4 text-sm text-muted-foreground">
+            No enabled {title.toLowerCase()}.
+          </div>
+        ) : null}
       </div>
     </section>
   );
@@ -187,34 +227,10 @@ function ChatCapabilitiesContent({
   globalAgentPermissions,
   modeAgentPermissions,
   modeName,
-  thinkingMode,
-  onThinkingModeChange,
-  disabled = false,
 }: ChatCapabilitiesProps) {
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
       <div className="grid gap-4">
-        <section className="min-w-0 space-y-2">
-          <Label htmlFor="chat-thinking-mode" className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
-            Thinking mode
-          </Label>
-          <div className="grid gap-1.5">
-            <Select value={thinkingMode} onValueChange={(value) => onThinkingModeChange(value as ChatThinkingMode)} disabled={disabled}>
-              <SelectTrigger id="chat-thinking-mode" className="h-9">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="model_default">Model default</SelectItem>
-                <SelectItem value="off">No thinking</SelectItem>
-                <SelectItem value="low">Low</SelectItem>
-                <SelectItem value="medium">Medium</SelectItem>
-                <SelectItem value="high">High</SelectItem>
-              </SelectContent>
-            </Select>
-            <p className="text-sm leading-5 text-muted-foreground">Availability is controlled by global settings and mode permissions. Chat-level tool and agent overrides were removed.</p>
-          </div>
-        </section>
-
         <CapabilitySection
           title="Tools"
           icon={<Wrench className="size-4" />}
@@ -258,7 +274,8 @@ export const ChatCapabilitiesDialog = memo(function ChatCapabilitiesDialog({
         <DialogHeader className="shrink-0 border-b px-5 py-4">
           <DialogTitle>Chat capabilities</DialogTitle>
           <DialogDescription>
-            Readonly effective permissions from global settings and the selected mode.
+            Readonly effective permissions from global settings and the selected
+            mode.
           </DialogDescription>
         </DialogHeader>
 

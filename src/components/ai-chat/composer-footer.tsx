@@ -1,5 +1,5 @@
-import { Check, ChevronsUpDown } from "lucide-react";
-import { memo, type ReactNode } from "react";
+import { Brain, Check, Cpu, Layers3 } from "lucide-react";
+import { memo } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -16,7 +16,11 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { providerDisplayName, providerLabel } from "@/lib/ai-chat/chat-utils";
-import type { LoadedModeInfo, ProviderConfig } from "@/lib/ai-chat/types";
+import type {
+  ChatThinkingMode,
+  LoadedModeInfo,
+  ProviderConfig,
+} from "@/lib/ai-chat/types";
 import { cn } from "@/lib/utils";
 
 type VisibleProviderGroup = {
@@ -42,8 +46,29 @@ type ComposerFooterProps = {
   modeSearchValue: string;
   onModeSearchValueChange: (value: string) => void;
   onSelectMode: (modeId: string) => void;
-  workspaceControl?: ReactNode;
+  thinkingMode: ChatThinkingMode;
+  isThinkingModePickerOpen: boolean;
+  onThinkingModePickerOpenChange: (open: boolean) => void;
+  onThinkingModeChange: (thinkingMode: ChatThinkingMode) => void;
 };
+
+const THINKING_MODE_OPTIONS: Array<{
+  value: ChatThinkingMode;
+  label: string;
+}> = [
+  { value: "model_default", label: "Default" },
+  { value: "off", label: "Off" },
+  { value: "low", label: "Low" },
+  { value: "medium", label: "Medium" },
+  { value: "high", label: "High" },
+];
+
+function thinkingModeLabel(value: ChatThinkingMode) {
+  return (
+    THINKING_MODE_OPTIONS.find((option) => option.value === value)?.label ??
+    "Default"
+  );
+}
 
 export const ComposerFooter = memo(function ComposerFooter({
   activeChatExists,
@@ -63,34 +88,37 @@ export const ComposerFooter = memo(function ComposerFooter({
   modeSearchValue,
   onModeSearchValueChange,
   onSelectMode,
-  workspaceControl,
+  thinkingMode,
+  isThinkingModePickerOpen,
+  onThinkingModePickerOpenChange,
+  onThinkingModeChange,
 }: ComposerFooterProps) {
   return (
-    <div className="flex min-w-0 flex-wrap items-center gap-2">
+    <div className="flex min-w-0 flex-wrap items-center gap-0">
       <Popover open={isModePickerOpen} onOpenChange={onModePickerOpenChange}>
         <PopoverTrigger asChild>
           <Button
             type="button"
-            variant="outline"
+            variant="ghost"
             role="combobox"
             disabled={!activeChatExists || isSending}
             aria-expanded={isModePickerOpen}
-            className="h-9 w-[9rem] max-w-full shrink-0 justify-between overflow-hidden px-3 text-left font-normal"
+            className="h-8 w-auto max-w-[12rem] shrink-0 justify-start gap-1.5 overflow-hidden px-1.5 text-left font-normal"
             title={
               isSending
                 ? "Wait until this chat finishes generating"
                 : activeMode.description || "Select a mode"
             }
           >
-            <span className="min-w-0 flex-1 truncate">
+            <Layers3 className="size-4 shrink-0 opacity-70" />
+            <span className="min-w-0 truncate">
               {activeMode.name || "Mode"}
             </span>
-            <ChevronsUpDown className="ml-2 size-4 shrink-0 opacity-50" />
           </Button>
         </PopoverTrigger>
         <PopoverContent
           align="start"
-          className="w-[min(22rem,calc(100vw-2rem))] min-w-[var(--radix-popover-trigger-width)] p-0"
+          className="w-[min(22rem,calc(100vw-2rem))] min-w-[var(--radix-popover-trigger-width)] overflow-hidden p-0"
         >
           <Command shouldFilter={false}>
             <CommandInput
@@ -106,7 +134,7 @@ export const ComposerFooter = memo(function ComposerFooter({
                       key={mode.id}
                       value={`${mode.name} ${mode.description}`}
                       onSelect={() => onSelectMode(mode.id)}
-                      className="min-w-0 cursor-pointer items-start"
+                      className="min-w-0 cursor-pointer items-start rounded-sm"
                       title={mode.description}
                     >
                       <span className="min-w-0 flex-1">
@@ -138,11 +166,11 @@ export const ComposerFooter = memo(function ComposerFooter({
         <PopoverTrigger asChild>
           <Button
             type="button"
-            variant="outline"
+            variant="ghost"
             role="combobox"
             disabled={!activeChatExists || isSending}
             aria-expanded={isModelPickerOpen}
-            className="h-9 w-[9rem] max-w-full shrink-0 justify-between overflow-hidden px-3 text-left font-normal"
+            className="h-8 w-auto max-w-[18rem] shrink-0 justify-start gap-1.5 overflow-hidden px-1.5 text-left font-normal"
             title={
               isSending
                 ? "Wait until this chat finishes generating"
@@ -151,20 +179,20 @@ export const ComposerFooter = memo(function ComposerFooter({
                   : "Select a model"
             }
           >
+            <Cpu className="size-4 shrink-0 opacity-70" />
             <span
               className={cn(
-                "min-w-0 flex-1 truncate",
+                "min-w-0 truncate",
                 !activeChatModel && "text-muted-foreground",
               )}
             >
               {activeChatModel || "Select model"}
             </span>
-            <ChevronsUpDown className="ml-2 size-4 shrink-0 opacity-50" />
           </Button>
         </PopoverTrigger>
         <PopoverContent
           align="start"
-          className="w-[min(28rem,calc(100vw-2rem))] min-w-[var(--radix-popover-trigger-width)] p-0"
+          className="w-[min(28rem,calc(100vw-2rem))] min-w-[var(--radix-popover-trigger-width)] overflow-hidden p-0"
         >
           <Command shouldFilter={false}>
             <CommandInput
@@ -186,7 +214,7 @@ export const ComposerFooter = memo(function ComposerFooter({
                         onSelect={() =>
                           onSelectProviderModel(provider.id, model)
                         }
-                        className="min-w-0 cursor-pointer"
+                        className="min-w-0 cursor-pointer rounded-sm"
                         title={`${providerDisplayName(provider)} · ${model}`}
                       >
                         <span className="min-w-0 flex-1 truncate">{model}</span>
@@ -213,7 +241,65 @@ export const ComposerFooter = memo(function ComposerFooter({
         </PopoverContent>
       </Popover>
 
-      {workspaceControl}
+      <Popover
+        open={isThinkingModePickerOpen}
+        onOpenChange={onThinkingModePickerOpenChange}
+      >
+        <PopoverTrigger asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            role="combobox"
+            disabled={!activeChatExists || isSending}
+            aria-expanded={isThinkingModePickerOpen}
+            className="h-8 w-auto max-w-[9rem] shrink-0 justify-start gap-1.5 overflow-hidden px-1.5 text-left font-normal"
+            title={
+              isSending
+                ? "Wait until this chat finishes generating"
+                : "Thinking effort"
+            }
+          >
+            <Brain className="size-4 shrink-0 opacity-70" />
+            <span className="min-w-0 truncate">
+              {thinkingModeLabel(thinkingMode)}
+            </span>
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent
+          align="start"
+          className="w-[min(14rem,calc(100vw-2rem))] min-w-[var(--radix-popover-trigger-width)] overflow-hidden p-0"
+        >
+          <Command shouldFilter={false}>
+            <CommandList>
+              <CommandGroup heading="Thinking effort">
+                {THINKING_MODE_OPTIONS.map((option) => (
+                  <CommandItem
+                    key={option.value}
+                    value={option.label}
+                    onSelect={() => {
+                      onThinkingModeChange(option.value);
+                      onThinkingModePickerOpenChange(false);
+                    }}
+                    className="min-w-0 cursor-pointer rounded-sm"
+                  >
+                    <span className="min-w-0 flex-1 truncate">
+                      {option.label}
+                    </span>
+                    <Check
+                      className={cn(
+                        "size-4",
+                        thinkingMode === option.value
+                          ? "opacity-100"
+                          : "opacity-0",
+                      )}
+                    />
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            </CommandList>
+          </Command>
+        </PopoverContent>
+      </Popover>
     </div>
   );
 });

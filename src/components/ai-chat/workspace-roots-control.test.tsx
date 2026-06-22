@@ -28,7 +28,7 @@ describe("WorkspaceRootsControl", () => {
     const trigger = screen.getByRole("combobox", {
       name: "Manage accessible paths for this chat",
     });
-    const label = screen.getByText("1 paths");
+    const label = screen.getByText("Project A");
 
     expect(trigger).toHaveClass("font-normal");
     expect(label).toHaveClass("font-normal");
