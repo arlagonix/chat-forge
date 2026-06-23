@@ -1,5 +1,4 @@
 import {
-  Bot,
   ChevronDown,
   ChevronRight,
   Copy,
@@ -38,6 +37,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { AgentStatusInline } from "@/components/ai-chat/agent-status-inline";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -718,10 +718,10 @@ export const ChatSidebar = memo(function ChatSidebar({
                 )}
               </span>
             ) : null}
-            <Bot className="size-3.5 shrink-0 opacity-70" />
             <span className="min-w-0 flex-1 truncate text-base leading-6">
               {agentRun.task.trim() || agentRun.agentName}
             </span>
+            <AgentStatusInline status={agentRun.status} />
           </button>,
         ];
 

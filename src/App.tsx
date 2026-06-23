@@ -11,6 +11,7 @@ import {
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -538,6 +539,7 @@ export default function Home() {
     chatId: string;
     agentCallId: string;
   } | null>(null);
+  const mainChatScrollTopBeforeAgentRef = useRef<number | null>(null);
   const [chatSwitchLoadingChatId, setChatSwitchLoadingChatId] = useState<
     string | null
   >(null);
@@ -564,6 +566,13 @@ export default function Home() {
     NewChatDraftSettings | undefined
   >();
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [composerEditState, setComposerEditState] = useState<{
+    chatId: string;
+    messageId: string;
+    previousDraft: string;
+    previousAttachments: ChatAttachment[];
+    preview: string;
+  } | null>(null);
   const [generatingChatIds, setGeneratingChatIds] = useState<string[]>([]);
   const [completedGenerationChatIds, setCompletedGenerationChatIds] = useState<
     string[]
@@ -947,6 +956,12 @@ export default function Home() {
   ]);
   const selectedAgentContextUsage = useMemo(() => {
     if (!selectedAgentChat) return undefined;
+    if (
+      selectedAgentChat.status === "running" ||
+      selectedAgentChat.status === "pending"
+    ) {
+      return undefined;
+    }
 
     const context = getEffectiveModelContext(
       activeChatProvider,
@@ -1370,6 +1385,43 @@ export default function Home() {
     setVisualStreamingMessageIds,
     messageOffsetResolverRef,
   });
+
+  useLayoutEffect(() => {
+    const scrollElement = chatScrollRef.current;
+    if (!scrollElement) return;
+
+    if (selectedAgentChatId) {
+      const shouldOpenAtBottom =
+        selectedAgentChat?.status === "running" ||
+        selectedAgentChat?.status === "pending";
+      const nextScrollTop = shouldOpenAtBottom
+        ? Math.max(0, scrollElement.scrollHeight - scrollElement.clientHeight)
+        : 0;
+      scrollElement.scrollTop = nextScrollTop;
+      window.requestAnimationFrame(() => {
+        const currentScrollElement = chatScrollRef.current;
+        if (!currentScrollElement) return;
+        currentScrollElement.scrollTop = shouldOpenAtBottom
+          ? Math.max(
+              0,
+              currentScrollElement.scrollHeight -
+                currentScrollElement.clientHeight,
+            )
+          : 0;
+      });
+      return;
+    }
+
+    const mainChatScrollTop = mainChatScrollTopBeforeAgentRef.current;
+    if (mainChatScrollTop === null) return;
+
+    scrollElement.scrollTop = mainChatScrollTop;
+    window.requestAnimationFrame(() => {
+      const currentScrollElement = chatScrollRef.current;
+      if (currentScrollElement) currentScrollElement.scrollTop = mainChatScrollTop;
+    });
+    mainChatScrollTopBeforeAgentRef.current = null;
+  }, [chatScrollRef, selectedAgentChat?.status, selectedAgentChatId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -2144,6 +2196,95 @@ export default function Home() {
     [isNewChatDraft, activeChatId],
   );
 
+  const setComposerDraftText = useCallback(
+    (draft: string) => {
+      updateActiveComposerDraft(draft);
+      chatComposerRef.current?.setDraft(draft);
+    },
+    [updateActiveComposerDraft],
+  );
+
+  function startEditingMessageInComposer(messageId: string) {
+    if (!activeChat) return;
+    if (isSending) {
+      showInfo("Wait until generation finishes before editing messages.");
+      return;
+    }
+
+    const message = activeChat.messages.find(
+      (candidate) => candidate.id === messageId && candidate.role === "user",
+    );
+    if (!message || message.role !== "user") {
+      showError("Could not find the message to edit.");
+      return;
+    }
+
+    const currentDraft = composerDraftKey
+      ? (composerDraftsRef.current[composerDraftKey] ?? "")
+      : "";
+    const previousDraft = composerEditState?.previousDraft ?? currentDraft;
+    const previousAttachments =
+      composerEditState?.previousAttachments ?? activeComposerAttachments;
+    const preview =
+      message.content.trim() ||
+      message.attachments?.[0]?.name ||
+      "Attached files";
+
+    setComposerEditState({
+      chatId: activeChat.id,
+      messageId,
+      previousDraft,
+      previousAttachments,
+      preview,
+    });
+    setEditingMessageId(messageId);
+    setComposerDraftText(message.content);
+    updateActiveComposerAttachments(message.attachments ?? []);
+    chatComposerRef.current?.focus();
+  }
+
+  function cancelComposerEdit() {
+    if (!composerEditState) {
+      setEditingMessageId(null);
+      return;
+    }
+
+    setComposerDraftText(composerEditState.previousDraft);
+    updateActiveComposerAttachments(composerEditState.previousAttachments);
+    setComposerEditState(null);
+    setEditingMessageId(null);
+    chatComposerRef.current?.focus();
+  }
+
+  useEffect(() => {
+    if (!composerEditState) return;
+    if (
+      activeChat?.id === composerEditState.chatId &&
+      editingMessageId === composerEditState.messageId
+    ) {
+      return;
+    }
+
+    const nextDrafts = { ...composerDraftsRef.current };
+    if (composerEditState.previousDraft.length === 0) {
+      delete nextDrafts[composerEditState.chatId];
+    } else {
+      nextDrafts[composerEditState.chatId] = composerEditState.previousDraft;
+    }
+    composerDraftsRef.current = nextDrafts;
+    saveComposerDrafts(nextDrafts);
+    setComposerAttachmentsByKey((current) => {
+      const next = { ...current };
+      if (composerEditState.previousAttachments.length === 0) {
+        delete next[composerEditState.chatId];
+      } else {
+        next[composerEditState.chatId] = composerEditState.previousAttachments;
+      }
+      return next;
+    });
+    setComposerEditState(null);
+  }, [activeChat?.id, composerEditState, editingMessageId]);
+
   const {
     sendMessage,
     regenerateAssistantMessage,
@@ -2330,6 +2471,18 @@ export default function Home() {
 
   const handleComposerSend = useCallback(
     async (content: string, attachments: ChatAttachment[]) => {
+      if (composerEditState && activeChat?.id === composerEditState.chatId) {
+        const wasSubmitted = await submitEditedUserMessage(
+          composerEditState.messageId,
+          content,
+          attachments,
+        );
+        if (wasSubmitted) {
+          setComposerEditState(null);
+        }
+        return wasSubmitted;
+      }
+
       if (!isNewChatDraft) {
         return sendMessage(content, attachments);
       }
@@ -2399,9 +2552,12 @@ export default function Home() {
       return true;
     },
     [
+      activeChat?.id,
       activeMode.id,
+      composerEditState,
       isNewChatDraft,
       sendMessage,
+      submitEditedUserMessage,
       toolsSettings,
       newChatDraftWorkspaceRoots,
       newChatDraftFolderId,
@@ -2547,12 +2703,9 @@ export default function Home() {
   }
 
   const {
-    startEditingUserMessage,
-    cancelEditingUserMessage,
     copyLinkHref,
     deleteMessage,
     copyMessageContent,
-    saveEditedUserMessage,
     stopGeneration,
     createNewChat,
     cloneChat,
@@ -3109,16 +3262,9 @@ export default function Home() {
     continueAssistantMessage,
   );
   const stableStartEditingUserMessage = useStableCallback(
-    startEditingUserMessage,
+    startEditingMessageInComposer,
   );
   const stableDeleteMessage = useStableCallback(deleteMessage);
-  const stableCancelEditingUserMessage = useStableCallback(
-    cancelEditingUserMessage,
-  );
-  const stableSaveEditedUserMessage = useStableCallback(saveEditedUserMessage);
-  const stableSubmitEditedUserMessage = useStableCallback(
-    submitEditedUserMessage,
-  );
   const stableSelectAssistantVariant = useStableCallback(
     selectAssistantVariant,
   );
@@ -3155,6 +3301,10 @@ export default function Home() {
     setSelectedAgentSidebarId(agentCallId);
   });
   const stableOpenAgentChat = useStableCallback((agentCallId: string) => {
+    if (!selectedAgentChatId) {
+      mainChatScrollTopBeforeAgentRef.current =
+        chatScrollRef.current?.scrollTop ?? null;
+    }
     setSelectedAgentChatId(agentCallId);
   });
   const stableOpenAgentSubchat = useStableCallback(
@@ -3175,6 +3325,10 @@ export default function Home() {
         return;
       }
       pendingAgentSubchatSwitchRef.current = null;
+      if (!selectedAgentChatId) {
+        mainChatScrollTopBeforeAgentRef.current =
+          chatScrollRef.current?.scrollTop ?? null;
+      }
       setSelectedAgentChatId(agentCallId);
     },
   );
@@ -3523,9 +3677,6 @@ export default function Home() {
                   toolDisplayKey={toolDisplayKey}
                   skillDisplayKey={skillDisplayKey}
                   agentDisplayKey={agentDisplayKey}
-                  toolMentionOptions={toolMentionOptions}
-                  skillMentionOptions={skillMentionOptions}
-                  agentMentionOptions={agentMentionOptions}
                   registerMessageElement={stableRegisterMessageElement}
                   renderToolExecutionBlock={stableRenderToolExecutionBlock}
                   canSubmitAskUserResponse={stableCanSubmitAskUserResponse}
@@ -3540,9 +3691,6 @@ export default function Home() {
                   onContinueAssistantMessage={stableContinueAssistantMessage}
                   onStartEditingUserMessage={stableStartEditingUserMessage}
                   onDeleteMessage={stableDeleteMessage}
-                  onCancelEditingUserMessage={stableCancelEditingUserMessage}
-                  onSaveEditedUserMessage={stableSaveEditedUserMessage}
-                  onSubmitEditedUserMessage={stableSubmitEditedUserMessage}
                   onSelectAssistantVariant={stableSelectAssistantVariant}
                   onToggleToolExecutionCollapsed={
                     stableToggleToolExecutionCollapsed
@@ -3629,6 +3777,16 @@ export default function Home() {
             onAttachmentsChange={updateActiveComposerAttachments}
             onSend={handleComposerSend}
             onStop={stopGeneration}
+            editPreview={
+              composerEditState?.chatId === activeChat?.id
+                ? composerEditState.preview
+                : undefined
+            }
+            onCancelEdit={
+              composerEditState?.chatId === activeChat?.id
+                ? cancelComposerEdit
+                : undefined
+            }
             supportsVision={modelSupportsVision(
               activeChatProvider,
               activeChatModel,

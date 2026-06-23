@@ -2,9 +2,11 @@ import {
   AlertTriangle,
   BookOpen,
   Bot,
-  Paperclip,
+  Pencil,
+  Plus,
   Send,
   Square,
+  X,
 } from "lucide-react";
 import type { ClipboardEvent, DragEvent, FormEvent, ReactNode } from "react";
 import {
@@ -168,6 +170,7 @@ function getTextareaCaretMenuPosition(
 export type ChatComposerHandle = {
   clear: () => void;
   focus: () => void;
+  setDraft: (draft: string) => void;
 };
 
 function findActiveMention(
@@ -219,6 +222,8 @@ export const ChatComposer = memo(
       toolMentionOptions?: ToolMentionOption[];
       skillMentionOptions?: ToolMentionOption[];
       agentMentionOptions?: ToolMentionOption[];
+      editPreview?: string;
+      onCancelEdit?: () => void;
     }
   >(function ChatComposer(
     {
@@ -238,6 +243,8 @@ export const ChatComposer = memo(
       toolMentionOptions = [],
       skillMentionOptions = [],
       agentMentionOptions = [],
+      editPreview,
+      onCancelEdit,
     },
     ref,
   ) {
@@ -369,6 +376,12 @@ export const ChatComposer = memo(
           setSelectedMentionSuggestionIndex(0);
         },
         focus: focusTextarea,
+        setDraft: (nextDraft) => {
+          setLocalDraft(nextDraft);
+          setActiveMention(null);
+          setMentionMenuPosition(null);
+          setSelectedMentionSuggestionIndex(0);
+        },
       }),
       [focusTextarea, onAttachmentsChange, onDraftChange],
     );
@@ -620,6 +633,28 @@ export const ChatComposer = memo(
               onRemove={handleRemoveAttachment}
               className="pt-3"
             />
+            {editPreview ? (
+              <div className="flex min-w-0 items-start gap-2 rounded-md px-1 pt-3 text-sm leading-5">
+                <Pencil className="mt-0.5 size-4 shrink-0 text-primary" />
+                <div className="min-w-0 flex-1">
+                  <div className="font-medium text-primary">Edit message</div>
+                  <div className="truncate text-foreground">{editPreview}</div>
+                </div>
+                {onCancelEdit ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    className="shrink-0"
+                    onClick={onCancelEdit}
+                    title="Cancel edit"
+                    aria-label="Cancel edit"
+                  >
+                    <X className="size-4" />
+                  </Button>
+                ) : null}
+              </div>
+            ) : null}
             {hasImageAttachments && !supportsVision && (
               <div className="flex items-center gap-2 text-xs text-amber-600 dark:text-amber-400">
                 <AlertTriangle className="size-3.5" />
@@ -766,6 +801,12 @@ export const ChatComposer = memo(
                     }
                   }
 
+                  if (event.key === "Escape" && onCancelEdit) {
+                    event.preventDefault();
+                    onCancelEdit();
+                    return;
+                  }
+
                   if (event.key !== "Enter") return;
 
                   if (event.shiftKey) return;
@@ -778,18 +819,23 @@ export const ChatComposer = memo(
               />
             </div>
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="min-w-0 flex-1">{footerStart}</div>
-              {contextUsage ? <ContextUsageIndicator usage={contextUsage} /> : null}
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={handlePickAttachments}
-                disabled={disabled || isSending || isProcessingAttachments}
-                className="shrink-0"
-                title="Attach files"
-              >
-                <Paperclip className="size-4" />
-              </Button>
+              <div className="flex min-w-0 flex-1 items-center gap-1">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={handlePickAttachments}
+                  disabled={disabled || isSending || isProcessingAttachments}
+                  className="shrink-0"
+                  title="Attach files"
+                  aria-label="Attach files"
+                >
+                  <Plus className="size-4" />
+                </Button>
+                <div className="min-w-0 flex-1">{footerStart}</div>
+              </div>
+              {contextUsage ? (
+                <ContextUsageIndicator usage={contextUsage} />
+              ) : null}
               {isSending ? (
                 <Button
                   type="button"

@@ -32,7 +32,6 @@ import { createPortal } from "react-dom";
 
 import { AgentCallBlock } from "@/components/ai-chat/agent-call-block";
 import { AttachmentChips } from "@/components/ai-chat/attachment-chips";
-import { type ToolMentionOption } from "@/components/ai-chat/chat-composer";
 import { SmoothAssistantMessageContent } from "@/components/ai-chat/smooth-assistant-message";
 import { ThinkingBlock } from "@/components/ai-chat/thinking-block";
 import {
@@ -41,7 +40,6 @@ import {
   ToolApprovalBlock,
 } from "@/components/ai-chat/tool-interaction-blocks";
 import { TooltipIconButton } from "@/components/ai-chat/tooltip-icon-button";
-import { UserMessageEditor } from "@/components/ai-chat/user-message-editor";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -65,7 +63,6 @@ import type {
   AskUserResponse,
   ChatAssistantProcessStep,
   ChatAssistantVariant,
-  ChatAttachment,
   ChatMessage,
   ChatToolCall,
   ChatToolResult,
@@ -182,9 +179,6 @@ type ChatMessageListProps = {
   toolDisplayKey: string;
   skillDisplayKey: string;
   agentDisplayKey: string;
-  toolMentionOptions: ToolMentionOption[];
-  skillMentionOptions: ToolMentionOption[];
-  agentMentionOptions: ToolMentionOption[];
   registerMessageElement: (
     messageId: string,
   ) => (element: HTMLDivElement | null) => void;
@@ -205,17 +199,6 @@ type ChatMessageListProps = {
   onContinueAssistantMessage: (messageId: string) => void | Promise<void>;
   onStartEditingUserMessage: (messageId: string) => void;
   onDeleteMessage: (messageId: string) => void;
-  onCancelEditingUserMessage: () => void;
-  onSaveEditedUserMessage: (
-    messageId: string,
-    nextContent: string,
-    attachments?: ChatAttachment[],
-  ) => void | Promise<void>;
-  onSubmitEditedUserMessage: (
-    messageId: string,
-    nextContent: string,
-    attachments?: ChatAttachment[],
-  ) => void | Promise<void>;
   onSelectAssistantVariant: (messageId: string, variantIndex: number) => void;
   onToggleToolExecutionCollapsed: (
     stepId: string,
@@ -748,9 +731,6 @@ const ChatMessageItem = memo(
     collapsedThinkingStepIds,
     thinkingAutoCollapse,
     renderMarkdownWhileStreaming = true,
-    toolMentionOptions,
-    skillMentionOptions,
-    agentMentionOptions,
     registerMessageElement,
     renderToolExecutionBlock,
     canSubmitAskUserResponse,
@@ -763,9 +743,6 @@ const ChatMessageItem = memo(
     onContinueAssistantMessage,
     onStartEditingUserMessage,
     onDeleteMessage,
-    onCancelEditingUserMessage,
-    onSaveEditedUserMessage,
-    onSubmitEditedUserMessage,
     onSelectAssistantVariant,
     onToggleToolExecutionCollapsed,
     onToggleThinkingCollapsed,
@@ -1223,84 +1200,66 @@ const ChatMessageItem = memo(
             </div>
           )}
 
-        {message.role === "user" && editingMessageId === message.id ? (
-          <UserMessageEditor
-            initialContent={message.content}
-            initialAttachments={message.attachments ?? []}
-            disabled={isSending}
-            toolMentionOptions={toolMentionOptions}
-            skillMentionOptions={skillMentionOptions}
-            agentMentionOptions={agentMentionOptions}
-            onCancel={onCancelEditingUserMessage}
-            onSave={(nextContent, attachments) =>
-              onSaveEditedUserMessage(message.id, nextContent, attachments)
-            }
-            onSubmit={(nextContent, attachments) =>
-              onSubmitEditedUserMessage(message.id, nextContent, attachments)
-            }
-          />
-        ) : (
-          (message.role === "user" ||
-            (!hasInlineAssistantMessageSteps &&
-              (content || status !== "streaming"))) && (
-            <>
-              <article
+        {(message.role === "user" ||
+          (!hasInlineAssistantMessageSteps &&
+            (content || status !== "streaming"))) && (
+          <>
+            <article
+              className={cn(
+                "flex min-w-0 max-w-full",
+                message.role === "user" ? "justify-end" : "justify-start",
+              )}
+              onContextMenu={(event) =>
+                onCaptureMessageContext(event, message.id)
+              }
+            >
+              <div
+                data-message-content
                 className={cn(
-                  "flex min-w-0 max-w-full",
-                  message.role === "user" ? "justify-end" : "justify-start",
+                  "min-w-0 text-base leading-6 [overflow-wrap:anywhere] w-full ",
+                  message.role === "user"
+                    ? "max-h-[32rem] overflow-y-auto overflow-x-hidden chat-message-scrollbar rounded-lg bg-primary px-4 py-3 text-primary-foreground shadow-xs"
+                    : "min-w-0 max-w-full overflow-visible px-0 py-1 text-card-foreground shadow-xs",
+                  status === "error" && "border-destructive/50",
                 )}
-                onContextMenu={(event) =>
-                  onCaptureMessageContext(event, message.id)
-                }
+                data-message-view-mode={isSourceView ? "source" : "rendered"}
               >
-                <div
-                  data-message-content
-                  className={cn(
-                    "min-w-0 text-base leading-6 [overflow-wrap:anywhere] w-full ",
-                    message.role === "user"
-                      ? "max-h-[32rem] overflow-y-auto overflow-x-hidden chat-message-scrollbar rounded-lg bg-primary px-4 py-3 text-primary-foreground shadow-xs"
-                      : "min-w-0 max-w-full overflow-visible px-0 py-1 text-card-foreground shadow-xs",
-                    status === "error" && "border-destructive/50",
-                  )}
-                  data-message-view-mode={isSourceView ? "source" : "rendered"}
-                >
-                  {message.role === "user" && message.attachments?.length ? (
-                    <AttachmentChips
-                      attachments={message.attachments}
-                      readOnly
-                      tone="onPrimary"
-                      className={cn(content && "mb-3")}
-                    />
-                  ) : null}
-                  {isSourceView ? (
-                    <SourceMarkdownContent content={content} />
-                  ) : message.role === "assistant" ? (
-                    <SmoothAssistantMessageContent
-                      content={content}
-                      messageId={`${message.id}:content`}
-                      isApiStreaming={status === "streaming"}
-                      skipSyntaxHighlight={status === "streaming"}
-                      renderMarkdownWhileStreaming={
-                        renderMarkdownWhileStreaming
-                      }
-                      flushVersion={visualFlushRequests[message.id] ?? 0}
-                      onVisualProgress={() =>
-                        onAssistantVisualProgress(activeChatId)
-                      }
-                      onVisualStreamingChange={(isStreaming) =>
-                        onAssistantVisualStreamingChange(
-                          `${message.id}:content`,
-                          isStreaming,
-                        )
-                      }
-                    />
-                  ) : (
-                    <UserMessageContent content={message.content} />
-                  )}
-                </div>
-              </article>
-            </>
-          )
+                {message.role === "user" && message.attachments?.length ? (
+                  <AttachmentChips
+                    attachments={message.attachments}
+                    readOnly
+                    tone="onPrimary"
+                    className={cn(content && "mb-3")}
+                  />
+                ) : null}
+                {isSourceView ? (
+                  <SourceMarkdownContent content={content} />
+                ) : message.role === "assistant" ? (
+                  <SmoothAssistantMessageContent
+                    content={content}
+                    messageId={`${message.id}:content`}
+                    isApiStreaming={status === "streaming"}
+                    skipSyntaxHighlight={status === "streaming"}
+                    renderMarkdownWhileStreaming={
+                      renderMarkdownWhileStreaming
+                    }
+                    flushVersion={visualFlushRequests[message.id] ?? 0}
+                    onVisualProgress={() =>
+                      onAssistantVisualProgress(activeChatId)
+                    }
+                    onVisualStreamingChange={(isStreaming) =>
+                      onAssistantVisualStreamingChange(
+                        `${message.id}:content`,
+                        isStreaming,
+                      )
+                    }
+                  />
+                ) : (
+                  <UserMessageContent content={message.content} />
+                )}
+              </div>
+            </article>
+          </>
         )}
 
         {messageContextMenu?.messageId === message.id &&

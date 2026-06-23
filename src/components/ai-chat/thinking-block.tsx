@@ -230,7 +230,10 @@ function ThinkingBlockComponent({
                 Thinking
               </span>
               {effectiveStatus !== "complete" ? (
-                <Spinner className="size-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
+                <>
+                  <span className="shrink-0 text-muted-foreground/60">·</span>
+                  <Spinner className="size-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
+                </>
               ) : null}
               {shouldShowPreviewLine ? (
                 <>

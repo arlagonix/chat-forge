@@ -552,6 +552,12 @@ export function useChatAutoscroll({
     const activeChatIsGenerating = isActiveChatGenerating(chatId);
 
     if (!snapshot) {
+      if (activeChatIsGenerating) {
+        setChatAutoScrollEnabled(true);
+        scheduleStickyScrollToBottom({ force: true, settleFrames: 6 });
+        return;
+      }
+
       setChatAutoScrollEnabled(false);
       restoreScrollTopForChat({ chatId, scrollTop: 0, settleFrames: 1 });
       return;

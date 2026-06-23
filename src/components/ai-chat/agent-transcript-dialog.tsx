@@ -1,4 +1,5 @@
-import { ArrowLeft, Bot, Maximize2, X } from "lucide-react";
+import { Spinner as RadixSpinner } from "@radix-ui/themes";
+import { ArrowLeft, Bot, Maximize2, Wrench, X } from "lucide-react";
 import {
   Fragment,
   memo,
@@ -12,8 +13,10 @@ import {
 import type { RenderAgentToolExecutionBlock } from "@/components/ai-chat/agent-call-utils";
 import { AgentStatusInline } from "@/components/ai-chat/agent-status-inline";
 import { MarkdownMessage } from "@/components/ai-chat/markdown-message";
+import { SmoothAssistantMessageContent } from "@/components/ai-chat/smooth-assistant-message";
 import { ThinkingBlock } from "@/components/ai-chat/thinking-block";
 import { AskUserBlock } from "@/components/ai-chat/tool-interaction-blocks";
+import { useAgentRunRowText } from "@/components/ai-chat/use-agent-run-row-text";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -21,7 +24,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { getAgentRunStatusLabel } from "@/lib/ai-chat/agent-status-label";
+import { Spinner } from "@/components/ui/spinner";
+import { getAgentRunRenderSignature } from "@/lib/ai-chat/agent-status-label";
 import {
   ASK_USER_TOOL_NAME,
   parseAskUserRequestFromToolCall,
@@ -33,6 +37,7 @@ import {
   type VisibleAssistantProcessStep,
   type VisibleAssistantProcessStepGroup,
 } from "@/lib/ai-chat/process-step-groups";
+import { getToolBuildingVisibleMetadata } from "@/lib/ai-chat/tool-building";
 import type {
   AgentCallStatus,
   AskUserResponse,
@@ -43,6 +48,8 @@ import type {
   UserInputStatus,
 } from "@/lib/ai-chat/types";
 import { cn } from "@/lib/utils";
+
+const AGENT_TRANSCRIPT_LIVE_UPDATE_MS = 500;
 
 function HighlightedMentionContent({
   content,
@@ -178,9 +185,13 @@ function hasPendingAskUser(
 function MiniChatMessage({
   role,
   content,
+  messageId,
+  isStreaming = false,
 }: {
   role: "user" | "assistant";
   content: string;
+  messageId?: string;
+  isStreaming?: boolean;
 }) {
   if (!content.trim()) return null;
 
@@ -203,8 +214,17 @@ function MiniChatMessage({
       >
         {isUser ? (
           <HighlightedMentionContent content={content} isUser={isUser} />
+        ) : isStreaming ? (
+          <SmoothAssistantMessageContent
+            content={content}
+            messageId={messageId}
+            isApiStreaming
+            skipSyntaxHighlight
+            renderMarkdownWhileStreaming={false}
+            flushVersion={0}
+          />
         ) : (
-          <MarkdownMessage content={content} />
+          <MarkdownMessage content={content} messageId={messageId} />
         )}
       </div>
     </article>
@@ -230,20 +250,166 @@ function FallbackToolCallBlock({
   );
 }
 
-function AgentModalHeader({ agentCall }: { agentCall: ChatAgentCall }) {
-  const statusLabel = getAgentRunStatusLabel(agentCall);
-
+function AgentHeaderTitle({ agentCall }: { agentCall: ChatAgentCall }) {
   return (
-    <DialogHeader className="border-b px-5 py-4">
-      <DialogTitle className="flex min-w-0 items-center gap-2 overflow-hidden text-sm font-medium uppercase tracking-wide text-muted-foreground">
-        <Bot className="size-4 shrink-0" />
+    <div className="min-w-0 flex-1">
+      <div className="flex min-w-0 items-center gap-2 overflow-hidden text-sm font-medium text-muted-foreground">
         <span className="min-w-0 shrink-0 truncate text-muted-foreground/85">
           {agentCall.agentName}
         </span>
-        <span className="text-muted-foreground/60">·</span>
-        <span className="min-w-fit font-normal normal-case tracking-normal text-muted-foreground/85">
-          {statusLabel}
-        </span>
+      </div>
+    </div>
+  );
+}
+
+function formatAgentDuration(startedAt: string, completedAt?: string) {
+  const startedTime = new Date(startedAt).getTime();
+  const completedTime = completedAt ? new Date(completedAt).getTime() : NaN;
+  if (!Number.isFinite(startedTime) || !Number.isFinite(completedTime)) {
+    return "";
+  }
+
+  let seconds = Math.max(1, Math.round((completedTime - startedTime) / 1000));
+  const hours = Math.floor(seconds / 3600);
+  seconds -= hours * 3600;
+  const minutes = Math.floor(seconds / 60);
+  seconds -= minutes * 60;
+
+  const parts: string[] = [];
+  if (hours) parts.push(`${hours}h`);
+  if (minutes) parts.push(`${minutes}m`);
+  if (seconds || parts.length === 0) parts.push(`${seconds}s`);
+  return parts.join(" ");
+}
+
+function isLiveAgentCall(agentCall: ChatAgentCall | undefined) {
+  return agentCall?.status === "running" || agentCall?.status === "pending";
+}
+
+function useThrottledLiveAgentCall(agentCall: ChatAgentCall): ChatAgentCall;
+function useThrottledLiveAgentCall(agentCall: undefined): undefined;
+function useThrottledLiveAgentCall(
+  agentCall: ChatAgentCall | undefined,
+): ChatAgentCall | undefined;
+function useThrottledLiveAgentCall(agentCall: ChatAgentCall | undefined) {
+  const latestAgentCallRef = useRef(agentCall);
+  const [displayedAgentCall, setDisplayedAgentCall] = useState(agentCall);
+  const isLive = isLiveAgentCall(agentCall);
+
+  latestAgentCallRef.current = agentCall;
+
+  useEffect(() => {
+    setDisplayedAgentCall(agentCall);
+
+    if (!isLive) {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      setDisplayedAgentCall(latestAgentCallRef.current);
+    }, AGENT_TRANSCRIPT_LIVE_UPDATE_MS);
+
+    return () => window.clearInterval(intervalId);
+  }, [agentCall?.id, agentCall?.status, isLive]);
+
+  return displayedAgentCall;
+}
+
+const AgentResultFooter = memo(function AgentResultFooter({
+  agentCall,
+}: {
+  agentCall: ChatAgentCall;
+}) {
+  const { statusLabel } = useAgentRunRowText(agentCall);
+  const isRunning =
+    agentCall.status === "running" || agentCall.status === "pending";
+  const generatedModelName = agentCall.model?.trim() ?? "";
+  const duration = formatAgentDuration(
+    agentCall.startedAt,
+    agentCall.completedAt,
+  );
+  const details = [generatedModelName, agentCall.agentName, duration].filter(
+    Boolean,
+  );
+
+  return (
+    <div className="grid gap-2 text-sm leading-5 text-muted-foreground mt-2">
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+        <div className="min-h-6 min-w-0 flex-1 text-left">
+          {isRunning ? (
+            <span
+              className="inline-flex select-none items-center gap-1.5 text-muted-foreground"
+              aria-live="polite"
+            >
+              <RadixSpinner
+                aria-hidden="true"
+                className="generating-radix-spinner"
+                size="1"
+              />
+              <span className="generating-gradient-text font-medium">
+                {statusLabel}
+              </span>
+            </span>
+          ) : details.length > 0 ? (
+            <span
+              className="block truncate text-muted-foreground"
+              title={details.join(" · ")}
+            >
+              {details.join(" · ")}
+            </span>
+          ) : (
+            <span aria-hidden="true" />
+          )}
+        </div>
+      </div>
+    </div>
+  );
+});
+
+function ToolBuildingBlock({
+  step,
+}: {
+  step: Extract<VisibleAssistantProcessStep, { type: "tool_building" }>;
+}) {
+  const toolNames = step.toolCalls
+    ? getToolBuildingVisibleMetadata(step.toolCalls).toolNames
+    : (step.toolNames ?? []);
+  const toolName = toolNames.join(", ");
+
+  return (
+    <article className="flex w-full min-w-0 max-w-full justify-start">
+      <div className="w-full min-w-0 max-w-full overflow-hidden text-base leading-5 text-muted-foreground [overflow-wrap:anywhere]">
+        <div className="flex min-w-0 items-center gap-2 text-sm font-medium text-muted-foreground">
+          <div className="flex min-w-0 items-center gap-2">
+            <Wrench className="size-3.5 shrink-0" />
+            <span className="shrink-0 truncate text-muted-foreground/85">
+              Tool building
+            </span>
+            <span className="shrink-0 text-muted-foreground/60">·</span>
+            <span className="inline-flex shrink-0 items-center gap-1 text-amber-600 dark:text-amber-400">
+              <Spinner className="size-3.5" />
+            </span>
+            {toolName ? (
+              <>
+                <span className="shrink-0 text-muted-foreground/60">·</span>
+                <span className="min-w-0 truncate font-normal normal-case tracking-normal text-muted-foreground/85">
+                  {toolName}
+                </span>
+              </>
+            ) : null}
+          </div>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function AgentModalHeader({ agentCall }: { agentCall: ChatAgentCall }) {
+  return (
+    <DialogHeader className="border-b px-5 py-4">
+      <DialogTitle className="flex min-w-0 items-start gap-2 overflow-hidden">
+        <Bot className="size-4 shrink-0" />
+        <AgentHeaderTitle agentCall={agentCall} />
       </DialogTitle>
       {agentCall.description?.trim() ? (
         <div className="line-clamp-2 text-sm text-muted-foreground">
@@ -273,7 +439,9 @@ type AgentTranscriptBodyProps = {
   onOpenChildAgent: (agentCallId: string) => void;
 } & AgentInteractionProps;
 
-function AgentTranscriptBody(props: AgentTranscriptBodyProps) {
+const AgentTranscriptBody = memo(function AgentTranscriptBody(
+  props: AgentTranscriptBodyProps,
+) {
   const hasOrderedSteps = (props.agentCall.processSteps?.length ?? 0) > 0;
 
   return (
@@ -286,7 +454,7 @@ function AgentTranscriptBody(props: AgentTranscriptBodyProps) {
       )}
     </div>
   );
-}
+});
 
 function AgentTranscriptFlatBody({
   agentCall,
@@ -442,7 +610,12 @@ function AgentTranscriptFlatBody({
         />
       ))}
 
-      <MiniChatMessage role="assistant" content={agentCall.output} />
+      <MiniChatMessage
+        role="assistant"
+        content={agentCall.output}
+        messageId={`${agentCall.id}:output`}
+        isStreaming={isLiveAgentCall(agentCall)}
+      />
 
       {!agentCall.output.trim() &&
       !agentCall.reasoning?.trim() &&
@@ -476,15 +649,27 @@ function AgentTranscriptStepsBody({
   >({});
 
   const processSteps = agentCall.processSteps ?? [];
-  const visibleSteps = getVisibleAssistantProcessSteps(processSteps);
-  const groups = groupVisibleAssistantProcessSteps(visibleSteps);
-  const lastStepId =
-    visibleSteps[visibleSteps.length - 1]?.sourceStepIds.at(-1);
+  const visibleSteps = useMemo(
+    () => getVisibleAssistantProcessSteps(processSteps),
+    [processSteps],
+  );
+  const groups = useMemo(
+    () => groupVisibleAssistantProcessSteps(visibleSteps),
+    [visibleSteps],
+  );
+  const lastStepId = useMemo(
+    () => visibleSteps[visibleSteps.length - 1]?.sourceStepIds.at(-1),
+    [visibleSteps],
+  );
   const agentRunning =
     agentCall.status === "running" || agentCall.status === "pending";
 
-  const childById = new Map(
-    (agentCall.childAgentCalls ?? []).map((child) => [child.id, child]),
+  const childById = useMemo(
+    () =>
+      new Map(
+        (agentCall.childAgentCalls ?? []).map((child) => [child.id, child]),
+      ),
+    [agentCall.childAgentCalls],
   );
 
   const renderStep = (step: VisibleAssistantProcessStep): ReactNode => {
@@ -518,13 +703,21 @@ function AgentTranscriptStepsBody({
 
     if (step.type === "assistant_message") {
       if (!step.content.trim()) return null;
+      const isStreaming =
+        agentRunning && step.sourceStepIds.includes(lastStepId ?? "");
       return (
         <MiniChatMessage
           key={step.id}
           role="assistant"
           content={step.content}
+          messageId={`${agentCall.id}:${step.id}`}
+          isStreaming={isStreaming}
         />
       );
+    }
+
+    if (step.type === "tool_building") {
+      return <ToolBuildingBlock key={step.id} step={step} />;
     }
 
     if (step.type === "agent_call") {
@@ -780,7 +973,7 @@ function AgentTranscriptStepsBody({
   );
 }
 
-function ChildAgentBlock({
+const ChildAgentBlock = memo(function ChildAgentBlock({
   child,
   canSubmitAskUserResponse,
   onOpenChildAgent,
@@ -789,7 +982,11 @@ function ChildAgentBlock({
   onOpenChildAgent: (agentCallId: string) => void;
   canSubmitAskUserResponse: (toolCallId: string) => boolean;
 }) {
-  const statusLabel = getAgentRunStatusLabel(child);
+  const { statusLabel, previewLine } = useAgentRunRowText(child);
+  const visibleStatusLabel =
+    child.status === "running" || child.status === "pending"
+      ? statusLabel
+      : undefined;
   const shouldOpenForAskUser = hasPendingAskUser(
     child,
     canSubmitAskUserResponse,
@@ -825,25 +1022,20 @@ function ChildAgentBlock({
               <span className="shrink-0 truncate text-muted-foreground/85">
                 {child.agentName}
               </span>
-              {statusLabel !== "Complete" ? (
+              {statusLabel !== "Complete" || child.status === "complete" ? (
                 <>
-                  <span className="text-muted-foreground/60">·</span>
-                  <span className="min-w-fit font-normal normal-case tracking-normal text-muted-foreground/85">
-                    {statusLabel}
-                  </span>
+                  <span className="shrink-0 text-muted-foreground/60">·</span>
+                  <AgentStatusInline
+                    status={child.status}
+                    label={visibleStatusLabel}
+                  />
                 </>
               ) : null}
-              {child.status === "complete" ? (
+              {previewLine ? (
                 <>
-                  <span className="text-muted-foreground/60">·</span>
-                  <AgentStatusInline status={child.status} />
-                </>
-              ) : null}
-              {child.task.trim() ? (
-                <>
-                  <span className="text-muted-foreground/60">·</span>
-                  <span className="truncate font-normal normal-case tracking-normal text-muted-foreground/85">
-                    {child.task.trim()}
+                  <span className="shrink-0 text-muted-foreground/60">·</span>
+                  <span className="min-w-0 flex-1 truncate font-normal normal-case tracking-normal text-muted-foreground/85">
+                    {previewLine}
                   </span>
                 </>
               ) : null}
@@ -852,6 +1044,27 @@ function ChildAgentBlock({
         </div>
       </div>
     </article>
+  );
+}, areChildAgentBlockPropsEqual);
+
+function areChildAgentBlockPropsEqual(
+  previous: {
+    child: ChatAgentCall;
+    onOpenChildAgent: (agentCallId: string) => void;
+    canSubmitAskUserResponse: (toolCallId: string) => boolean;
+  },
+  next: {
+    child: ChatAgentCall;
+    onOpenChildAgent: (agentCallId: string) => void;
+    canSubmitAskUserResponse: (toolCallId: string) => boolean;
+  },
+) {
+  return (
+    previous.child.id === next.child.id &&
+    previous.onOpenChildAgent === next.onOpenChildAgent &&
+    previous.canSubmitAskUserResponse === next.canSubmitAskUserResponse &&
+    getAgentRunRenderSignature(previous.child) ===
+      getAgentRunRenderSignature(next.child)
   );
 }
 
@@ -873,12 +1086,13 @@ export const AgentTranscriptDialog = memo(function AgentTranscriptDialog({
   modalDepth?: number;
 } & AgentInteractionProps) {
   const [expandedChildAgentId, setExpandedChildAgentId] = useState<string>();
+  const displayedAgentCall = useThrottledLiveAgentCall(agentCall);
   const expandedChildAgent = useMemo(
     () =>
-      (agentCall.childAgentCalls ?? []).find(
+      (displayedAgentCall.childAgentCalls ?? []).find(
         (child) => child.id === expandedChildAgentId,
       ),
-    [agentCall.childAgentCalls, expandedChildAgentId],
+    [displayedAgentCall.childAgentCalls, expandedChildAgentId],
   );
   const modalZIndex = 50 + modalDepth * 20;
 
@@ -894,11 +1108,11 @@ export const AgentTranscriptDialog = memo(function AgentTranscriptDialog({
           overlayStyle={{ zIndex: modalZIndex }}
           style={{ zIndex: modalZIndex + 1 }}
         >
-          <AgentModalHeader agentCall={agentCall} />
+          <AgentModalHeader agentCall={displayedAgentCall} />
 
           <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4 text-base leading-6 chat-message-scrollbar">
             <AgentTranscriptBody
-              agentCall={agentCall}
+              agentCall={displayedAgentCall}
               renderToolExecutionBlock={renderToolExecutionBlock}
               canSubmitAskUserResponse={canSubmitAskUserResponse}
               onSubmitAskUserResponse={onSubmitAskUserResponse}
@@ -906,6 +1120,7 @@ export const AgentTranscriptDialog = memo(function AgentTranscriptDialog({
               onAskUserLayoutChange={onAskUserLayoutChange}
               onOpenChildAgent={setExpandedChildAgentId}
             />
+            <AgentResultFooter agentCall={displayedAgentCall} />
           </div>
         </DialogContent>
       </Dialog>
@@ -950,9 +1165,10 @@ export const AgentTranscriptSidebar = memo(function AgentTranscriptSidebar({
   onClose: () => void;
   width?: number;
 } & AgentInteractionProps) {
-  if (!agentCall) return null;
+  const displayedAgentCall = useThrottledLiveAgentCall(agentCall);
 
-  const statusLabel = getAgentRunStatusLabel(agentCall);
+  if (!agentCall) return null;
+  if (!displayedAgentCall) return null;
 
   return (
     <aside
@@ -974,24 +1190,14 @@ export const AgentTranscriptSidebar = memo(function AgentTranscriptSidebar({
           </Button>
         ) : null}
         <Bot className="size-4 shrink-0 text-muted-foreground" />
-        <div className="min-w-0 flex-1">
-          <div className="flex min-w-0 items-center gap-2 text-sm font-medium text-muted-foreground">
-            <span className="shrink-0 truncate text-muted-foreground/90">
-              {agentCall.agentName}
-            </span>
-            <span className="text-muted-foreground/60">·</span>
-            <span className="min-w-fit font-normal normal-case tracking-normal text-muted-foreground/85">
-              {statusLabel}
-            </span>
-          </div>
-        </div>
+        <AgentHeaderTitle agentCall={displayedAgentCall} />
         {onOpenAsChat ? (
           <Button
             type="button"
             variant="ghost"
             size="icon-sm"
             className="shrink-0"
-            onClick={() => onOpenAsChat(agentCall.id)}
+            onClick={() => onOpenAsChat(displayedAgentCall.id)}
             title="Open as subchat"
             aria-label="Open as subchat"
           >
@@ -1013,7 +1219,7 @@ export const AgentTranscriptSidebar = memo(function AgentTranscriptSidebar({
 
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 chat-message-scrollbar">
         <AgentTranscriptBody
-          agentCall={agentCall}
+          agentCall={displayedAgentCall}
           renderToolExecutionBlock={renderToolExecutionBlock}
           returnToolDetailsToAgentSidebar
           canSubmitAskUserResponse={canSubmitAskUserResponse}
@@ -1022,6 +1228,7 @@ export const AgentTranscriptSidebar = memo(function AgentTranscriptSidebar({
           onAskUserLayoutChange={onAskUserLayoutChange}
           onOpenChildAgent={onOpenAgentCall}
         />
+        <AgentResultFooter agentCall={displayedAgentCall} />
       </div>
     </aside>
   );
@@ -1040,10 +1247,12 @@ export const AgentTranscriptChatView = memo(function AgentTranscriptChatView({
   renderToolExecutionBlock?: RenderAgentToolExecutionBlock;
   onOpenAgentCall: (agentCallId: string) => void;
 } & AgentInteractionProps) {
+  const displayedAgentCall = useThrottledLiveAgentCall(agentCall);
+
   return (
-    <div className="mx-auto flex w-full max-w-4xl min-w-0 flex-col gap-5 px-0 py-0">
+    <div className="mx-auto flex w-full max-w-4xl min-w-0 flex-col gap-5 px-0 pt-3 pb-0 md:pt-6">
       <AgentTranscriptBody
-        agentCall={agentCall}
+        agentCall={displayedAgentCall}
         renderToolExecutionBlock={renderToolExecutionBlock}
         canSubmitAskUserResponse={canSubmitAskUserResponse}
         onSubmitAskUserResponse={onSubmitAskUserResponse}
@@ -1051,6 +1260,7 @@ export const AgentTranscriptChatView = memo(function AgentTranscriptChatView({
         onAskUserLayoutChange={onAskUserLayoutChange}
         onOpenChildAgent={onOpenAgentCall}
       />
+      <AgentResultFooter agentCall={displayedAgentCall} />
       <div aria-hidden="true" className="h-[10vh] min-h-10 shrink-0" />
     </div>
   );

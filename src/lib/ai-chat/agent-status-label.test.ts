@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { getAgentRunStatusLabel } from "@/lib/ai-chat/agent-status-label";
+import {
+  getAgentRunPreviewLine,
+  getAgentRunStatusLabel,
+} from "@/lib/ai-chat/agent-status-label";
 import type { ChatAgentCall } from "@/lib/ai-chat/types";
 
 function createAgentCall(
@@ -77,5 +80,50 @@ describe("getAgentRunStatusLabel", () => {
         }),
       ),
     ).toBe("Waiting for tool");
+  });
+
+  it("uses the latest concrete line while an agent is running", () => {
+    expect(
+      getAgentRunPreviewLine(
+        createAgentCall({
+          processSteps: [
+            {
+              id: "thinking-1",
+              type: "thinking",
+              content: "First thought\nLatest thought",
+              status: "in_progress",
+            },
+          ],
+        }),
+      ),
+    ).toBe("Latest thought");
+  });
+
+  it("strips lightweight markdown from preview lines", () => {
+    expect(
+      getAgentRunPreviewLine(
+        createAgentCall({
+          processSteps: [
+            {
+              id: "message-1",
+              type: "assistant_message",
+              content: "**Input Validation** on the Main Form",
+            },
+          ],
+        }),
+      ),
+    ).toBe("Input Validation on the Main Form");
+  });
+
+  it("uses the first task line when an agent is complete", () => {
+    expect(
+      getAgentRunPreviewLine(
+        createAgentCall({
+          status: "complete",
+          task: "Inspect files\nThen summarize",
+          output: "Done",
+        }),
+      ),
+    ).toBe("Inspect files");
   });
 });

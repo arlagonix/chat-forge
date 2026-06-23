@@ -653,12 +653,7 @@ function getToolHeaderDetail(
   }
 
   if (toolCall.function.name === CALL_AGENT_TOOL_NAME) {
-    return [
-      getStringArgument(args, "agentName"),
-      getStringArgument(args, "task"),
-    ]
-      .filter(Boolean)
-      .join(" · ");
+    return getStringArgument(args, "agentName");
   }
 
   if (toolCall.function.name === TERMINAL_EXEC_TOOL_NAME) {
@@ -928,15 +923,7 @@ export const ToolExecutionDetailsSidebar = memo(
   },
 );
 
-export const ToolExecutionBlock = memo(function ToolExecutionBlock({
-  id,
-  toolCall,
-  toolResult,
-  status,
-  loadedTools,
-  returnToAgentCallId,
-  onOpenDetails,
-}: {
+type ToolExecutionBlockProps = {
   id: string;
   toolCall: ChatToolCall;
   toolResult?: ChatToolResult;
@@ -946,7 +933,57 @@ export const ToolExecutionBlock = memo(function ToolExecutionBlock({
   onToggleCollapsed: (stepId: string, nextCollapsed: boolean) => void;
   returnToAgentCallId?: string;
   onOpenDetails?: (details: ToolExecutionDetails) => void;
-}) {
+};
+
+function getGeneratedFilesRowSignature(toolResult?: ChatToolResult) {
+  return (toolResult?.generatedFiles ?? [])
+    .map(
+      (file) =>
+        `${file.id}:${file.name}:${file.sizeBytes}:${file.storagePath ?? ""}:${file.workspacePath ?? ""}`,
+    )
+    .join("|");
+}
+
+function getToolResultRowSignature(toolResult?: ChatToolResult) {
+  if (!toolResult) return "";
+  return [
+    toolResult.toolCallId,
+    toolResult.toolName,
+    toolResult.isError ? "1" : "0",
+    toolResult.content,
+    toolResult.loadedSkillName ?? "",
+    toolResult.terminal?.exitCode ?? "",
+    toolResult.terminal?.durationMs ?? "",
+    toolResult.changePreview?.path ?? "",
+    getGeneratedFilesRowSignature(toolResult),
+  ].join("\u0000");
+}
+
+function areToolExecutionBlockPropsEqual(
+  previous: ToolExecutionBlockProps,
+  next: ToolExecutionBlockProps,
+) {
+  return (
+    previous.id === next.id &&
+    previous.status === next.status &&
+    previous.returnToAgentCallId === next.returnToAgentCallId &&
+    Boolean(previous.onOpenDetails) === Boolean(next.onOpenDetails) &&
+    previous.toolCall.id === next.toolCall.id &&
+    previous.toolCall.function.name === next.toolCall.function.name &&
+    previous.toolCall.function.arguments === next.toolCall.function.arguments &&
+    getToolResultRowSignature(previous.toolResult) ===
+      getToolResultRowSignature(next.toolResult)
+  );
+}
+
+export const ToolExecutionBlock = memo(function ToolExecutionBlock({
+  id,
+  toolCall,
+  toolResult,
+  status,
+  returnToAgentCallId,
+  onOpenDetails,
+}: ToolExecutionBlockProps) {
   const effectiveStatus = getEffectiveToolStatus(status, toolResult);
   const isLoadSkillTool = toolCall.function.name === LOAD_SKILL_TOOL_NAME;
   const loadedSkillName = isLoadSkillTool
@@ -1057,4 +1094,4 @@ export const ToolExecutionBlock = memo(function ToolExecutionBlock({
       </article>
     </>
   );
-});
+}, areToolExecutionBlockPropsEqual);

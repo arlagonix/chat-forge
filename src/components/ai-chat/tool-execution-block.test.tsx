@@ -27,7 +27,11 @@ import {
   ToolExecutionDetailsSidebar,
   type ToolExecutionDetails,
 } from "@/components/ai-chat/tool-execution-block";
-import { BASH_TOOL_NAME, READ_TOOL_NAME } from "@/lib/ai-chat/builtin-tools";
+import {
+  BASH_TOOL_NAME,
+  CALL_AGENT_TOOL_NAME,
+  READ_TOOL_NAME,
+} from "@/lib/ai-chat/builtin-tools";
 import type {
   ChatToolCall,
   ChatToolResult,
@@ -222,6 +226,35 @@ describe("ToolExecutionBlock", () => {
 
     expect(screen.queryByText("Running")).not.toBeInTheDocument();
     expect(screen.queryByText("Waiting")).not.toBeInTheDocument();
+  });
+
+  it("shows only the agent name in call_agent compact headers", () => {
+    const callAgentToolCall: ChatToolCall = {
+      id: "tool-call-agent-1",
+      type: "function",
+      function: {
+        name: CALL_AGENT_TOOL_NAME,
+        arguments: JSON.stringify({
+          agentName: "general",
+          task: "Think of the funniest pun involving a cat.",
+        }),
+      },
+    };
+
+    render(
+      <ToolExecutionBlock
+        id="tool-call-agent-1"
+        toolCall={callAgentToolCall}
+        status="complete"
+        loadedTools={[]}
+        isCollapsed
+        onToggleCollapsed={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText(CALL_AGENT_TOOL_NAME)).toBeInTheDocument();
+    expect(screen.getByText("general")).toBeInTheDocument();
+    expect(screen.queryByText(/funniest pun/)).not.toBeInTheDocument();
   });
 
 });

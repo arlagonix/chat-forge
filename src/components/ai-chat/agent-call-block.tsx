@@ -3,7 +3,8 @@ import { memo, useCallback, useEffect, useMemo } from "react";
 
 import type { RenderAgentToolExecutionBlock } from "@/components/ai-chat/agent-call-utils";
 import { AgentStatusInline } from "@/components/ai-chat/agent-status-inline";
-import { getAgentRunStatusLabel } from "@/lib/ai-chat/agent-status-label";
+import { useAgentRunRowText } from "@/components/ai-chat/use-agent-run-row-text";
+import { getAgentRunRenderSignature } from "@/lib/ai-chat/agent-status-label";
 import { ASK_USER_TOOL_NAME } from "@/lib/ai-chat/builtin-tools";
 import type {
   AgentCallStatus,
@@ -48,9 +49,10 @@ const AgentCallSummaryButton = memo(function AgentCallSummaryButton({
   status: AgentCallStatus;
   onOpen: () => void;
 }) {
-  const statusLabel = getAgentRunStatusLabel(agentCall);
-  const task = agentCall.task.trim();
-  const shouldShowStatusText = statusLabel !== "Complete";
+  const { statusLabel, previewLine } = useAgentRunRowText(agentCall);
+  const shouldShowStatus = statusLabel !== "Complete" || status === "complete";
+  const visibleStatusLabel =
+    status === "running" || status === "pending" ? statusLabel : undefined;
 
   return (
     <div
@@ -77,25 +79,20 @@ const AgentCallSummaryButton = memo(function AgentCallSummaryButton({
             <span className="shrink-0 truncate text-muted-foreground/85">
               {agentName}
             </span>
-            {shouldShowStatusText ? (
+            {shouldShowStatus ? (
               <>
-                <span className="text-muted-foreground/60">·</span>
-                <span className="min-w-fit font-normal normal-case tracking-normal text-muted-foreground/85">
-                  {statusLabel}
-                </span>
+                <span className="shrink-0 text-muted-foreground/60">·</span>
+                <AgentStatusInline
+                  status={status}
+                  label={visibleStatusLabel}
+                />
               </>
             ) : null}
-            {status === "complete" ? (
+            {previewLine ? (
               <>
-                <span className="text-muted-foreground/60">·</span>
-                <AgentStatusInline status={status} />
-              </>
-            ) : null}
-            {task ? (
-              <>
-                <span className="text-muted-foreground/60">·</span>
-                <span className="min-w-0 truncate font-normal normal-case tracking-normal text-muted-foreground/85">
-                  {task}
+                <span className="shrink-0 text-muted-foreground/60">·</span>
+                <span className="min-w-0 flex-1 truncate font-normal normal-case tracking-normal text-muted-foreground/85">
+                  {previewLine}
                 </span>
               </>
             ) : null}
@@ -104,9 +101,33 @@ const AgentCallSummaryButton = memo(function AgentCallSummaryButton({
       </div>
     </div>
   );
-});
+}, areAgentCallSummaryPropsEqual);
 
-export const AgentCallBlock = memo(function AgentCallBlock({
+function areAgentCallSummaryPropsEqual(
+  previous: {
+    agentCall: ChatAgentCall;
+    agentName: string;
+    status: AgentCallStatus;
+    onOpen: () => void;
+  },
+  next: {
+    agentCall: ChatAgentCall;
+    agentName: string;
+    status: AgentCallStatus;
+    onOpen: () => void;
+  },
+) {
+  return (
+    previous.agentCall.id === next.agentCall.id &&
+    previous.agentName === next.agentName &&
+    previous.status === next.status &&
+    previous.onOpen === next.onOpen &&
+    getAgentRunRenderSignature(previous.agentCall) ===
+      getAgentRunRenderSignature(next.agentCall)
+  );
+}
+
+function AgentCallBlockComponent({
   agentCall,
   status,
   renderToolExecutionBlock,
@@ -154,4 +175,16 @@ export const AgentCallBlock = memo(function AgentCallBlock({
       />
     </article>
   );
-});
+}
+
+export const AgentCallBlock = memo(
+  AgentCallBlockComponent,
+  (previous, next) =>
+    previous.id === next.id &&
+    previous.status === next.status &&
+    previous.agentCall.id === next.agentCall.id &&
+    previous.canSubmitAskUserResponse === next.canSubmitAskUserResponse &&
+    previous.onOpenAgentCall === next.onOpenAgentCall &&
+    getAgentRunRenderSignature(previous.agentCall) ===
+      getAgentRunRenderSignature(next.agentCall),
+);

@@ -2400,6 +2400,10 @@ export function useChatGeneration({
     // and continued by subsequent deltas, mirroring the main chat loop.
     let activeAgentThinkingStepId: string | undefined;
     let activeAgentMessageStepId: string | undefined;
+    let activeAgentToolBuildingStepId: string | undefined;
+    let activeAgentToolBuildingMetadata:
+      | ToolBuildingVisibleMetadata
+      | undefined;
 
     const completeActiveAgentThinkingStep = () => {
       if (!activeAgentThinkingStepId) return;
@@ -2420,6 +2424,102 @@ export function useChatGeneration({
               }
             : step,
       );
+    };
+
+    const removeActiveAgentToolBuildingStep = () => {
+      if (!activeAgentToolBuildingStepId) return;
+      const stepId = activeAgentToolBuildingStepId;
+      activeAgentToolBuildingStepId = undefined;
+      activeAgentToolBuildingMetadata = undefined;
+      updateAssistantAgentCall(
+        chatId,
+        assistantMessageId,
+        variantId,
+        agentCall.id,
+        (call) => ({
+          ...call,
+          processSteps: (call.processSteps ?? []).filter(
+            (step) => !(step.type === "tool_building" && step.id === stepId),
+          ),
+        }),
+      );
+    };
+
+    const upsertActiveAgentToolBuildingStep = (toolCalls: ChatToolCall[]) => {
+      if (toolCalls.length === 0) return false;
+
+      completeActiveAgentThinkingStep();
+      activeAgentMessageStepId = undefined;
+
+      const visibleMetadata = getToolBuildingVisibleMetadata(toolCalls);
+      if (
+        activeAgentToolBuildingStepId &&
+        activeAgentToolBuildingMetadata &&
+        areToolBuildingVisibleMetadataEqual(
+          activeAgentToolBuildingMetadata,
+          visibleMetadata,
+        )
+      ) {
+        return false;
+      }
+
+      const now = new Date().toISOString();
+      const stepId = activeAgentToolBuildingStepId ?? createId();
+      let didChangeVisibleStep = false;
+
+      updateAssistantAgentCall(
+        chatId,
+        assistantMessageId,
+        variantId,
+        agentCall.id,
+        (call) => {
+          const processSteps = call.processSteps ?? [];
+          const existingStep = processSteps.find(
+            (
+              step,
+            ): step is Extract<
+              ChatAssistantProcessStep,
+              { type: "tool_building" }
+            > => step.id === stepId && step.type === "tool_building",
+          );
+
+          didChangeVisibleStep = true;
+
+          if (existingStep) {
+            return {
+              ...call,
+              processSteps: processSteps.map((step) =>
+                step.id === stepId && step.type === "tool_building"
+                  ? {
+                      ...step,
+                      ...visibleMetadata,
+                      updatedAt: now,
+                      toolCalls: undefined,
+                    }
+                  : step,
+              ),
+            };
+          }
+
+          return {
+            ...call,
+            processSteps: [
+              ...processSteps,
+              {
+                id: stepId,
+                type: "tool_building" as const,
+                status: "running" as const,
+                ...visibleMetadata,
+                updatedAt: now,
+              },
+            ],
+          };
+        },
+      );
+
+      activeAgentToolBuildingStepId = stepId;
+      activeAgentToolBuildingMetadata = visibleMetadata;
+      return didChangeVisibleStep;
     };
 
     try {
@@ -2456,6 +2556,7 @@ export function useChatGeneration({
           tools: currentAgentToolsForRun,
           settingsOverride: getChatThinkingSettings(chatId),
           onContentDelta: (delta) => {
+            removeActiveAgentToolBuildingStep();
             accumulatedOutput += delta;
             if (!activeAgentMessageStepId) {
               completeActiveAgentThinkingStep();
@@ -2495,6 +2596,7 @@ export function useChatGeneration({
             if (chatId === activeChatId) scheduleStickyScrollToBottom();
           },
           onReasoningDelta: (delta) => {
+            removeActiveAgentToolBuildingStep();
             accumulatedReasoning += delta;
             const hasVisibleDelta = delta.trim().length > 0;
             if (!activeAgentThinkingStepId) {
@@ -2542,11 +2644,20 @@ export function useChatGeneration({
               }),
             );
           },
+          onToolCallDelta: (toolCalls) => {
+            const didChangeVisibleToolBuildingStep =
+              upsertActiveAgentToolBuildingStep(toolCalls);
+
+            if (didChangeVisibleToolBuildingStep && chatId === activeChatId) {
+              scheduleStickyScrollToBottom({ settleFrames: 2 });
+            }
+          },
         });
 
         // The model finished a turn; close any open thinking block before
         // tool steps are recorded so the timeline reads think -> tools.
         completeActiveAgentThinkingStep();
+        removeActiveAgentToolBuildingStep();
 
         accumulatedReasoningMetadata = mergeReasoningMetadata(
           accumulatedReasoningMetadata,
@@ -2962,16 +3073,22 @@ export function useChatGeneration({
           shouldRenderTaskListStep(finalTaskToolResult) &&
           finalTaskToolCall
         ) {
-          appendAssistantProcessSteps(chatId, assistantMessageId, variantId, [
-            {
-              id: createId(),
-              type: "tasks" as const,
-              toolBatchId: childToolBatchId,
-              status: "complete" as const,
-              toolCall: finalTaskToolCall,
-              toolResult: finalTaskToolResult,
-            },
-          ]);
+          appendAgentProcessSteps(
+            chatId,
+            assistantMessageId,
+            variantId,
+            agentCall.id,
+            [
+              {
+                id: createId(),
+                type: "tasks" as const,
+                toolBatchId: childToolBatchId,
+                status: "complete" as const,
+                toolCall: finalTaskToolCall,
+                toolResult: finalTaskToolResult,
+              },
+            ],
+          );
         }
 
         toolResultsForContext = [
@@ -4609,11 +4726,11 @@ export function useChatGeneration({
     editedContent: string,
     editedAttachments?: ChatAttachment[],
   ) {
-    if (!activeChat) return;
-    if (isChatGenerating(activeChat.id)) return;
+    if (!activeChat) return false;
+    if (isChatGenerating(activeChat.id)) return false;
 
     const providerForRun = resolveProviderForActiveChat(activeChat);
-    if (!validateProviderForRun(providerForRun)) return;
+    if (!validateProviderForRun(providerForRun)) return false;
 
     const originalEditedUserMessage = editedContent.trim();
     let userMessage = originalEditedUserMessage;
@@ -4623,23 +4740,23 @@ export function useChatGeneration({
       const skill = availableSkillsByName.get(skillCommand.name);
       if (!skill) {
         showError(`Skill not found: ${skillCommand.name}`);
-        return;
+        return false;
       }
       forcedSkillNames.push(skill.name);
       userMessage = skillCommand.rest;
     }
 
     const oneShotToolNames = validateToolMentions(userMessage);
-    if (!oneShotToolNames) return;
+    if (!oneShotToolNames) return false;
 
     const mentionedSkillNames = validateSkillMentions(userMessage);
-    if (!mentionedSkillNames) return;
+    if (!mentionedSkillNames) return false;
     const oneShotSkillNames = [
       ...new Set([...forcedSkillNames, ...mentionedSkillNames]),
     ];
 
     const oneShotAgentNames = validateAgentMentions(userMessage);
-    if (!oneShotAgentNames) return;
+    if (!oneShotAgentNames) return false;
 
     const userIndex = activeChat.messages.findIndex(
       (message) => message.id === messageId && message.role === "user",
@@ -4648,14 +4765,14 @@ export function useChatGeneration({
 
     if (userIndex < 0 || !currentMessage || currentMessage.role !== "user") {
       showError("Could not find the message to edit.");
-      return;
+      return false;
     }
 
     const finalAttachments =
       editedAttachments ?? currentMessage.attachments ?? [];
     if (!originalEditedUserMessage && finalAttachments.length === 0) {
       showError("Message is required.");
-      return;
+      return false;
     }
 
     const { chatForRun, attachmentsForRun } = await prepareChatWorkspaceForRun(
@@ -4725,7 +4842,7 @@ export function useChatGeneration({
       updatedAt: responseStartedAt,
     }));
 
-    await runAssistantVariant({
+    void runAssistantVariant({
       chatId: chatForRun.id,
       contextMessages,
       userMessage,
@@ -4740,6 +4857,8 @@ export function useChatGeneration({
       oneShotAgentNames,
       projectInstructionsForRun,
     });
+
+    return true;
   }
 
   useEffect(() => {
