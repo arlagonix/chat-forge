@@ -2,8 +2,8 @@ import {
   AlertTriangle,
   BookOpen,
   Bot,
+  Paperclip,
   Pencil,
-  Plus,
   Send,
   Square,
   X,
@@ -819,21 +819,18 @@ export const ChatComposer = memo(
               />
             </div>
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex min-w-0 flex-1 items-center gap-1">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  onClick={handlePickAttachments}
-                  disabled={disabled || isSending || isProcessingAttachments}
-                  className="shrink-0"
-                  title="Attach files"
-                  aria-label="Attach files"
-                >
-                  <Plus className="size-4" />
-                </Button>
-                <div className="min-w-0 flex-1">{footerStart}</div>
-              </div>
+              <div className="min-w-0 flex-1">{footerStart}</div>
               {contextUsage ? <ContextUsageIndicator usage={contextUsage} /> : null}
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={handlePickAttachments}
+                disabled={disabled || isSending || isProcessingAttachments}
+                className="shrink-0"
+                title="Attach files"
+              >
+                <Paperclip className="size-4" />
+              </Button>
               {isSending ? (
                 <Button
                   type="button"
