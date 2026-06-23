@@ -833,9 +833,7 @@ export const ChatComposer = memo(
                 </Button>
                 <div className="min-w-0 flex-1">{footerStart}</div>
               </div>
-              {contextUsage ? (
-                <ContextUsageIndicator usage={contextUsage} />
-              ) : null}
+              {contextUsage ? <ContextUsageIndicator usage={contextUsage} /> : null}
               {isSending ? (
                 <Button
                   type="button"

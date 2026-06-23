@@ -206,7 +206,7 @@ export function getAgentRunStatusLabel(
   return "Composing";
 }
 
-export function getAgentRunRenderSignature(agentCall: AgentRunDisplay) {
+export function getAgentRunRenderSignature(agentCall: AgentRunDisplay): string {
   if (
     agentCall.status === "complete" ||
     agentCall.status === "failed" ||

@@ -3395,6 +3395,8 @@ export default function Home() {
   const activeOrDraftThinkingMode: ChatThinkingMode = isNewChatDraft
     ? (newChatDraftSettings?.thinkingMode ?? "model_default")
     : (activeChat?.thinkingMode ?? "model_default");
+  const activeComposerEditState =
+    composerEditState?.chatId === activeChat?.id ? composerEditState : null;
 
   if (!mounted) {
     return (
@@ -3777,15 +3779,9 @@ export default function Home() {
             onAttachmentsChange={updateActiveComposerAttachments}
             onSend={handleComposerSend}
             onStop={stopGeneration}
-            editPreview={
-              composerEditState?.chatId === activeChat?.id
-                ? composerEditState.preview
-                : undefined
-            }
+            editPreview={activeComposerEditState?.preview}
             onCancelEdit={
-              composerEditState?.chatId === activeChat?.id
-                ? cancelComposerEdit
-                : undefined
+              activeComposerEditState ? cancelComposerEdit : undefined
             }
             supportsVision={modelSupportsVision(
               activeChatProvider,

@@ -18,6 +18,7 @@ import { ThinkingBlock } from "@/components/ai-chat/thinking-block";
 import { AskUserBlock } from "@/components/ai-chat/tool-interaction-blocks";
 import { useAgentRunRowText } from "@/components/ai-chat/use-agent-run-row-text";
 import { Button } from "@/components/ui/button";
+import { getAgentRunRenderSignature } from "@/lib/ai-chat/agent-status-label";
 import {
   Dialog,
   DialogContent,
@@ -25,7 +26,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Spinner } from "@/components/ui/spinner";
-import { getAgentRunRenderSignature } from "@/lib/ai-chat/agent-status-label";
 import {
   ASK_USER_TOOL_NAME,
   parseAskUserRequestFromToolCall,
@@ -324,16 +324,15 @@ const AgentResultFooter = memo(function AgentResultFooter({
   const isRunning =
     agentCall.status === "running" || agentCall.status === "pending";
   const generatedModelName = agentCall.model?.trim() ?? "";
-  const duration = formatAgentDuration(
-    agentCall.startedAt,
-    agentCall.completedAt,
-  );
-  const details = [generatedModelName, agentCall.agentName, duration].filter(
-    Boolean,
-  );
+  const duration = formatAgentDuration(agentCall.startedAt, agentCall.completedAt);
+  const details = [
+    generatedModelName,
+    agentCall.agentName,
+    duration,
+  ].filter(Boolean);
 
   return (
-    <div className="grid gap-2 text-sm leading-5 text-muted-foreground mt-2">
+    <div className="grid gap-2 text-sm leading-5 text-muted-foreground">
       <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
         <div className="min-h-6 min-w-0 flex-1 text-left">
           {isRunning ? (

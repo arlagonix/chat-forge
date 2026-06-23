@@ -29,18 +29,21 @@ const baseProps = {
 };
 
 describe("AgentCallBlock", () => {
-  it("shows the agent name, live status, and task without the model", () => {
+  it("shows the agent name, live status, and preview without the model", () => {
     render(<AgentCallBlock {...baseProps} />);
 
     expect(screen.getByText("General")).toBeInTheDocument();
     expect(screen.getByText("Composing")).toBeInTheDocument();
     expect(screen.getByText("Hidden live output")).toBeInTheDocument();
+    expect(screen.queryByText("Inspect the project")).not.toBeInTheDocument();
     expect(screen.queryByText("test-model")).not.toBeInTheDocument();
   });
 
   it("opens the global agent viewer when clicked", () => {
     const onOpenAgentCall = vi.fn();
-    render(<AgentCallBlock {...baseProps} onOpenAgentCall={onOpenAgentCall} />);
+    render(
+      <AgentCallBlock {...baseProps} onOpenAgentCall={onOpenAgentCall} />,
+    );
 
     fireEvent.click(screen.getByRole("button", { name: /general/i }));
 
