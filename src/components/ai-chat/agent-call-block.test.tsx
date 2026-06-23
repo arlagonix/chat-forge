@@ -34,15 +34,13 @@ describe("AgentCallBlock", () => {
 
     expect(screen.getByText("General")).toBeInTheDocument();
     expect(screen.getByText("Composing")).toBeInTheDocument();
-    expect(screen.getByText("Inspect the project")).toBeInTheDocument();
+    expect(screen.getByText("Hidden live output")).toBeInTheDocument();
     expect(screen.queryByText("test-model")).not.toBeInTheDocument();
   });
 
   it("opens the global agent viewer when clicked", () => {
     const onOpenAgentCall = vi.fn();
-    render(
-      <AgentCallBlock {...baseProps} onOpenAgentCall={onOpenAgentCall} />,
-    );
+    render(<AgentCallBlock {...baseProps} onOpenAgentCall={onOpenAgentCall} />);
 
     fireEvent.click(screen.getByRole("button", { name: /general/i }));
 
