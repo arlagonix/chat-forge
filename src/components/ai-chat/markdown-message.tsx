@@ -20,6 +20,7 @@ import rehypeRaw from "rehype-raw";
 import rehypeSanitize from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
+import { toast } from "sonner";
 import type { PluggableList } from "unified";
 
 import {
@@ -257,6 +258,13 @@ function filenameForLanguage(language?: string) {
   return `file.${extension}`;
 }
 
+function filenameWithExtension(filename: string, extension: string) {
+  const trimmedExtension = extension.replace(/^\./, "");
+  const base = filename.replace(/\.[^/.]+$/, "") || "file";
+
+  return `${base}.${trimmedExtension}`;
+}
+
 function languageFromNode(node: ReactNode): string | undefined {
   if (Array.isArray(node)) {
     for (const child of node) {
@@ -393,8 +401,14 @@ function createCodeClipboardHtml(text: string, language?: string) {
   return pre.outerHTML;
 }
 
-const MERMAID_PNG_SCALE = 2;
-const MERMAID_PNG_MAX_DIMENSION = 8192;
+const MERMAID_PNG_SCALE = 1;
+const MERMAID_PNG_COPY_TIMEOUT_MS = 30_000;
+
+type SvgRasterSource = {
+  svg: string;
+  width: number;
+  height: number;
+};
 
 function parseSvgLength(value: string | null | undefined) {
   if (!value || value.trim().endsWith("%")) return undefined;
@@ -403,8 +417,8 @@ function parseSvgLength(value: string | null | undefined) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
 }
 
-function getSvgRasterSize(svg: string) {
-  const fallback = { width: 1200, height: 800 };
+function getSvgRasterSource(svg: string): SvgRasterSource {
+  const fallback = { svg, width: 1200, height: 800 };
 
   if (typeof DOMParser === "undefined") return fallback;
 
@@ -415,7 +429,6 @@ function getSvgRasterSize(svg: string) {
 
     const width = parseSvgLength(svgElement.getAttribute("width"));
     const height = parseSvgLength(svgElement.getAttribute("height"));
-    if (width && height) return { width, height };
 
     const [, , viewBoxWidth, viewBoxHeight] = (
       svgElement.getAttribute("viewBox") ?? ""
@@ -430,8 +443,25 @@ function getSvgRasterSize(svg: string) {
       viewBoxWidth > 0 &&
       viewBoxHeight > 0
     ) {
-      return { width: viewBoxWidth, height: viewBoxHeight };
+      const rasterWidth = width ?? viewBoxWidth;
+      const rasterHeight = height ?? viewBoxHeight;
+
+      svgElement.setAttribute("width", String(rasterWidth));
+      svgElement.setAttribute("height", String(rasterHeight));
+      svgElement.setAttribute("preserveAspectRatio", "xMidYMid meet");
+
+      if (!svgElement.getAttribute("xmlns")) {
+        svgElement.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+      }
+
+      return {
+        svg: new XMLSerializer().serializeToString(svgElement),
+        width: rasterWidth,
+        height: rasterHeight,
+      };
     }
+
+    if (width && height) return { svg, width, height };
   } catch {
     return fallback;
   }
@@ -439,69 +469,93 @@ function getSvgRasterSize(svg: string) {
   return fallback;
 }
 
-async function rasterizeSvgToPng(svg: string) {
-  const { width, height } = getSvgRasterSize(svg);
-  const scale = Math.min(
-    MERMAID_PNG_SCALE,
-    MERMAID_PNG_MAX_DIMENSION / width,
-    MERMAID_PNG_MAX_DIMENSION / height,
-  );
+function svgToDataUrl(svg: string) {
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+}
+
+async function rasterizeSvgToPng(svg: string, scale: number) {
+  const rasterSource = getSvgRasterSource(svg);
+  const { width, height } = rasterSource;
   const canvasWidth = Math.max(1, Math.round(width * scale));
   const canvasHeight = Math.max(1, Math.round(height * scale));
-  const imageUrl = URL.createObjectURL(
-    new Blob([svg], { type: "image/svg+xml;charset=utf-8" }),
-  );
+  const imageUrl = svgToDataUrl(rasterSource.svg);
 
-  try {
-    const image = new Image();
+  const image = new Image();
 
-    await new Promise<void>((resolve, reject) => {
-      image.onload = () => resolve();
-      image.onerror = () => reject(new Error("Failed to render SVG as PNG."));
-      image.src = imageUrl;
-    });
+  await new Promise<void>((resolve, reject) => {
+    image.onload = () => resolve();
+    image.onerror = () => reject(new Error("Failed to render SVG as PNG."));
+    image.src = imageUrl;
+  });
 
-    const canvas = document.createElement("canvas");
-    canvas.width = canvasWidth;
-    canvas.height = canvasHeight;
+  const canvas = document.createElement("canvas");
+  canvas.width = canvasWidth;
+  canvas.height = canvasHeight;
 
-    const context = canvas.getContext("2d");
-    if (!context) throw new Error("Canvas rendering is not available.");
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("Canvas rendering is not available.");
 
-    context.fillStyle = "#ffffff";
-    context.fillRect(0, 0, canvasWidth, canvasHeight);
-    context.drawImage(image, 0, 0, canvasWidth, canvasHeight);
+  context.fillStyle = "#ffffff";
+  context.fillRect(0, 0, canvasWidth, canvasHeight);
+  context.drawImage(image, 0, 0, canvasWidth, canvasHeight);
 
-    return await new Promise<Blob>((resolve, reject) => {
-      canvas.toBlob((blob) => {
-        if (blob) {
-          resolve(blob);
-        } else {
-          reject(new Error("Failed to encode Mermaid preview as PNG."));
-        }
-      }, "image/png");
-    });
-  } finally {
-    URL.revokeObjectURL(imageUrl);
-  }
+  return await new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (blob) {
+        resolve(blob);
+      } else {
+        reject(new Error("Failed to encode Mermaid preview as PNG."));
+      }
+    }, "image/png");
+  });
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string) {
+  return new Promise<T>((resolve, reject) => {
+    const timeout = window.setTimeout(() => reject(new Error(message)), timeoutMs);
+
+    promise.then(
+      (value) => {
+        window.clearTimeout(timeout);
+        resolve(value);
+      },
+      (error: unknown) => {
+        window.clearTimeout(timeout);
+        reject(error);
+      },
+    );
+  });
 }
 
 async function writeMermaidPreviewToClipboard(svg: string) {
-  if (typeof ClipboardItem !== "undefined" && navigator.clipboard.write) {
-    try {
-      const png = await rasterizeSvgToPng(svg);
+  if (typeof ClipboardItem === "undefined" || !navigator.clipboard.write) {
+    throw new Error("PNG clipboard copy is not supported.");
+  }
+
+  await withTimeout(
+    (async () => {
+      const png = await rasterizeSvgToPng(svg, MERMAID_PNG_SCALE);
       await navigator.clipboard.write([
         new ClipboardItem({
           "image/png": png,
         }),
       ]);
-      return;
-    } catch {
-      // Fall back to text SVG when the platform does not accept image clipboard items.
-    }
-  }
+    })(),
+    MERMAID_PNG_COPY_TIMEOUT_MS,
+    "Timed out while copying Mermaid preview as PNG.",
+  );
+}
 
-  await navigator.clipboard.writeText(svg);
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
 }
 
 type CodeBlockFrameProps = {
@@ -510,6 +564,7 @@ type CodeBlockFrameProps = {
   copied: boolean;
   canPreview: boolean;
   copyDisabled?: boolean;
+  downloadDisabled?: boolean;
   displayLanguage: string;
   displayMode: CodeBlockDisplayMode;
   isFullscreen?: boolean;
@@ -531,6 +586,7 @@ function CodeBlockFrame({
   copied,
   canPreview,
   copyDisabled = false,
+  downloadDisabled = false,
   displayLanguage,
   displayMode,
   isFullscreen = false,
@@ -545,10 +601,15 @@ function CodeBlockFrame({
   onToggleDisplayMode,
   onToggleWrapped,
 }: CodeBlockFrameProps) {
-  const copyModeLabel =
-    displayMode === "preview" && getRenderableCodeBlockKind(language) === "mermaid"
-      ? "PNG"
-      : "code";
+  const isMermaidPreview =
+    displayMode === "preview" && getRenderableCodeBlockKind(language) === "mermaid";
+  const copyModeLabel = isMermaidPreview ? "PNG" : "code";
+  const downloadFilename = isMermaidPreview
+    ? filenameWithExtension(suggestedFilename, "png")
+    : suggestedFilename;
+  const downloadLabel = downloadDisabled
+    ? `${downloadFilename} is not ready`
+    : `Download ${downloadFilename}`;
 
   return (
     <div
@@ -658,9 +719,10 @@ function CodeBlockFrame({
             variant="secondary"
             size="icon-sm"
             className="chat-code-action"
+            disabled={downloadDisabled}
             onClick={onDownloadCode}
-            title={`Download ${suggestedFilename}`}
-            aria-label={`Download ${suggestedFilename}`}
+            title={downloadLabel}
+            aria-label={downloadLabel}
           >
             <Download className="size-3.5" />
           </Button>
@@ -741,24 +803,44 @@ function CodeBlock({
       }
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1200);
-    } catch {
+    } catch (error) {
       setCopied(false);
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Failed to copy code block.";
+      toast.error("Failed to copy", { description: message });
     }
   }
 
-  function downloadCode() {
+  async function downloadCode(displayModeToDownload: CodeBlockDisplayMode) {
     if (!payload) return;
 
-    const blob = new Blob([payload], { type: "text/plain;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
+    if (displayModeToDownload === "preview" && isMermaidBlock && !renderedSvg) {
+      return;
+    }
 
-    link.href = url;
-    link.download = suggestedFilename;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(url);
+    try {
+      if (
+        displayModeToDownload === "preview" &&
+        isMermaidBlock &&
+        renderedSvg
+      ) {
+        const blob = await rasterizeSvgToPng(renderedSvg, MERMAID_PNG_SCALE);
+        downloadBlob(blob, filenameWithExtension(suggestedFilename, "png"));
+      } else {
+        downloadBlob(
+          new Blob([payload], { type: "text/plain;charset=utf-8" }),
+          suggestedFilename,
+        );
+      }
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Failed to download code block.";
+      toast.error("Failed to download", { description: message });
+    }
   }
 
   function toggleDisplayMode() {
@@ -792,6 +874,9 @@ function CodeBlock({
         copied={copied}
         canPreview={canPreview}
         copyDisabled={displayMode === "preview" && isMermaidBlock && !renderedSvg}
+        downloadDisabled={
+          displayMode === "preview" && isMermaidBlock && !renderedSvg
+        }
         displayLanguage={displayLanguage}
         displayMode={displayMode}
         language={language}
@@ -802,7 +887,9 @@ function CodeBlock({
         onCopyCode={() => {
           void copyCode(displayMode);
         }}
-        onDownloadCode={downloadCode}
+        onDownloadCode={() => {
+          void downloadCode(displayMode);
+        }}
         onFullscreenClick={openFullscreen}
         onToggleDisplayMode={toggleDisplayMode}
         onToggleWrapped={toggleWrapped}
@@ -820,6 +907,9 @@ function CodeBlock({
           copyDisabled={
             fullscreenDisplayMode === "preview" && isMermaidBlock && !renderedSvg
           }
+          downloadDisabled={
+            fullscreenDisplayMode === "preview" && isMermaidBlock && !renderedSvg
+          }
           displayLanguage={displayLanguage}
           displayMode={fullscreenDisplayMode}
           isFullscreen
@@ -831,7 +921,9 @@ function CodeBlock({
           onCopyCode={() => {
             void copyCode(fullscreenDisplayMode);
           }}
-          onDownloadCode={downloadCode}
+          onDownloadCode={() => {
+            void downloadCode(fullscreenDisplayMode);
+          }}
           onFullscreenClick={() => setFullscreenOpen(false)}
           onToggleDisplayMode={toggleFullscreenDisplayMode}
           onToggleWrapped={toggleFullscreenWrapped}

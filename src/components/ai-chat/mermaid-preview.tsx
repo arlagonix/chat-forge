@@ -36,6 +36,22 @@ function clampScale(scale: number) {
   return Math.min(MAX_SCALE, Math.max(MIN_SCALE, scale));
 }
 
+function createHiddenMermaidRenderContainer() {
+  const renderContainer = document.createElement("div");
+  renderContainer.setAttribute("aria-hidden", "true");
+  renderContainer.style.position = "fixed";
+  renderContainer.style.left = "0";
+  renderContainer.style.top = "0";
+  renderContainer.style.width = "0";
+  renderContainer.style.height = "0";
+  renderContainer.style.overflow = "hidden";
+  renderContainer.style.pointerEvents = "none";
+  renderContainer.style.visibility = "hidden";
+  document.body.appendChild(renderContainer);
+
+  return renderContainer;
+}
+
 export function MermaidPreview({
   source,
   className,
@@ -225,17 +241,7 @@ export function MermaidPreview({
           theme: "default",
         });
 
-        const renderContainer = document.createElement("div");
-        renderContainer.setAttribute("aria-hidden", "true");
-        renderContainer.style.position = "fixed";
-        renderContainer.style.left = "0";
-        renderContainer.style.top = "0";
-        renderContainer.style.width = "0";
-        renderContainer.style.height = "0";
-        renderContainer.style.overflow = "hidden";
-        renderContainer.style.pointerEvents = "none";
-        renderContainer.style.visibility = "hidden";
-        document.body.appendChild(renderContainer);
+        const renderContainer = createHiddenMermaidRenderContainer();
 
         try {
           const result = await mermaid.render(id, trimmedSource, renderContainer);
