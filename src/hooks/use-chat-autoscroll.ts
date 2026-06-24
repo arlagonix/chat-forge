@@ -136,6 +136,8 @@ export function useChatAutoscroll({
     useState(false);
   const [isChatScrollable, setIsChatScrollable] = useState(false);
   const [, setAutoScrollEnabled] = useState(false);
+  const [isReaderScrollLockedState, setIsReaderScrollLockedState] =
+    useState(false);
 
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
   const chatContentRef = useRef<HTMLDivElement | null>(null);
@@ -387,6 +389,7 @@ export function useChatAutoscroll({
 
   function clearReaderScrollLock() {
     readerScrollLockRef.current = null;
+    setIsReaderScrollLockedState(false);
   }
 
   function enterReaderScrollLock() {
@@ -397,6 +400,18 @@ export function useChatAutoscroll({
       chatId,
       anchor: captureReaderScrollAnchor(),
     };
+    setIsReaderScrollLockedState(true);
+  }
+
+  function updateReaderScrollLock() {
+    const chatId = activeChatIdRef.current;
+    if (!chatId || !isActiveChatGenerating(chatId)) return;
+
+    readerScrollLockRef.current = {
+      chatId,
+      anchor: captureReaderScrollAnchor(),
+    };
+    setIsReaderScrollLockedState(true);
   }
 
   function restoreReaderScrollLockPosition() {
@@ -1207,8 +1222,8 @@ export function useChatAutoscroll({
         setChatAutoScrollEnabled(true);
       } else if (!isNearBottom && hasRecentManualScrollInput()) {
         setChatAutoScrollEnabled(false);
-        if (currentScrollTop < previousScrollTop && isActiveChatGenerating()) {
-          enterReaderScrollLock();
+        if (isActiveChatGenerating()) {
+          updateReaderScrollLock();
         }
       } else if (!isNearBottom && shouldStickToChatBottom()) {
         scheduleStickyScrollToBottom();
@@ -1262,6 +1277,7 @@ export function useChatAutoscroll({
     isNearChatBottom,
     showScrollToBottomButton,
     isChatScrollable,
+    isReaderScrollLocked: isReaderScrollLockedState,
     clearStickyScrollSuppression,
     setChatAutoScrollEnabled,
     resetChatScrollState,

@@ -1364,6 +1364,7 @@ export default function Home() {
     isNearChatBottom,
     showScrollToBottomButton,
     isChatScrollable,
+    isReaderScrollLocked,
     resetChatScrollState,
     saveCurrentChatScrollSnapshot,
     forgetChatScrollSnapshot,
@@ -3686,6 +3687,7 @@ export default function Home() {
                   renderMarkdownWhileStreaming={
                     appSettings.renderMarkdownWhileStreaming ?? true
                   }
+                  freezeAssistantStreaming={isReaderScrollLocked}
                   toolDisplayKey={toolDisplayKey}
                   skillDisplayKey={skillDisplayKey}
                   agentDisplayKey={agentDisplayKey}

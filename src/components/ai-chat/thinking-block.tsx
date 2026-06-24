@@ -136,6 +136,7 @@ function ThinkingBlockComponent({
   isCollapsed,
   flushVersion,
   forceInstant = false,
+  freezeVisualUpdates = false,
   renderMarkdownWhileStreaming = true,
   onToggleCollapsed,
   onVisualProgress,
@@ -150,6 +151,7 @@ function ThinkingBlockComponent({
   isCollapsed: boolean;
   flushVersion: number;
   forceInstant?: boolean;
+  freezeVisualUpdates?: boolean;
   renderMarkdownWhileStreaming?: boolean;
   onToggleCollapsed: () => void;
   onVisualProgress?: () => void;
@@ -263,6 +265,7 @@ function ThinkingBlockComponent({
               renderMarkdownWhileStreaming={renderMarkdownWhileStreaming}
               flushVersion={flushVersion}
               forceInstant={forceInstant}
+              freezeVisualUpdates={freezeVisualUpdates}
               onVisualProgress={onVisualProgress}
               onVisualStreamingChange={onVisualStreamingChange}
             />
@@ -285,5 +288,6 @@ export const ThinkingBlock = memo(
     previous.isCollapsed === next.isCollapsed &&
     previous.flushVersion === next.flushVersion &&
     previous.forceInstant === next.forceInstant &&
+    previous.freezeVisualUpdates === next.freezeVisualUpdates &&
     previous.renderMarkdownWhileStreaming === next.renderMarkdownWhileStreaming,
 );

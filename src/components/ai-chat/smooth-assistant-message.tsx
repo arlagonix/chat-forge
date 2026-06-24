@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { cn } from "@/lib/utils";
 
@@ -72,6 +72,7 @@ type SmoothAssistantMessageContentProps = {
   isApiStreaming: boolean;
   flushVersion: number;
   forceInstant?: boolean;
+  freezeVisualUpdates?: boolean;
   onVisualProgress?: () => void;
   onVisualStreamingChange?: (isVisuallyStreaming: boolean) => void;
   skipSyntaxHighlight?: boolean;
@@ -85,6 +86,7 @@ export const SmoothAssistantMessageContent = memo(
     messageId,
     flushVersion,
     forceInstant = false,
+    freezeVisualUpdates = false,
     onVisualProgress,
     onVisualStreamingChange,
     isApiStreaming,
@@ -102,6 +104,10 @@ export const SmoothAssistantMessageContent = memo(
     onVisualStreamingChangeRef.current = onVisualStreamingChange;
 
     useEffect(() => {
+      if (freezeVisualUpdates && isApiStreaming && !forceInstant) {
+        return;
+      }
+
       if (!isApiStreaming || forceInstant || !renderMarkdownWhileStreaming) {
         lastMarkdownRenderTimeRef.current = performance.now();
         setRenderedContent(content);
@@ -128,11 +134,12 @@ export const SmoothAssistantMessageContent = memo(
       content,
       flushVersion,
       forceInstant,
+      freezeVisualUpdates,
       isApiStreaming,
       renderMarkdownWhileStreaming,
     ]);
 
-    useEffect(() => {
+    useLayoutEffect(() => {
       onVisualProgressRef.current?.();
       onVisualStreamingChangeRef.current?.(false);
     }, [renderedContent, renderedFlushVersion]);
@@ -158,6 +165,7 @@ export const SmoothAssistantMessageContent = memo(
     previous.isApiStreaming === next.isApiStreaming &&
     previous.flushVersion === next.flushVersion &&
     previous.forceInstant === next.forceInstant &&
+    previous.freezeVisualUpdates === next.freezeVisualUpdates &&
     previous.skipSyntaxHighlight === next.skipSyntaxHighlight &&
     previous.renderMarkdownWhileStreaming === next.renderMarkdownWhileStreaming,
 );

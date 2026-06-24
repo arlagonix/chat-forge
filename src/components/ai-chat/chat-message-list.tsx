@@ -176,6 +176,7 @@ type ChatMessageListProps = {
   collapsedThinkingStepIds: Record<string, boolean>;
   thinkingAutoCollapse?: boolean;
   renderMarkdownWhileStreaming?: boolean;
+  freezeAssistantStreaming?: boolean;
   toolDisplayKey: string;
   skillDisplayKey: string;
   agentDisplayKey: string;
@@ -731,6 +732,7 @@ const ChatMessageItem = memo(
     collapsedThinkingStepIds,
     thinkingAutoCollapse,
     renderMarkdownWhileStreaming = true,
+    freezeAssistantStreaming = false,
     registerMessageElement,
     renderToolExecutionBlock,
     canSubmitAskUserResponse,
@@ -840,6 +842,9 @@ const ChatMessageItem = memo(
             isCollapsed={isCollapsed}
             flushVersion={stepFlushVersion}
             forceInstant={!isThinkingStreaming}
+            freezeVisualUpdates={
+              freezeAssistantStreaming && isThinkingStreaming
+            }
             renderMarkdownWhileStreaming={renderMarkdownWhileStreaming}
             onToggleCollapsed={() => {
               const nextCollapsed = !isCollapsed;
@@ -890,6 +895,9 @@ const ChatMessageItem = memo(
                     messageId={`${message.id}:${step.id}`}
                     isApiStreaming={isAssistantBlockStreaming}
                     skipSyntaxHighlight={isAssistantBlockStreaming}
+                    freezeVisualUpdates={
+                      freezeAssistantStreaming && isAssistantBlockStreaming
+                    }
                     renderMarkdownWhileStreaming={renderMarkdownWhileStreaming}
                     flushVersion={stepFlushVersion}
                     onVisualProgress={() =>
@@ -1156,6 +1164,9 @@ const ChatMessageItem = memo(
                 isCollapsed={isCollapsed}
                 flushVersion={visualFlushRequests[message.id] ?? 0}
                 forceInstant={Boolean(content)}
+                freezeVisualUpdates={
+                  freezeAssistantStreaming && isReasoningStreaming
+                }
                 onToggleCollapsed={() => {
                   const nextCollapsed = !isCollapsed;
                   if (nextCollapsed) {
@@ -1240,6 +1251,9 @@ const ChatMessageItem = memo(
                     messageId={`${message.id}:content`}
                     isApiStreaming={status === "streaming"}
                     skipSyntaxHighlight={status === "streaming"}
+                    freezeVisualUpdates={
+                      freezeAssistantStreaming && status === "streaming"
+                    }
                     renderMarkdownWhileStreaming={
                       renderMarkdownWhileStreaming
                     }
@@ -1670,6 +1684,9 @@ const ChatMessageItem = memo(
       previous.renderMarkdownWhileStreaming !==
       next.renderMarkdownWhileStreaming
     ) {
+      return false;
+    }
+    if (previous.freezeAssistantStreaming !== next.freezeAssistantStreaming) {
       return false;
     }
 
