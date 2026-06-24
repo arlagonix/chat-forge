@@ -3751,8 +3751,7 @@ export default function Home() {
             showScrollToBottomButton && (
               <div
                 className={cn(
-                  "pointer-events-none absolute inset-x-0 right-[-74px] z-10 px-3 md:px-4",
-                  isSending ? "bottom-8 md:bottom-9" : "bottom-0",
+                  "pointer-events-none absolute inset-x-0 right-[-74px] bottom-0 z-10 px-3 md:px-4",
                 )}
               >
                 <div

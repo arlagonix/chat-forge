@@ -40,6 +40,12 @@ type ChatScrollSnapshot = {
   updatedAt: number;
 };
 
+type ReaderScrollAnchor = {
+  messageId: string;
+  elementPath: number[];
+  viewportOffset: number;
+};
+
 function isValidChatScrollSnapshot(
   value: unknown,
 ): value is ChatScrollSnapshot {
@@ -150,6 +156,10 @@ export function useChatAutoscroll({
   const autoScrollEnabledRef = useRef(false);
   const activeChatIdRef = useRef(activeChatId);
   const generatingChatIdsRef = useRef(generatingChatIds);
+  const readerScrollLockRef = useRef<{
+    chatId: string;
+    anchor: ReaderScrollAnchor | null;
+  } | null>(null);
   const chatScrollSnapshotsRef = useRef<Record<string, ChatScrollSnapshot>>(
     readChatScrollSnapshots(),
   );
@@ -214,6 +224,223 @@ export function useChatAutoscroll({
       messageId,
       offset: scrollTop - getMessageTopWithinScroll(anchorElement),
     };
+  }
+
+  function getElementPathWithinRoot(root: HTMLElement, element: HTMLElement) {
+    const path: number[] = [];
+    let current: HTMLElement | null = element;
+
+    while (current && current !== root) {
+      const parent = current.parentElement;
+      if (!parent) return null;
+
+      const index = Array.prototype.indexOf.call(parent.children, current);
+      if (index < 0) return null;
+
+      path.unshift(index);
+      current = parent;
+    }
+
+    return current === root ? path : null;
+  }
+
+  function getElementByPath(root: HTMLElement, path: number[]) {
+    let current: Element = root;
+
+    for (const index of path) {
+      const child = current.children.item(index);
+      if (!(child instanceof HTMLElement)) return null;
+      current = child;
+    }
+
+    return current instanceof HTMLElement ? current : null;
+  }
+
+  function getElementDepth(element: HTMLElement) {
+    let depth = 0;
+    let current = element.parentElement;
+
+    while (current) {
+      depth += 1;
+      current = current.parentElement;
+    }
+
+    return depth;
+  }
+
+  function findReaderAnchorElement(
+    messageElement: HTMLElement,
+    scrollRect: DOMRect,
+  ) {
+    const anchorY = scrollRect.top + 8;
+    const candidates = [
+      messageElement,
+      ...messageElement.querySelectorAll<HTMLElement>(
+        [
+          "[data-message-content]",
+          "[data-markdown-block-id]",
+          ".chat-code-block",
+          ".chat-code-pre",
+          "blockquote",
+          "details",
+          "h1",
+          "h2",
+          "h3",
+          "h4",
+          "h5",
+          "h6",
+          "li",
+          "ol",
+          "p",
+          "pre",
+          "table",
+          "ul",
+        ].join(","),
+      ),
+    ];
+
+    let containingCandidate: HTMLElement | null = null;
+    let nearestCandidate: HTMLElement | null = null;
+    let nearestDistance = Number.POSITIVE_INFINITY;
+
+    for (const candidate of candidates) {
+      const rect = candidate.getBoundingClientRect();
+      if (rect.height <= 0) continue;
+      if (rect.bottom <= scrollRect.top || rect.top >= scrollRect.bottom) {
+        continue;
+      }
+
+      if (rect.top <= anchorY && rect.bottom >= anchorY) {
+        if (
+          !containingCandidate ||
+          getElementDepth(candidate) > getElementDepth(containingCandidate)
+        ) {
+          containingCandidate = candidate;
+        }
+        continue;
+      }
+
+      const distance = Math.abs(rect.top - anchorY);
+      if (distance < nearestDistance) {
+        nearestDistance = distance;
+        nearestCandidate = candidate;
+      }
+    }
+
+    return containingCandidate ?? nearestCandidate ?? messageElement;
+  }
+
+  function captureReaderScrollAnchor(): ReaderScrollAnchor | null {
+    const scrollElement = chatScrollRef.current;
+    if (!scrollElement) return null;
+
+    const scrollRect = scrollElement.getBoundingClientRect();
+    const anchorY = scrollRect.top + 8;
+    const messageElements =
+      scrollElement.querySelectorAll<HTMLElement>("[data-message-id]");
+    let anchorMessage: HTMLElement | null = null;
+    let nearestMessage: HTMLElement | null = null;
+    let nearestDistance = Number.POSITIVE_INFINITY;
+
+    for (const messageElement of messageElements) {
+      const rect = messageElement.getBoundingClientRect();
+      if (rect.height <= 0) continue;
+      if (rect.bottom <= scrollRect.top || rect.top >= scrollRect.bottom) {
+        continue;
+      }
+
+      if (rect.top <= anchorY && rect.bottom >= anchorY) {
+        anchorMessage = messageElement;
+        break;
+      }
+
+      const distance = Math.abs(rect.top - anchorY);
+      if (distance < nearestDistance) {
+        nearestDistance = distance;
+        nearestMessage = messageElement;
+      }
+    }
+
+    anchorMessage = anchorMessage ?? nearestMessage;
+    const messageId = anchorMessage?.getAttribute("data-message-id");
+    if (!anchorMessage || !messageId) return null;
+
+    const anchorElement = findReaderAnchorElement(anchorMessage, scrollRect);
+    const elementPath = getElementPathWithinRoot(anchorMessage, anchorElement);
+    if (!elementPath) return null;
+
+    return {
+      messageId,
+      elementPath,
+      viewportOffset:
+        anchorElement.getBoundingClientRect().top - scrollRect.top,
+    };
+  }
+
+  function isReaderScrollLocked(chatId = activeChatIdRef.current) {
+    return Boolean(
+      chatId &&
+        readerScrollLockRef.current &&
+        readerScrollLockRef.current.chatId === chatId,
+    );
+  }
+
+  function clearReaderScrollLock() {
+    readerScrollLockRef.current = null;
+  }
+
+  function enterReaderScrollLock() {
+    const chatId = activeChatIdRef.current;
+    if (!chatId || !isActiveChatGenerating(chatId)) return;
+
+    readerScrollLockRef.current = {
+      chatId,
+      anchor: captureReaderScrollAnchor(),
+    };
+  }
+
+  function restoreReaderScrollLockPosition() {
+    const scrollElement = chatScrollRef.current;
+    const lock = readerScrollLockRef.current;
+    if (!scrollElement || !lock || lock.chatId !== activeChatIdRef.current) {
+      return false;
+    }
+
+    let anchor = lock.anchor;
+    if (!anchor) {
+      anchor = captureReaderScrollAnchor();
+      lock.anchor = anchor;
+    }
+    if (!anchor) return false;
+
+    const messageElement = scrollElement.querySelector<HTMLElement>(
+      `[data-message-id="${CSS.escape(anchor.messageId)}"]`,
+    );
+    const anchorElement = messageElement
+      ? (getElementByPath(messageElement, anchor.elementPath) ??
+        messageElement)
+      : null;
+    if (!anchorElement) {
+      lock.anchor = captureReaderScrollAnchor();
+      return false;
+    }
+
+    const scrollRect = scrollElement.getBoundingClientRect();
+    const currentViewportOffset =
+      anchorElement.getBoundingClientRect().top - scrollRect.top;
+    const delta = currentViewportOffset - anchor.viewportOffset;
+    if (Math.abs(delta) <= 0.5) return true;
+
+    const nextScrollTop = Math.min(
+      Math.max(0, scrollElement.scrollTop + delta),
+      Math.max(0, scrollElement.scrollHeight - scrollElement.clientHeight),
+    );
+
+    markProgrammaticChatScroll(80);
+    scrollElement.scrollTop = nextScrollTop;
+    lastChatScrollTopRef.current = nextScrollTop;
+    saveCurrentChatScrollSnapshot();
+    return true;
   }
 
   // Resolve a saved anchor back into an absolute scrollTop using the message's
@@ -296,6 +523,8 @@ export function useChatAutoscroll({
     manualScrollSuppressedUntilRef.current =
       Date.now() + STICKY_SCROLL_SUPPRESSION_MS;
     setChatAutoScrollEnabled(false);
+    cancelStickyScrollToBottom();
+    enterReaderScrollLock();
 
     if (manualScrollSuppressionTimeoutRef.current !== null) {
       window.clearTimeout(manualScrollSuppressionTimeoutRef.current);
@@ -319,7 +548,8 @@ export function useChatAutoscroll({
     return (
       isActiveChatGenerating() &&
       autoScrollEnabledRef.current &&
-      !isStickyScrollSuppressed()
+      !isStickyScrollSuppressed() &&
+      !isReaderScrollLocked()
     );
   }
 
@@ -547,6 +777,7 @@ export function useChatAutoscroll({
     cancelStickyScrollToBottom();
     cancelRestoreScrollPosition();
     clearStickyScrollSuppression();
+    clearReaderScrollLock();
 
     const snapshot = chatScrollSnapshotsRef.current[chatId];
     const activeChatIsGenerating = isActiveChatGenerating(chatId);
@@ -583,6 +814,7 @@ export function useChatAutoscroll({
     force = false,
     settleFrames,
   }: { force?: boolean; settleFrames?: number } = {}) {
+    if (isReaderScrollLocked()) return;
     if (!force && !shouldStickToChatBottom()) return;
 
     stickyScrollForceRef.current = stickyScrollForceRef.current || force;
@@ -661,6 +893,7 @@ export function useChatAutoscroll({
 
   function resetChatScrollState() {
     clearStickyScrollSuppression();
+    clearReaderScrollLock();
     cancelStickyScrollToBottom();
     cancelRestoreScrollPosition();
     setChatAutoScrollEnabled(false);
@@ -685,6 +918,12 @@ export function useChatAutoscroll({
   const handleAssistantVisualProgress = useCallback(
     (chatId: string) => {
       if (chatId !== activeChatId) return;
+
+      if (isReaderScrollLocked(chatId)) {
+        restoreReaderScrollLockPosition();
+        syncChatScrollState();
+        return;
+      }
 
       if (shouldStickToChatBottom()) {
         scheduleStickyScrollToBottom();
@@ -714,7 +953,11 @@ export function useChatAutoscroll({
           : currentMessageIds;
       });
 
-      if (activeChatId && shouldStickToChatBottom()) {
+      if (
+        activeChatId &&
+        !isReaderScrollLocked(activeChatId) &&
+        shouldStickToChatBottom()
+      ) {
         scheduleStickyScrollToBottom({
           settleFrames: STICKY_SCROLL_SETTLE_FRAMES,
         });
@@ -724,6 +967,12 @@ export function useChatAutoscroll({
   );
 
   const handleAskUserLayoutChange = useCallback(() => {
+    if (isReaderScrollLocked()) {
+      restoreReaderScrollLockPosition();
+      syncChatScrollState();
+      return;
+    }
+
     if (shouldStickToChatBottom()) {
       scheduleStickyScrollToBottom({ settleFrames: 2 });
       return;
@@ -740,6 +989,12 @@ export function useChatAutoscroll({
   // --- Concern: react to message/content changes (sticky-to-bottom) ---
   useLayoutEffect(() => {
     syncChatScrollableState();
+
+    if (isReaderScrollLocked()) {
+      restoreReaderScrollLockPosition();
+      syncChatScrollState();
+      return;
+    }
 
     if (pendingChatBottomScrollRef.current) {
       pendingChatBottomScrollRef.current = false;
@@ -762,6 +1017,12 @@ export function useChatAutoscroll({
     if (!scrollElement) return;
 
     function handleResize() {
+      if (isReaderScrollLocked()) {
+        restoreReaderScrollLockPosition();
+        syncChatScrollState();
+        return;
+      }
+
       if (shouldStickToChatBottom()) {
         scheduleStickyScrollToBottom({
           settleFrames: STICKY_SCROLL_SETTLE_FRAMES,
@@ -804,6 +1065,8 @@ export function useChatAutoscroll({
     }
 
     if (!activeChatIsGenerating) {
+      clearReaderScrollLock();
+
       if (wasActiveChatGenerating && isNearChatBottomRef.current) {
         scheduleStickyScrollToBottom({ force: true, settleFrames: 2 });
       }
@@ -896,6 +1159,7 @@ export function useChatAutoscroll({
 
   function scrollChatToBottom() {
     clearStickyScrollSuppression();
+    clearReaderScrollLock();
     cancelRestoreScrollPosition();
     setChatAutoScrollEnabled(isActiveChatGenerating());
     markProgrammaticChatScroll(500);
@@ -939,12 +1203,17 @@ export function useChatAutoscroll({
         isActiveChatGenerating()
       ) {
         clearStickyScrollSuppression();
+        clearReaderScrollLock();
         setChatAutoScrollEnabled(true);
       } else if (!isNearBottom && hasRecentManualScrollInput()) {
         setChatAutoScrollEnabled(false);
+        if (currentScrollTop < previousScrollTop && isActiveChatGenerating()) {
+          enterReaderScrollLock();
+        }
       } else if (!isNearBottom && shouldStickToChatBottom()) {
         scheduleStickyScrollToBottom();
       } else if (!isActiveChatGenerating()) {
+        clearReaderScrollLock();
         setChatAutoScrollEnabled(false);
       }
     });
@@ -962,6 +1231,10 @@ export function useChatAutoscroll({
   function handleChatPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
     const target = event.target instanceof Element ? event.target : null;
     const scrollElement = chatScrollRef.current;
+
+    if (event.pointerType === "touch" || event.pointerType === "pen") {
+      markManualScrollInput(1000);
+    }
 
     if (scrollElement) {
       const rect = scrollElement.getBoundingClientRect();

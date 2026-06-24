@@ -223,8 +223,15 @@
 
 @layer utilities {
   .chat-scrollbar {
+    --chat-code-header-sticky-top: -0.75rem;
     scrollbar-width: none;
     -ms-overflow-style: none;
+  }
+
+  @media (width >= 48rem) {
+    .chat-scrollbar {
+      --chat-code-header-sticky-top: -1.5rem;
+    }
   }
 
   .chat-scrollbar::-webkit-scrollbar {
@@ -564,7 +571,7 @@
   }
 
   .chat-code-block {
-    @apply relative my-2 w-full min-w-0 max-w-full overflow-hidden rounded-lg border;
+    @apply relative my-2 w-full min-w-0 max-w-full overflow-visible rounded-none border;
     background: var(--code-bg);
     border-color: var(--border);
     color: var(--code-fg);
@@ -573,7 +580,7 @@
   .chat-code-header {
     user-select: none;
     position: sticky;
-    top: -1.5rem;
+    top: var(--chat-code-header-sticky-top, 0);
     z-index: 20;
     display: flex;
     min-width: 0;
@@ -584,7 +591,7 @@
     padding: 8px 12px;
     border-bottom: 1px solid var(--border);
     background: var(--code-bg);
-    border-radius: var(--radius) var(--radius) 0 0;
+    border-radius: 0;
   }
 
   .chat-code-language {

@@ -1388,7 +1388,7 @@ function VirtualizedMarkdownMessage({
               key={block.id}
               ref={measureBlock(block)}
               className="absolute left-0 w-full"
-              style={{ transform: `translateY(${offsets[block.index]}px)` }}
+              style={{ top: offsets[block.index] }}
               data-markdown-block-id={block.id}
               data-markdown-block-index={block.index}
             >
