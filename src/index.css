@@ -798,7 +798,7 @@
   .chat-code-preview-fullscreen .chat-code-mermaid-preview,
   .chat-code-fullscreen-preview .chat-code-mermaid-preview,
   .chat-markdown .chat-code-mermaid-preview {
-    @apply flex min-h-36 w-full min-w-0 items-center justify-center overflow-hidden bg-background p-3;
+    @apply flex min-h-36 w-full min-w-0 items-center justify-center overflow-hidden bg-white p-3;
     contain: layout paint;
   }
 
@@ -822,7 +822,7 @@
   }
 
   .chat-markdown .chat-code-mermaid-viewport {
-    @apply absolute inset-0 h-full min-h-0 w-full min-w-0 overflow-hidden bg-background;
+    @apply absolute inset-0 h-full min-h-0 w-full min-w-0 overflow-hidden bg-white;
     cursor: grab;
     touch-action: none;
   }
@@ -837,14 +837,16 @@
     left: 0;
     top: 0;
     transform-origin: 0 0;
-    will-change: transform;
   }
 
-  .chat-markdown .chat-code-mermaid-interactive svg {
+  .chat-markdown .chat-code-mermaid-rendered {
+    @apply flex min-w-0 items-center justify-center bg-white;
+  }
+
+  .chat-markdown .chat-code-mermaid-rendered svg {
     display: block;
-    width: auto !important;
-    max-width: none !important;
-    height: auto !important;
+    max-width: 100%;
+    height: auto;
   }
 
   .chat-code-preview-fullscreen .chat-code-html-preview,

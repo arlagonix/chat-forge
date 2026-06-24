@@ -8,6 +8,7 @@ type MermaidPreviewProps = {
   source: string;
   className?: string;
   interactive?: boolean;
+  onRenderedSvg?: (svg: string | undefined) => void;
 };
 
 type MermaidTransform = {
@@ -16,43 +17,14 @@ type MermaidTransform = {
   y: number;
 };
 
-type SvgSize = {
-  width: number;
-  height: number;
-};
-
 const MIN_SCALE = 0.1;
-const MAX_SCALE = 8;
+const MAX_SCALE = 10;
 const FIT_PADDING = 24;
-
-function useDocumentTheme() {
-  const [theme, setTheme] = React.useState<"light" | "dark">(() => {
-    if (typeof document === "undefined") return "light";
-    return document.documentElement.classList.contains("dark")
-      ? "dark"
-      : "light";
-  });
-
-  React.useEffect(() => {
-    const updateTheme = () => {
-      setTheme(
-        document.documentElement.classList.contains("dark") ? "dark" : "light",
-      );
-    };
-
-    updateTheme();
-
-    const observer = new MutationObserver(updateTheme);
-    observer.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ["class"],
-    });
-
-    return () => observer.disconnect();
-  }, []);
-
-  return theme;
-}
+const INITIAL_TRANSFORM: MermaidTransform = {
+  scale: 1,
+  x: 0,
+  y: 0,
+};
 
 function errorMessageFromUnknown(error: unknown) {
   if (error instanceof Error) return error.message;
@@ -64,105 +36,20 @@ function clampScale(scale: number) {
   return Math.min(MAX_SCALE, Math.max(MIN_SCALE, scale));
 }
 
-function parsePositiveNumber(value: string | null | undefined) {
-  if (!value) return undefined;
-
-  const parsed = Number.parseFloat(value);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
-}
-
-function sizeFromViewBox(viewBox: string | null | undefined): SvgSize | undefined {
-  if (!viewBox) return undefined;
-
-  const [, , width, height] = viewBox
-    .trim()
-    .split(/[\s,]+/)
-    .map((part) => Number.parseFloat(part));
-
-  if (
-    Number.isFinite(width) &&
-    Number.isFinite(height) &&
-    width > 0 &&
-    height > 0
-  ) {
-    return { width, height };
-  }
-
-  return undefined;
-}
-
-function getSvgContentSize(svg: SVGSVGElement | null): SvgSize {
-  if (!svg) return { width: 800, height: 600 };
-
-  const viewBox = svg.viewBox?.baseVal;
-  if (viewBox && viewBox.width > 0 && viewBox.height > 0) {
-    return { width: viewBox.width, height: viewBox.height };
-  }
-
-  const viewBoxSize = sizeFromViewBox(svg.getAttribute("viewBox"));
-  if (viewBoxSize) return viewBoxSize;
-
-  const width = parsePositiveNumber(svg.getAttribute("width"));
-  const height = parsePositiveNumber(svg.getAttribute("height"));
-  if (width && height) return { width, height };
-
-  const rect = svg.getBoundingClientRect();
-  if (rect.width > 0 && rect.height > 0) {
-    return { width: rect.width, height: rect.height };
-  }
-
-  try {
-    const bbox = (svg as unknown as SVGGraphicsElement).getBBox();
-    if (bbox.width > 0 && bbox.height > 0) {
-      return { width: bbox.width, height: bbox.height };
-    }
-  } catch {
-    // Some SVGs cannot provide a bbox immediately.
-  }
-
-  return { width: 800, height: 600 };
-}
-
-function normalizeSvgForInteractive(svgText: string) {
-  if (typeof DOMParser === "undefined") return svgText;
-
-  try {
-    const document = new DOMParser().parseFromString(svgText, "image/svg+xml");
-    const svgElement = document.querySelector("svg");
-
-    if (!svgElement) return svgText;
-
-    const viewBoxSize = sizeFromViewBox(svgElement.getAttribute("viewBox"));
-    const width =
-      viewBoxSize?.width ?? parsePositiveNumber(svgElement.getAttribute("width"));
-    const height =
-      viewBoxSize?.height ?? parsePositiveNumber(svgElement.getAttribute("height"));
-
-    if (width && height) {
-      svgElement.setAttribute("width", String(width));
-      svgElement.setAttribute("height", String(height));
-      svgElement.style.width = `${width}px`;
-      svgElement.style.height = `${height}px`;
-    }
-
-    svgElement.style.maxWidth = "none";
-    svgElement.style.display = "block";
-
-    return new XMLSerializer().serializeToString(svgElement);
-  } catch {
-    return svgText;
-  }
-}
-
 export function MermaidPreview({
   source,
   className,
   interactive = false,
+  onRenderedSvg,
 }: MermaidPreviewProps) {
   const reactId = React.useId();
-  const theme = useDocumentTheme();
   const viewportRef = React.useRef<HTMLDivElement | null>(null);
   const contentRef = React.useRef<HTMLDivElement | null>(null);
+  const renderedContentRef = React.useRef<HTMLDivElement | null>(null);
+  const animationFrameRef = React.useRef<number | null>(null);
+  const fitScaleRef = React.useRef(1);
+  const transformRef = React.useRef<MermaidTransform>(INITIAL_TRANSFORM);
+  const userZoomRef = React.useRef(1);
   const dragRef = React.useRef<{
     pointerId: number;
     startClientX: number;
@@ -172,36 +59,108 @@ export function MermaidPreview({
   } | null>(null);
   const [svg, setSvg] = React.useState<string>();
   const [error, setError] = React.useState<string>();
-  const [transform, setTransform] = React.useState<MermaidTransform>({
-    scale: 1,
-    x: 0,
-    y: 0,
-  });
+  const [transform, setTransform] =
+    React.useState<MermaidTransform>(INITIAL_TRANSFORM);
+  const [userZoom, setUserZoom] = React.useState(1);
   const [isDragging, setIsDragging] = React.useState(false);
   const [hasFitTransform, setHasFitTransform] = React.useState(false);
 
+  const applyTransform = React.useCallback((nextTransform: MermaidTransform) => {
+    const content = contentRef.current;
+    if (!content) return;
+
+    content.style.transform = `translate(${nextTransform.x}px, ${nextTransform.y}px) scale(${nextTransform.scale})`;
+  }, []);
+
+  const commitTransform = React.useCallback(
+    (nextTransform: MermaidTransform, syncState = true) => {
+      transformRef.current = nextTransform;
+      applyTransform(nextTransform);
+
+      if (syncState) {
+        setTransform(nextTransform);
+      }
+    },
+    [applyTransform],
+  );
+
+  const scheduleTransformPaint = React.useCallback(() => {
+    if (animationFrameRef.current !== null) return;
+
+    animationFrameRef.current = window.requestAnimationFrame(() => {
+      animationFrameRef.current = null;
+      applyTransform(transformRef.current);
+    });
+  }, [applyTransform]);
+
+  const finishDrag = React.useCallback(
+    (pointerId: number) => {
+      if (dragRef.current?.pointerId !== pointerId) return;
+
+      dragRef.current = null;
+      setIsDragging(false);
+
+      if (animationFrameRef.current !== null) {
+        window.cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
+      }
+
+      applyTransform(transformRef.current);
+      setTransform(transformRef.current);
+    },
+    [applyTransform],
+  );
+
   const fitToScreen = React.useCallback(() => {
     const viewport = viewportRef.current;
-    const svgElement = contentRef.current?.querySelector("svg");
-    if (!viewport || !(svgElement instanceof SVGSVGElement)) return;
+    const content = contentRef.current;
+    const renderedContent = renderedContentRef.current;
+    if (!viewport || !content || !renderedContent) return;
 
     const viewportRect = viewport.getBoundingClientRect();
     if (viewportRect.width <= 0 || viewportRect.height <= 0) return;
 
-    const svgSize = getSvgContentSize(svgElement);
     const availableWidth = Math.max(viewportRect.width - FIT_PADDING * 2, 1);
     const availableHeight = Math.max(viewportRect.height - FIT_PADDING * 2, 1);
-    const fitScale = clampScale(
-      Math.min(availableWidth / svgSize.width, availableHeight / svgSize.height),
-    );
+    renderedContent.style.width = `${availableWidth}px`;
 
-    setTransform({
+    const previousTransform = content.style.transform;
+    content.style.transform = "translate(0px, 0px) scale(1)";
+
+    const renderedContentRect = renderedContent.getBoundingClientRect();
+    const svgRect = renderedContent.querySelector("svg")?.getBoundingClientRect();
+    const renderedWidth = Math.max(
+      svgRect?.width ?? renderedContent.offsetWidth,
+      1,
+    );
+    const renderedHeight = Math.max(
+      svgRect?.height ?? renderedContent.offsetHeight,
+      1,
+    );
+    const renderedX = svgRect ? svgRect.left - renderedContentRect.left : 0;
+    const renderedY = svgRect ? svgRect.top - renderedContentRect.top : 0;
+
+    content.style.transform = previousTransform;
+
+    const fitScale = Math.max(
+      Math.min(availableWidth / renderedWidth, availableHeight / renderedHeight),
+      Number.EPSILON,
+    );
+    fitScaleRef.current = fitScale;
+    userZoomRef.current = 1;
+    setUserZoom(1);
+
+    commitTransform({
       scale: fitScale,
-      x: (viewportRect.width - svgSize.width * fitScale) / 2,
-      y: (viewportRect.height - svgSize.height * fitScale) / 2,
+      x:
+        (viewportRect.width - renderedWidth * fitScale) / 2 -
+        renderedX * fitScale,
+      y:
+        (viewportRect.height - renderedHeight * fitScale) / 2 -
+        renderedY * fitScale,
     });
     setHasFitTransform(true);
-  }, []);
+  }, [commitTransform]);
 
   const zoomAt = React.useCallback(
     (factor: number, center?: { x: number; y: number }) => {
@@ -214,19 +173,29 @@ export function MermaidPreview({
         y: viewportRect.height / 2,
       };
 
-      setTransform((current) => {
-        const nextScale = clampScale(current.scale * factor);
-        const scaleRatio = nextScale / current.scale;
+      const current = transformRef.current;
+      const nextUserZoom = clampScale(userZoomRef.current * factor);
+      const nextScale = fitScaleRef.current * nextUserZoom;
+      const scaleRatio = nextScale / current.scale;
+      userZoomRef.current = nextUserZoom;
+      setUserZoom(nextUserZoom);
 
-        return {
-          scale: nextScale,
-          x: focalPoint.x - (focalPoint.x - current.x) * scaleRatio,
-          y: focalPoint.y - (focalPoint.y - current.y) * scaleRatio,
-        };
+      commitTransform({
+        scale: nextScale,
+        x: focalPoint.x - (focalPoint.x - current.x) * scaleRatio,
+        y: focalPoint.y - (focalPoint.y - current.y) * scaleRatio,
       });
     },
-    [],
+    [commitTransform],
   );
+
+  React.useEffect(() => {
+    return () => {
+      if (animationFrameRef.current !== null) {
+        window.cancelAnimationFrame(animationFrameRef.current);
+      }
+    };
+  }, []);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -237,6 +206,11 @@ export function MermaidPreview({
       setError(undefined);
       setHasFitTransform(false);
       setSvg(undefined);
+      onRenderedSvg?.(undefined);
+      fitScaleRef.current = 1;
+      userZoomRef.current = 1;
+      setUserZoom(1);
+      commitTransform(INITIAL_TRANSFORM);
 
       if (!trimmedSource) return;
 
@@ -248,7 +222,7 @@ export function MermaidPreview({
         mermaid.initialize({
           startOnLoad: false,
           securityLevel: "strict",
-          theme: theme === "dark" ? "dark" : "default",
+          theme: "default",
         });
 
         const renderContainer = document.createElement("div");
@@ -267,7 +241,8 @@ export function MermaidPreview({
           const result = await mermaid.render(id, trimmedSource, renderContainer);
 
           if (!cancelled) {
-            setSvg(interactive ? normalizeSvgForInteractive(result.svg) : result.svg);
+            setSvg(result.svg);
+            onRenderedSvg?.(result.svg);
           }
         } finally {
           renderContainer.remove();
@@ -284,12 +259,15 @@ export function MermaidPreview({
     return () => {
       cancelled = true;
     };
-  }, [interactive, reactId, source, theme]);
+  }, [commitTransform, interactive, onRenderedSvg, reactId, source]);
 
   React.useLayoutEffect(() => {
     if (!interactive || !svg) return;
 
     fitToScreen();
+    const animationFrame = window.requestAnimationFrame(() => fitToScreen());
+
+    return () => window.cancelAnimationFrame(animationFrame);
   }, [fitToScreen, interactive, svg]);
 
   React.useEffect(() => {
@@ -367,7 +345,7 @@ export function MermaidPreview({
           <RotateCcw className="size-3.5" />
         </Button>
         <span className="chat-code-mermaid-zoom-label" title="Current zoom">
-          {Math.round(transform.scale * 100)}%
+          {Math.round(userZoom * 100)}%
         </span>
       </div>
 
@@ -395,31 +373,26 @@ export function MermaidPreview({
             pointerId: event.pointerId,
             startClientX: event.clientX,
             startClientY: event.clientY,
-            startX: transform.x,
-            startY: transform.y,
+            startX: transformRef.current.x,
+            startY: transformRef.current.y,
           };
         }}
         onPointerMove={(event) => {
           const drag = dragRef.current;
           if (!drag || drag.pointerId !== event.pointerId) return;
 
-          setTransform((current) => ({
-            ...current,
+          transformRef.current = {
+            ...transformRef.current,
             x: drag.startX + event.clientX - drag.startClientX,
             y: drag.startY + event.clientY - drag.startClientY,
-          }));
+          };
+          scheduleTransformPaint();
         }}
         onPointerUp={(event) => {
-          if (dragRef.current?.pointerId === event.pointerId) {
-            dragRef.current = null;
-            setIsDragging(false);
-          }
+          finishDrag(event.pointerId);
         }}
         onPointerCancel={(event) => {
-          if (dragRef.current?.pointerId === event.pointerId) {
-            dragRef.current = null;
-            setIsDragging(false);
-          }
+          finishDrag(event.pointerId);
         }}
       >
         <div
@@ -431,8 +404,13 @@ export function MermaidPreview({
           style={{
             transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`,
           }}
-          dangerouslySetInnerHTML={{ __html: svg }}
-        />
+        >
+          <div
+            ref={renderedContentRef}
+            className="chat-code-mermaid-rendered"
+            dangerouslySetInnerHTML={{ __html: svg }}
+          />
+        </div>
       </div>
     </div>
   );

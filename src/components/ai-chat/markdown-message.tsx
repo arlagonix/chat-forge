@@ -29,7 +29,10 @@ import {
   RenderablePreview,
 } from "@/components/ai-chat/code-block-preview-dialog";
 import { Button } from "@/components/ui/button";
-import { isRenderableCodeBlock } from "@/lib/ai-chat/renderable-code-blocks";
+import {
+  getRenderableCodeBlockKind,
+  isRenderableCodeBlock,
+} from "@/lib/ai-chat/renderable-code-blocks";
 import { cn } from "@/lib/utils";
 
 type MarkdownMessageProps = {
@@ -390,11 +393,123 @@ function createCodeClipboardHtml(text: string, language?: string) {
   return pre.outerHTML;
 }
 
+const MERMAID_PNG_SCALE = 2;
+const MERMAID_PNG_MAX_DIMENSION = 8192;
+
+function parseSvgLength(value: string | null | undefined) {
+  if (!value || value.trim().endsWith("%")) return undefined;
+
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+function getSvgRasterSize(svg: string) {
+  const fallback = { width: 1200, height: 800 };
+
+  if (typeof DOMParser === "undefined") return fallback;
+
+  try {
+    const document = new DOMParser().parseFromString(svg, "image/svg+xml");
+    const svgElement = document.querySelector("svg");
+    if (!svgElement) return fallback;
+
+    const width = parseSvgLength(svgElement.getAttribute("width"));
+    const height = parseSvgLength(svgElement.getAttribute("height"));
+    if (width && height) return { width, height };
+
+    const [, , viewBoxWidth, viewBoxHeight] = (
+      svgElement.getAttribute("viewBox") ?? ""
+    )
+      .trim()
+      .split(/[\s,]+/)
+      .map((part) => Number.parseFloat(part));
+
+    if (
+      Number.isFinite(viewBoxWidth) &&
+      Number.isFinite(viewBoxHeight) &&
+      viewBoxWidth > 0 &&
+      viewBoxHeight > 0
+    ) {
+      return { width: viewBoxWidth, height: viewBoxHeight };
+    }
+  } catch {
+    return fallback;
+  }
+
+  return fallback;
+}
+
+async function rasterizeSvgToPng(svg: string) {
+  const { width, height } = getSvgRasterSize(svg);
+  const scale = Math.min(
+    MERMAID_PNG_SCALE,
+    MERMAID_PNG_MAX_DIMENSION / width,
+    MERMAID_PNG_MAX_DIMENSION / height,
+  );
+  const canvasWidth = Math.max(1, Math.round(width * scale));
+  const canvasHeight = Math.max(1, Math.round(height * scale));
+  const imageUrl = URL.createObjectURL(
+    new Blob([svg], { type: "image/svg+xml;charset=utf-8" }),
+  );
+
+  try {
+    const image = new Image();
+
+    await new Promise<void>((resolve, reject) => {
+      image.onload = () => resolve();
+      image.onerror = () => reject(new Error("Failed to render SVG as PNG."));
+      image.src = imageUrl;
+    });
+
+    const canvas = document.createElement("canvas");
+    canvas.width = canvasWidth;
+    canvas.height = canvasHeight;
+
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("Canvas rendering is not available.");
+
+    context.fillStyle = "#ffffff";
+    context.fillRect(0, 0, canvasWidth, canvasHeight);
+    context.drawImage(image, 0, 0, canvasWidth, canvasHeight);
+
+    return await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob((blob) => {
+        if (blob) {
+          resolve(blob);
+        } else {
+          reject(new Error("Failed to encode Mermaid preview as PNG."));
+        }
+      }, "image/png");
+    });
+  } finally {
+    URL.revokeObjectURL(imageUrl);
+  }
+}
+
+async function writeMermaidPreviewToClipboard(svg: string) {
+  if (typeof ClipboardItem !== "undefined" && navigator.clipboard.write) {
+    try {
+      const png = await rasterizeSvgToPng(svg);
+      await navigator.clipboard.write([
+        new ClipboardItem({
+          "image/png": png,
+        }),
+      ]);
+      return;
+    } catch {
+      // Fall back to text SVG when the platform does not accept image clipboard items.
+    }
+  }
+
+  await navigator.clipboard.writeText(svg);
+}
+
 type CodeBlockFrameProps = {
   children: ReactNode;
   className?: string;
   copied: boolean;
   canPreview: boolean;
+  copyDisabled?: boolean;
   displayLanguage: string;
   displayMode: CodeBlockDisplayMode;
   isFullscreen?: boolean;
@@ -402,6 +517,7 @@ type CodeBlockFrameProps = {
   payload: string;
   suggestedFilename: string;
   wrapped: boolean;
+  onRenderedSvg?: (svg: string | undefined) => void;
   onCopyCode: () => void;
   onDownloadCode: () => void;
   onFullscreenClick: () => void;
@@ -414,6 +530,7 @@ function CodeBlockFrame({
   className,
   copied,
   canPreview,
+  copyDisabled = false,
   displayLanguage,
   displayMode,
   isFullscreen = false,
@@ -421,12 +538,18 @@ function CodeBlockFrame({
   payload,
   suggestedFilename,
   wrapped,
+  onRenderedSvg,
   onCopyCode,
   onDownloadCode,
   onFullscreenClick,
   onToggleDisplayMode,
   onToggleWrapped,
 }: CodeBlockFrameProps) {
+  const copyModeLabel =
+    displayMode === "preview" && getRenderableCodeBlockKind(language) === "mermaid"
+      ? "PNG"
+      : "code";
+
   return (
     <div
       className={cn(
@@ -506,9 +629,22 @@ function CodeBlockFrame({
             variant="secondary"
             size="icon-sm"
             className="chat-code-action"
+            disabled={copyDisabled}
             onClick={onCopyCode}
-            title={copied ? "Copied" : "Copy code"}
-            aria-label={copied ? "Copied" : "Copy code"}
+            title={
+              copyDisabled
+                ? `${copyModeLabel} is not ready`
+                : copied
+                  ? "Copied"
+                  : `Copy ${copyModeLabel}`
+            }
+            aria-label={
+              copyDisabled
+                ? `${copyModeLabel} is not ready`
+                : copied
+                  ? "Copied"
+                  : `Copy ${copyModeLabel}`
+            }
           >
             {copied ? (
               <Check className="size-3.5" />
@@ -543,6 +679,7 @@ function CodeBlockFrame({
             language={language}
             className={isFullscreen ? "h-full min-h-0" : undefined}
             interactive={isFullscreen}
+            onRenderedSvg={onRenderedSvg}
           />
         </div>
       ) : (
@@ -576,18 +713,32 @@ function CodeBlock({
     React.useState<CodeBlockDisplayMode>("code");
   const [fullscreenWrapped, setFullscreenWrapped] = React.useState(true);
   const [fullscreenOpen, setFullscreenOpen] = React.useState(false);
+  const [renderedSvg, setRenderedSvg] = React.useState<string>();
   const code = React.Children.toArray(children).map(textFromNode).join("");
   const language = languageFromNode(children);
   const displayLanguage = normalizeCodeLanguage(language);
   const payload = codePayload(code);
   const suggestedFilename = filenameForLanguage(language);
   const canPreview = isRenderableCodeBlock(language);
+  const isMermaidBlock = getRenderableCodeBlockKind(language) === "mermaid";
 
-  async function copyCode() {
+  React.useEffect(() => {
+    setRenderedSvg(undefined);
+  }, [payload]);
+
+  async function copyCode(displayModeToCopy: CodeBlockDisplayMode) {
     if (!payload) return;
 
+    if (displayModeToCopy === "preview" && isMermaidBlock && !renderedSvg) {
+      return;
+    }
+
     try {
-      await navigator.clipboard.writeText(payload);
+      if (displayModeToCopy === "preview" && isMermaidBlock && renderedSvg) {
+        await writeMermaidPreviewToClipboard(renderedSvg);
+      } else {
+        await navigator.clipboard.writeText(payload);
+      }
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1200);
     } catch {
@@ -640,13 +791,17 @@ function CodeBlock({
         className={className}
         copied={copied}
         canPreview={canPreview}
+        copyDisabled={displayMode === "preview" && isMermaidBlock && !renderedSvg}
         displayLanguage={displayLanguage}
         displayMode={displayMode}
         language={language}
         payload={payload}
         suggestedFilename={suggestedFilename}
         wrapped={wrapped}
-        onCopyCode={copyCode}
+        onRenderedSvg={setRenderedSvg}
+        onCopyCode={() => {
+          void copyCode(displayMode);
+        }}
         onDownloadCode={downloadCode}
         onFullscreenClick={openFullscreen}
         onToggleDisplayMode={toggleDisplayMode}
@@ -662,6 +817,9 @@ function CodeBlock({
         <CodeBlockFrame
           copied={copied}
           canPreview={canPreview}
+          copyDisabled={
+            fullscreenDisplayMode === "preview" && isMermaidBlock && !renderedSvg
+          }
           displayLanguage={displayLanguage}
           displayMode={fullscreenDisplayMode}
           isFullscreen
@@ -669,7 +827,10 @@ function CodeBlock({
           payload={payload}
           suggestedFilename={suggestedFilename}
           wrapped={fullscreenWrapped}
-          onCopyCode={copyCode}
+          onRenderedSvg={setRenderedSvg}
+          onCopyCode={() => {
+            void copyCode(fullscreenDisplayMode);
+          }}
           onDownloadCode={downloadCode}
           onFullscreenClick={() => setFullscreenOpen(false)}
           onToggleDisplayMode={toggleFullscreenDisplayMode}

@@ -19,6 +19,7 @@ type RenderablePreviewProps = {
   language?: string;
   className?: string;
   interactive?: boolean;
+  onRenderedSvg?: (svg: string | undefined) => void;
 };
 
 type CodeBlockSourceViewProps = {
@@ -39,6 +40,7 @@ export function RenderablePreview({
   language,
   className,
   interactive = false,
+  onRenderedSvg,
 }: RenderablePreviewProps) {
   const kind = getRenderableCodeBlockKind(language);
 
@@ -48,6 +50,7 @@ export function RenderablePreview({
         source={source}
         className={className}
         interactive={interactive}
+        onRenderedSvg={onRenderedSvg}
       />
     );
   }
