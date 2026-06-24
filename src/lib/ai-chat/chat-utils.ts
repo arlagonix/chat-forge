@@ -1,4 +1,10 @@
-import { defaultGenerationSettings, defaultProvider } from "./provider-presets";
+import {
+  CUSTOM_THINKING_PRESET_ID,
+  DEFAULT_THINKING_LEVEL_ID,
+  defaultGenerationSettings,
+  defaultProvider,
+  thinkingLevelPresets,
+} from "./provider-presets";
 import type {
   ChatAssistantMessage,
   ChatAssistantVariant,
@@ -11,6 +17,7 @@ import type {
   ProviderConfig,
   ProviderGenerationSettings,
   ProviderModelConfig,
+  ThinkingLevel,
 } from "./types";
 
 export const DEFAULT_CHAT_TITLE = "New chat";
@@ -208,6 +215,105 @@ function normalizeBoundedOptionalNumber(
     : undefined;
 }
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(
+    value &&
+      typeof value === "object" &&
+      !Array.isArray(value) &&
+      Object.getPrototypeOf(value) === Object.prototype,
+  );
+}
+
+function cloneRequestBodyValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(cloneRequestBodyValue);
+  if (!isPlainObject(value)) return value;
+
+  return Object.fromEntries(
+    Object.entries(value).map(([key, nestedValue]) => [
+      key,
+      cloneRequestBodyValue(nestedValue),
+    ]),
+  );
+}
+
+function normalizeRequestBody(value: unknown): Record<string, unknown> {
+  if (!isPlainObject(value)) return {};
+  return cloneRequestBodyValue(value) as Record<string, unknown>;
+}
+
+export function deepMergeRequestBody(
+  base: Record<string, unknown>,
+  patch: Record<string, unknown>,
+): Record<string, unknown> {
+  const merged: Record<string, unknown> = {
+    ...(cloneRequestBodyValue(base) as Record<string, unknown>),
+  };
+
+  for (const [key, patchValue] of Object.entries(patch)) {
+    const baseValue = merged[key];
+    merged[key] =
+      isPlainObject(baseValue) && isPlainObject(patchValue)
+        ? deepMergeRequestBody(baseValue, patchValue)
+        : cloneRequestBodyValue(patchValue);
+  }
+
+  return merged;
+}
+
+export function sanitizeThinkingLevels(
+  levels: ThinkingLevel[] | undefined,
+): ThinkingLevel[] | undefined {
+  const sanitized: ThinkingLevel[] = [];
+  const usedIds = new Set<string>([DEFAULT_THINKING_LEVEL_ID]);
+
+  for (const level of levels ?? []) {
+    const id = typeof level.id === "string" ? level.id.trim() : "";
+    const label =
+      typeof level.label === "string" && level.label.trim()
+        ? level.label.trim()
+        : id;
+    if (!id || usedIds.has(id)) continue;
+
+    usedIds.add(id);
+    sanitized.push({
+      id,
+      label,
+      requestBody: normalizeRequestBody(level.requestBody),
+    });
+  }
+
+  return sanitized.length ? sanitized : undefined;
+}
+
+function normalizeThinkingPresetId(value: unknown) {
+  return typeof value === "string" &&
+    thinkingLevelPresets.some((preset) => preset.id === value)
+    ? value
+    : "default";
+}
+
+function getThinkingPreset(presetId: string | undefined) {
+  return (
+    thinkingLevelPresets.find(
+      (preset) => preset.id === normalizeThinkingPresetId(presetId),
+    ) ?? thinkingLevelPresets[0]
+  );
+}
+
+export function getProviderThinkingLevels(
+  provider: ProviderConfig,
+  model = provider.model,
+): ThinkingLevel[] {
+  const config = getModelConfig(provider, model);
+  const preset = getThinkingPreset(config?.thinkingPresetId);
+  const levels =
+    preset.id === CUSTOM_THINKING_PRESET_ID
+      ? (config?.thinkingLevels ?? [])
+      : preset.levels;
+
+  return levels;
+}
+
 export function normalizeProviderForState(
   provider: ProviderConfig,
 ): ProviderConfig {
@@ -273,6 +379,8 @@ export function normalizeProviderForState(
           existing.context?.speculatedContextLength,
         ),
       },
+      thinkingPresetId: normalizeThinkingPresetId(existing.thinkingPresetId),
+      thinkingLevels: sanitizeThinkingLevels(existing.thinkingLevels),
     } satisfies ProviderModelConfig;
   }
 
@@ -385,16 +493,26 @@ export function parseOptionalNumber(value: string) {
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
-export function resolveChatThinkingSettings(
+export function resolveChatThinkingRequestBody(
+  provider: ProviderConfig,
   thinkingMode?: ChatThinkingMode,
-): ProviderGenerationSettings | undefined {
-  if (!thinkingMode || thinkingMode === "model_default") return undefined;
+): Record<string, unknown> | undefined {
+  const levels = getProviderThinkingLevels(provider);
+  const level =
+    !thinkingMode || thinkingMode === DEFAULT_THINKING_LEVEL_ID
+      ? levels[0]
+      : levels.find((candidate) => candidate.id === thinkingMode);
+  if (level) return normalizeRequestBody(level.requestBody);
 
   if (thinkingMode === "off") {
-    return { reasoningMode: "off", reasoningEffort: "low" };
+    return { reasoning_effort: "none" };
   }
 
-  return { reasoningMode: "enabled", reasoningEffort: thinkingMode };
+  if (["low", "medium", "high"].includes(thinkingMode)) {
+    return { reasoning_effort: thinkingMode };
+  }
+
+  return undefined;
 }
 
 export function sanitizeGenerationSettings(
@@ -403,6 +521,7 @@ export function sanitizeGenerationSettings(
   return {
     temperature: normalizeBoundedOptionalNumber(settings.temperature, 0, 2),
     topP: normalizeBoundedOptionalNumber(settings.topP, 0, 1),
+    topK: normalizePositiveOptionalInteger(settings.topK),
     maxTokens: normalizePositiveOptionalInteger(settings.maxTokens),
     reasoningMode:
       settings.reasoningMode === "auto" ||

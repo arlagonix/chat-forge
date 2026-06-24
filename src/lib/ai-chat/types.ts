@@ -1,18 +1,20 @@
 export type ProviderGenerationSettings = {
   temperature?: number;
   topP?: number;
+  topK?: number;
   maxTokens?: number;
   reasoningMode?: "auto" | "off" | "enabled";
   reasoningEffort?: "low" | "medium" | "high";
   requestTimeoutMs?: number;
 };
 
-export type ChatThinkingMode =
-  | "model_default"
-  | "off"
-  | "low"
-  | "medium"
-  | "high";
+export type ChatThinkingMode = string;
+
+export type ThinkingLevel = {
+  id: string;
+  label: string;
+  requestBody: Record<string, unknown>;
+};
 
 export type ProviderModelContext = {
   manualContextLength?: number;
@@ -25,6 +27,8 @@ export type ProviderModelConfig = ProviderGenerationSettings & {
   showInMenu?: boolean;
   supportsVision?: boolean;
   context?: ProviderModelContext;
+  thinkingPresetId?: string;
+  thinkingLevels?: ThinkingLevel[];
 };
 
 export type ProviderConfig = {

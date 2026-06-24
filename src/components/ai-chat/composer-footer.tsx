@@ -20,6 +20,7 @@ import type {
   ChatThinkingMode,
   LoadedModeInfo,
   ProviderConfig,
+  ThinkingLevel,
 } from "@/lib/ai-chat/types";
 import { cn } from "@/lib/utils";
 
@@ -47,28 +48,11 @@ type ComposerFooterProps = {
   onModeSearchValueChange: (value: string) => void;
   onSelectMode: (modeId: string) => void;
   thinkingMode: ChatThinkingMode;
+  thinkingLevels: ThinkingLevel[];
   isThinkingModePickerOpen: boolean;
   onThinkingModePickerOpenChange: (open: boolean) => void;
   onThinkingModeChange: (thinkingMode: ChatThinkingMode) => void;
 };
-
-const THINKING_MODE_OPTIONS: Array<{
-  value: ChatThinkingMode;
-  label: string;
-}> = [
-  { value: "model_default", label: "Default" },
-  { value: "off", label: "Off" },
-  { value: "low", label: "Low" },
-  { value: "medium", label: "Medium" },
-  { value: "high", label: "High" },
-];
-
-function thinkingModeLabel(value: ChatThinkingMode) {
-  return (
-    THINKING_MODE_OPTIONS.find((option) => option.value === value)?.label ??
-    "Default"
-  );
-}
 
 export const ComposerFooter = memo(function ComposerFooter({
   activeChatExists,
@@ -89,10 +73,15 @@ export const ComposerFooter = memo(function ComposerFooter({
   onModeSearchValueChange,
   onSelectMode,
   thinkingMode,
+  thinkingLevels,
   isThinkingModePickerOpen,
   onThinkingModePickerOpenChange,
   onThinkingModeChange,
 }: ComposerFooterProps) {
+  const thinkingModeLabel =
+    thinkingLevels.find((level) => level.id === thinkingMode)?.label ??
+    "Default";
+
   return (
     <div className="flex min-w-0 flex-wrap items-center gap-0">
       <Popover open={isModePickerOpen} onOpenChange={onModePickerOpenChange}>
@@ -260,9 +249,7 @@ export const ComposerFooter = memo(function ComposerFooter({
             }
           >
             <Brain className="size-4 shrink-0 opacity-70" />
-            <span className="min-w-0 truncate">
-              {thinkingModeLabel(thinkingMode)}
-            </span>
+            <span className="min-w-0 truncate">{thinkingModeLabel}</span>
           </Button>
         </PopoverTrigger>
         <PopoverContent
@@ -272,12 +259,12 @@ export const ComposerFooter = memo(function ComposerFooter({
           <Command shouldFilter={false}>
             <CommandList>
               <CommandGroup heading="Thinking effort">
-                {THINKING_MODE_OPTIONS.map((option) => (
+                {thinkingLevels.map((option) => (
                   <CommandItem
-                    key={option.value}
+                    key={option.id}
                     value={option.label}
                     onSelect={() => {
-                      onThinkingModeChange(option.value);
+                      onThinkingModeChange(option.id);
                       onThinkingModePickerOpenChange(false);
                     }}
                     className="min-w-0 cursor-pointer rounded-sm"
@@ -288,7 +275,7 @@ export const ComposerFooter = memo(function ComposerFooter({
                     <Check
                       className={cn(
                         "size-4",
-                        thinkingMode === option.value
+                        thinkingMode === option.id
                           ? "opacity-100"
                           : "opacity-0",
                       )}

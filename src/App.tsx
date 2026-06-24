@@ -104,6 +104,7 @@ import {
   getEffectiveModelContext,
   getEnabledProviderModels,
   getProviderFallbackModel,
+  getProviderThinkingLevels,
   labelForError,
   modelSupportsVision,
   normalizeProviderForState,
@@ -3395,6 +3396,15 @@ export default function Home() {
   const activeOrDraftThinkingMode: ChatThinkingMode = isNewChatDraft
     ? (newChatDraftSettings?.thinkingMode ?? "model_default")
     : (activeChat?.thinkingMode ?? "model_default");
+  const activeThinkingLevels = useMemo(
+    () => getProviderThinkingLevels(activeChatProvider, activeChatModel),
+    [activeChatProvider, activeChatModel],
+  );
+  const effectiveThinkingMode = activeThinkingLevels.some(
+    (level) => level.id === activeOrDraftThinkingMode,
+  )
+    ? activeOrDraftThinkingMode
+    : (activeThinkingLevels[0]?.id ?? activeOrDraftThinkingMode);
   const activeComposerEditState =
     composerEditState?.chatId === activeChat?.id ? composerEditState : null;
 
@@ -3806,7 +3816,8 @@ export default function Home() {
                 modeSearchValue={modeSearchValue}
                 onModeSearchValueChange={setModeSearchValue}
                 onSelectMode={selectActiveChatMode}
-                thinkingMode={activeOrDraftThinkingMode}
+                thinkingMode={effectiveThinkingMode}
+                thinkingLevels={activeThinkingLevels}
                 isThinkingModePickerOpen={isThinkingModePickerOpen}
                 onThinkingModePickerOpenChange={setIsThinkingModePickerOpen}
                 onThinkingModeChange={setActiveOrDraftChatThinkingMode}

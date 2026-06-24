@@ -31,7 +31,7 @@ import {
   isAutoTitledChat,
   labelForError,
   mergeReasoningMetadata,
-  resolveChatThinkingSettings,
+  resolveChatThinkingRequestBody,
   titleFromMessage,
 } from "@/lib/ai-chat/chat-utils";
 import type { StreamProviderChatResult } from "@/lib/ai-chat/direct-provider-client";
@@ -1675,8 +1675,12 @@ export function useChatGeneration({
     return getCurrentChatSnapshot(chatId)?.fileToolAutoApproval;
   }
 
-  function getChatThinkingSettings(chatId: string) {
-    return resolveChatThinkingSettings(
+  function getChatThinkingRequestBody(
+    chatId: string,
+    provider: ProviderConfig,
+  ) {
+    return resolveChatThinkingRequestBody(
+      provider,
       chatsRef.current.find((chat) => chat.id === chatId)?.thinkingMode,
     );
   }
@@ -2554,7 +2558,7 @@ export function useChatGeneration({
           userAttachments: round === 0 ? userAttachments : undefined,
           signal,
           tools: currentAgentToolsForRun,
-          settingsOverride: getChatThinkingSettings(chatId),
+          thinkingRequestBody: getChatThinkingRequestBody(chatId, provider),
           onContentDelta: (delta) => {
             removeActiveAgentToolBuildingStep();
             accumulatedOutput += delta;
@@ -3896,7 +3900,7 @@ export function useChatGeneration({
                 (tool) => tool.name !== CALL_AGENT_TOOL_NAME,
               )
             : currentToolsForRun,
-          settingsOverride: getChatThinkingSettings(chatId),
+          thinkingRequestBody: getChatThinkingRequestBody(chatId, providerForRun),
           onContentDelta: (delta) => {
             accumulatedContent += delta;
             const assistantMessageStepId = ensureAssistantMessageProcessStep(

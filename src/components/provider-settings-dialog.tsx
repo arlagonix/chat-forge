@@ -11,7 +11,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import type { ComponentProps } from "react";
+import type { ComponentProps, KeyboardEvent as ReactKeyboardEvent } from "react";
 import {
   memo,
   useEffect,
@@ -47,6 +47,7 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
 import { UnsavedChangesDialog } from "@/components/unsaved-changes-dialog";
 import {
   createNewProvider,
@@ -66,13 +67,18 @@ import {
   getActiveModelSettings,
   loadProviderModels,
 } from "@/lib/ai-chat/direct-provider-client";
-import { defaultGenerationSettings } from "@/lib/ai-chat/provider-presets";
+import {
+  CUSTOM_THINKING_PRESET_ID,
+  defaultGenerationSettings,
+  thinkingLevelPresets,
+} from "@/lib/ai-chat/provider-presets";
 import { saveCachedProviderModels } from "@/lib/ai-chat/storage";
 import type {
   ProviderConfig,
   ProviderGenerationSettings,
   ProviderModelConfig,
   ProvidersState,
+  ThinkingLevel,
 } from "@/lib/ai-chat/types";
 import { cn } from "@/lib/utils";
 
@@ -265,6 +271,120 @@ const BoundedDecimalInput = memo(function BoundedDecimalInput({
         commit(nextValue);
       }}
     />
+  );
+});
+
+function formatRequestBodyJson(value: Record<string, unknown>) {
+  return JSON.stringify(value ?? {}, null, 2);
+}
+
+function parseRequestBodyJson(value: string) {
+  const parsed = JSON.parse(value || "{}") as unknown;
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("Request JSON must be an object.");
+  }
+  return parsed as Record<string, unknown>;
+}
+
+function createUniqueThinkingLevelId(label: string, levels: ThinkingLevel[]) {
+  const base =
+    label
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "level";
+  const usedIds = new Set(levels.map((level) => level.id));
+  if (!usedIds.has(base)) return base;
+
+  let suffix = 2;
+  while (usedIds.has(`${base}-${suffix}`)) suffix += 1;
+  return `${base}-${suffix}`;
+}
+
+type ThinkingLevelJsonEditorProps = {
+  level: ThinkingLevel;
+  disabled?: boolean;
+  onChange: (level: ThinkingLevel) => void;
+};
+
+const ThinkingLevelJsonEditor = memo(function ThinkingLevelJsonEditor({
+  level,
+  disabled = false,
+  onChange,
+}: ThinkingLevelJsonEditorProps) {
+  const [draftJson, setDraftJson] = useState(
+    formatRequestBodyJson(level.requestBody),
+  );
+  const [error, setError] = useState<string | undefined>();
+
+  useEffect(() => {
+    setDraftJson(formatRequestBodyJson(level.requestBody));
+    setError(undefined);
+  }, [level.id, level.requestBody]);
+
+  function validateRequestBody(nextJson: string) {
+    try {
+      parseRequestBodyJson(nextJson);
+      setError(undefined);
+    } catch (parseError) {
+      setError(parseError instanceof Error ? parseError.message : "Invalid JSON.");
+    }
+  }
+
+  function commitRequestBody() {
+    if (disabled) return;
+    try {
+      const requestBody = parseRequestBodyJson(draftJson);
+      setError(undefined);
+      onChange({ ...level, requestBody });
+    } catch (parseError) {
+      setError(parseError instanceof Error ? parseError.message : "Invalid JSON.");
+    }
+  }
+
+  function insertTab(event: ReactKeyboardEvent<HTMLTextAreaElement>) {
+    if (disabled || event.key !== "Tab") return;
+
+    event.preventDefault();
+    const textarea = event.currentTarget;
+    const selectionStart = textarea.selectionStart;
+    const selectionEnd = textarea.selectionEnd;
+    const nextJson = `${draftJson.slice(0, selectionStart)}\t${draftJson.slice(
+      selectionEnd,
+    )}`;
+
+    setDraftJson(nextJson);
+    validateRequestBody(nextJson);
+    window.requestAnimationFrame(() => {
+      textarea.selectionStart = selectionStart + 1;
+      textarea.selectionEnd = selectionStart + 1;
+    });
+  }
+
+  return (
+    <div className="grid gap-1.5">
+      <Textarea
+        value={draftJson}
+        onBlur={commitRequestBody}
+        onKeyDown={insertTab}
+        onChange={(event) => {
+          if (disabled) return;
+          const nextJson = event.target.value;
+          setDraftJson(nextJson);
+          validateRequestBody(nextJson);
+        }}
+        disabled={disabled}
+        spellCheck={false}
+        className="h-[180px] resize-y font-mono text-xs"
+      />
+      {error ? (
+        <p className="text-xs leading-5 text-destructive">{error}</p>
+      ) : (
+        <p className="text-xs leading-5 text-muted-foreground">
+          Appended to the final request JSON when this level is selected.
+        </p>
+      )}
+    </div>
   );
 });
 
@@ -866,37 +986,87 @@ export const ProviderSettingsDialog = memo(function ProviderSettingsDialog({
     loadedModelSearchQuery,
   ]);
 
-  const selectedModelThinkingMode = (() => {
-    if (selectedModelSettings?.reasoningMode === "off") return "off";
-    if (selectedModelSettings?.reasoningMode === "enabled") {
-      return selectedModelSettings.reasoningEffort ?? "medium";
-    }
-    return "auto";
-  })();
+  const selectedModelThinkingLevels = selectedModelConfig?.thinkingLevels ?? [];
+  const selectedThinkingPresetId =
+    selectedModelConfig?.thinkingPresetId ?? "default";
+  const selectedThinkingPreset =
+    thinkingLevelPresets.find(
+      (preset) => preset.id === selectedThinkingPresetId,
+    ) ?? thinkingLevelPresets[0];
+  const customThinkingPreset = thinkingLevelPresets.find(
+    (preset) => preset.id === CUSTOM_THINKING_PRESET_ID,
+  );
+  const selectedThinkingPresetIsCustom =
+    selectedThinkingPreset.id === CUSTOM_THINKING_PRESET_ID;
+  const displayedThinkingLevels = selectedThinkingPresetIsCustom
+    ? selectedModelThinkingLevels
+    : selectedThinkingPreset.levels;
 
-  function updateSelectedModelThinkingMode(value: string) {
-    if (value === "auto") {
-      updateSelectedModelGenerationSettings({
-        reasoningMode: "auto",
-        reasoningEffort: undefined,
-      });
-      return;
-    }
+  function updateSelectedModelThinkingPreset(presetId: string) {
+    const preset = thinkingLevelPresets.find(
+      (candidate) => candidate.id === presetId,
+    );
+    if (!preset) return;
 
-    if (value === "off") {
-      updateSelectedModelGenerationSettings({
-        reasoningMode: "off",
-        reasoningEffort: "low",
-      });
-      return;
-    }
+    updateSelectedModelConfig({
+      thinkingPresetId: preset.id,
+      ...(preset.id === CUSTOM_THINKING_PRESET_ID &&
+      selectedModelThinkingLevels.length === 0
+        ? {
+            thinkingLevels: customThinkingPreset?.levels.map((level) => ({
+              ...level,
+              requestBody: level.requestBody,
+            })),
+          }
+        : {}),
+    });
+  }
 
-    if (value === "low" || value === "medium" || value === "high") {
-      updateSelectedModelGenerationSettings({
-        reasoningMode: "enabled",
-        reasoningEffort: value,
-      });
-    }
+  function updateSelectedModelThinkingLevels(levels: ThinkingLevel[]) {
+    updateSelectedModelConfig({
+      thinkingLevels: levels,
+    });
+  }
+
+  function addSelectedModelThinkingLevel() {
+    const label = "Custom";
+    const id = createUniqueThinkingLevelId(label, selectedModelThinkingLevels);
+    updateSelectedModelThinkingLevels([
+      ...selectedModelThinkingLevels,
+      { id, label, requestBody: {} },
+    ]);
+  }
+
+  function applyThinkingLevelPreset(presetId: string) {
+    const preset = thinkingLevelPresets.find(
+      (candidate) => candidate.id === presetId,
+    );
+    if (!preset || preset.id === CUSTOM_THINKING_PRESET_ID) return;
+
+    updateSelectedModelThinkingLevels(
+      preset.levels.map((level) => ({
+        id: level.id,
+        label: level.label,
+        requestBody: level.requestBody,
+      })),
+    );
+  }
+
+  function updateSelectedModelThinkingLevel(
+    levelId: string,
+    patch: Partial<ThinkingLevel>,
+  ) {
+    updateSelectedModelThinkingLevels(
+      selectedModelThinkingLevels.map((level) =>
+        level.id === levelId ? { ...level, ...patch } : level,
+      ),
+    );
+  }
+
+  function deleteSelectedModelThinkingLevel(levelId: string) {
+    updateSelectedModelThinkingLevels(
+      selectedModelThinkingLevels.filter((level) => level.id !== levelId),
+    );
   }
 
   function updateSelectedModelMaxTokens(maxTokens: number | undefined) {
@@ -1530,6 +1700,20 @@ export const ProviderSettingsDialog = memo(function ProviderSettingsDialog({
                       </div>
 
                       <div className="grid gap-2">
+                        <Label htmlFor="generation-top-k">Top K</Label>
+                        <PositiveIntegerInput
+                          id="generation-top-k"
+                          value={selectedModelSettings?.topK}
+                          onValueChange={(value) =>
+                            updateSelectedModelGenerationSettings({
+                              topK: value,
+                            })
+                          }
+                          placeholder="Provider default"
+                        />
+                      </div>
+
+                      <div className="grid gap-2">
                         <Label htmlFor="generation-max-tokens">
                           Max output tokens
                         </Label>
@@ -1541,25 +1725,133 @@ export const ProviderSettingsDialog = memo(function ProviderSettingsDialog({
                         />
                       </div>
 
-                      <div className="grid gap-2">
-                        <Label htmlFor="generation-thinking-mode">
-                          Thinking mode
-                        </Label>
-                        <Select
-                          value={selectedModelThinkingMode}
-                          onValueChange={updateSelectedModelThinkingMode}
-                        >
-                          <SelectTrigger id="generation-thinking-mode">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="auto">Auto</SelectItem>
-                            <SelectItem value="off">No thinking</SelectItem>
-                            <SelectItem value="low">Low</SelectItem>
-                            <SelectItem value="medium">Medium</SelectItem>
-                            <SelectItem value="high">High</SelectItem>
-                          </SelectContent>
-                        </Select>
+                      <div className="grid gap-3">
+                        <div className="grid gap-2">
+                          <Label htmlFor="thinking-preset">Thinking preset</Label>
+                          <Select
+                            value={selectedThinkingPreset.id}
+                            onValueChange={updateSelectedModelThinkingPreset}
+                          >
+                            <SelectTrigger id="thinking-preset">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {thinkingLevelPresets.map((preset) => (
+                                <SelectItem key={preset.id} value={preset.id}>
+                                  {preset.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <p className="text-sm leading-5 text-muted-foreground">
+                            {selectedThinkingPreset.description}
+                          </p>
+                        </div>
+
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <Label>Thinking levels</Label>
+                          {selectedThinkingPresetIsCustom ? (
+                            <div className="flex shrink-0 gap-2">
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                  >
+                                    Apply preset
+                                  </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                  {thinkingLevelPresets
+                                    .filter(
+                                      (preset) =>
+                                        preset.id !== CUSTOM_THINKING_PRESET_ID,
+                                    )
+                                    .map((preset) => (
+                                      <DropdownMenuItem
+                                        key={preset.id}
+                                        onSelect={() =>
+                                          applyThinkingLevelPreset(preset.id)
+                                        }
+                                      >
+                                        {preset.label}
+                                      </DropdownMenuItem>
+                                    ))}
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={addSelectedModelThinkingLevel}
+                              >
+                                Add level
+                              </Button>
+                            </div>
+                          ) : null}
+                        </div>
+
+                        {displayedThinkingLevels.length > 0 ? (
+                          <div className="grid gap-3">
+                            {displayedThinkingLevels.map((level) => {
+                              const isEditable = selectedThinkingPresetIsCustom;
+
+                              return (
+                              <div
+                                key={level.id}
+                                className="grid gap-3 rounded-md border p-3"
+                              >
+                                <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+                                  <div className="grid gap-1.5">
+                                    <Label htmlFor={`thinking-level-${level.id}-label`}>
+                                      Label
+                                    </Label>
+                                    <Input
+                                      id={`thinking-level-${level.id}-label`}
+                                      value={level.label}
+                                      disabled={!isEditable}
+                                      onChange={(event) =>
+                                        updateSelectedModelThinkingLevel(
+                                          level.id,
+                                          { label: event.target.value },
+                                        )
+                                      }
+                                    />
+                                  </div>
+                                  {isEditable ? (
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="icon"
+                                      className="self-end text-muted-foreground hover:text-destructive"
+                                      onClick={() =>
+                                        deleteSelectedModelThinkingLevel(level.id)
+                                      }
+                                      title="Delete thinking level"
+                                    >
+                                      <Trash2 className="size-4" />
+                                    </Button>
+                                  ) : null}
+                                </div>
+                                <ThinkingLevelJsonEditor
+                                  level={level}
+                                  disabled={!isEditable}
+                                  onChange={(nextLevel) =>
+                                    updateSelectedModelThinkingLevel(level.id, {
+                                      requestBody: nextLevel.requestBody,
+                                    })
+                                  }
+                                />
+                              </div>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <p className="rounded-md border border-dashed p-3 text-sm leading-5 text-muted-foreground">
+                            This preset does not define request JSON levels.
+                          </p>
+                        )}
                       </div>
 
                       <div className="grid gap-2">

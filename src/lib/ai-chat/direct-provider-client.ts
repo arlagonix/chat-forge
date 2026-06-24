@@ -1,5 +1,5 @@
 import { ATTACHMENT_LIMITS } from "./attachment-limits";
-import { mergeReasoningMetadata } from "./chat-utils";
+import { deepMergeRequestBody, mergeReasoningMetadata } from "./chat-utils";
 import { stripToolCallUiMetadataForProvider } from "./tool-call-metadata";
 import { getToolResultsForToolCalls } from "./tool-history";
 import { defaultGenerationSettings } from "./provider-presets";
@@ -418,14 +418,13 @@ export async function buildApiMessages({
   messages,
   userMessage,
   userAttachments,
-  settings,
 }: {
   provider: ProviderConfig;
   systemPrompt: string;
   messages: ChatMessage[];
   userMessage?: string;
   userAttachments?: ChatAttachment[];
-  settings: ProviderGenerationSettings;
+  settings?: ProviderGenerationSettings;
 }): Promise<ApiChatMessage[]> {
   const apiMessages: ApiChatMessage[] = [
     ...(systemPrompt.trim()
@@ -504,11 +503,7 @@ export async function buildApiMessages({
     }
   }
 
-  const finalUserMessage = appendThinkingControlPrompt(
-    userMessage?.trim() ?? "",
-    provider,
-    settings,
-  );
+  const finalUserMessage = userMessage?.trim() ?? "";
 
   if (finalUserMessage || userAttachments?.length) {
     apiMessages.push({
@@ -560,107 +555,6 @@ function modelLooksReasoningCapable(model: string) {
   ].some((marker) => normalized.includes(marker));
 }
 
-function isLocalOpenAiCompatibleProvider(provider: ProviderConfig) {
-  try {
-    const url = new URL(provider.baseUrl);
-    return ["localhost", "127.0.0.1", "0.0.0.0", "::1"].includes(url.hostname);
-  } catch {
-    const baseUrl = provider.baseUrl.toLowerCase();
-    return baseUrl.includes("localhost") || baseUrl.includes("127.0.0.1");
-  }
-}
-
-function modelUsesOpenAiReasoningEffort(model: string) {
-  const normalized = model.toLowerCase();
-  return (
-    normalized.includes("gpt-oss") ||
-    normalized.includes("openai/") ||
-    /(^|[/:-])o[134](?:-|$)/.test(normalized)
-  );
-}
-
-function modelSupportsQwenSoftSwitch(model: string) {
-  const normalized = model.toLowerCase();
-  if (normalized.includes("qwen3.5") || normalized.includes("qwen-3.5")) {
-    return false;
-  }
-
-  return (
-    normalized.includes("qwen3") ||
-    normalized.includes("qwen-3") ||
-    normalized.includes("qwen/qwen3")
-  );
-}
-
-function shouldSendReasoningControls(
-  provider: ProviderConfig,
-  settings: ProviderGenerationSettings,
-) {
-  if (
-    settings.reasoningMode !== "off" &&
-    settings.reasoningMode !== "enabled"
-  ) {
-    return false;
-  }
-
-  return modelLooksReasoningCapable(provider.model);
-}
-
-function buildReasoningPayload(
-  provider: ProviderConfig,
-  settings: ProviderGenerationSettings,
-) {
-  if (!shouldSendReasoningControls(provider, settings)) return {};
-
-  const effort = settings.reasoningEffort ?? "medium";
-  const isLocalProvider = isLocalOpenAiCompatibleProvider(provider);
-
-  if (settings.reasoningMode === "off") {
-    return {
-      reasoning_effort: "none",
-      ...(isLocalProvider
-        ? {
-            enable_thinking: false,
-            chat_template_kwargs: { enable_thinking: false },
-          }
-        : {}),
-    };
-  }
-
-  if (modelUsesOpenAiReasoningEffort(provider.model)) {
-    return { reasoning_effort: effort };
-  }
-
-  return {
-    reasoning: true,
-    reasoning_effort: effort,
-    ...(isLocalProvider
-      ? {
-          enable_thinking: true,
-          chat_template_kwargs: { enable_thinking: true },
-        }
-      : {}),
-  };
-}
-
-function appendThinkingControlPrompt(
-  content: string,
-  provider: ProviderConfig,
-  settings: ProviderGenerationSettings,
-) {
-  if (!content || !modelSupportsQwenSoftSwitch(provider.model)) return content;
-
-  if (settings.reasoningMode === "off") {
-    return `${content}\n/no_think`;
-  }
-
-  if (settings.reasoningMode === "enabled") {
-    return `${content}\n/think`;
-  }
-
-  return content;
-}
-
 async function buildPayload({
   provider,
   systemPrompt,
@@ -670,6 +564,7 @@ async function buildPayload({
   stream,
   tools,
   settingsOverride,
+  thinkingRequestBody,
 }: {
   provider: ProviderConfig;
   systemPrompt: string;
@@ -679,6 +574,7 @@ async function buildPayload({
   stream: boolean;
   tools?: LoadedToolInfo[];
   settingsOverride?: ProviderGenerationSettings;
+  thinkingRequestBody?: Record<string, unknown>;
 }) {
   const settings = {
     ...getActiveModelSettings(provider),
@@ -686,9 +582,10 @@ async function buildPayload({
   };
   const temperature = normalizeOptionalNumber(settings.temperature, 0, 2);
   const topP = normalizeOptionalNumber(settings.topP, 0, 1);
+  const topK = normalizeOptionalNumber(settings.topK, 1, 1048576);
   const maxTokens = normalizeOptionalNumber(settings.maxTokens, 1, 1048576);
 
-  return {
+  const payload: Record<string, unknown> = {
     model: provider.model,
     messages: await buildApiMessages({
       provider,
@@ -696,7 +593,6 @@ async function buildPayload({
       messages,
       userMessage,
       userAttachments,
-      settings,
     }),
     stream,
     ...(tools?.length
@@ -721,9 +617,13 @@ async function buildPayload({
       : {}),
     ...(temperature !== undefined ? { temperature } : {}),
     ...(topP !== undefined ? { top_p: topP } : {}),
+    ...(topK !== undefined ? { top_k: topK } : {}),
     ...(maxTokens !== undefined ? { max_tokens: maxTokens } : {}),
-    ...buildReasoningPayload(provider, settings),
   };
+
+  return thinkingRequestBody
+    ? deepMergeRequestBody(payload, thinkingRequestBody)
+    : payload;
 }
 
 type ModelLike = {
@@ -973,6 +873,7 @@ export async function sendProviderChat({
   userMessage,
   userAttachments,
   settingsOverride,
+  thinkingRequestBody,
 }: {
   provider: ProviderConfig;
   systemPrompt: string;
@@ -980,6 +881,7 @@ export async function sendProviderChat({
   userMessage: string;
   userAttachments?: ChatAttachment[];
   settingsOverride?: ProviderGenerationSettings;
+  thinkingRequestBody?: Record<string, unknown>;
 }): Promise<string> {
   if (!provider.baseUrl.trim()) {
     throw new Error("Provider base URL is required.");
@@ -1009,6 +911,7 @@ export async function sendProviderChat({
       userAttachments,
       stream: false,
       settingsOverride,
+      thinkingRequestBody,
     }),
   });
 
@@ -1041,6 +944,7 @@ export async function streamProviderChat({
   signal,
   tools,
   settingsOverride,
+  thinkingRequestBody,
   onContentDelta,
   onReasoningDelta,
   onToolCallDelta,
@@ -1053,6 +957,7 @@ export async function streamProviderChat({
   signal?: AbortSignal;
   tools?: LoadedToolInfo[];
   settingsOverride?: ProviderGenerationSettings;
+  thinkingRequestBody?: Record<string, unknown>;
   onContentDelta: (delta: string) => void;
   onReasoningDelta?: (delta: string) => void;
   onToolCallDelta?: (toolCalls: ChatToolCall[]) => void;
@@ -1106,6 +1011,7 @@ export async function streamProviderChat({
       stream: true,
       tools,
       settingsOverride,
+      thinkingRequestBody,
     }),
   });
 
