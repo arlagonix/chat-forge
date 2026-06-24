@@ -123,4 +123,108 @@ describe("context usage helpers", () => {
     expect(details.limitTokens).toBeUndefined();
     expect(details.usagePercent).toBeUndefined();
   });
+
+  it("estimates live context usage before provider token usage is available", () => {
+    const messages: ChatMessage[] = [
+      {
+        id: "user-1",
+        role: "user",
+        content: "12345678",
+        createdAt: new Date(0).toISOString(),
+      },
+      {
+        id: "assistant-1",
+        role: "assistant",
+        activeVariantIndex: 0,
+        createdAt: new Date(1).toISOString(),
+        variants: [
+          {
+            id: "variant-1",
+            content: "1234567890123456",
+            reasoning: "1234",
+            status: "streaming",
+            createdAt: new Date(1).toISOString(),
+          },
+        ],
+      },
+    ];
+
+    const details = buildContextUsageDetails({
+      messages,
+      contextLimit: 100,
+      systemPrompt: "12345678",
+    });
+
+    expect(details.usedTokens).toBe(9);
+    expect(details.usagePercent).toBe(9);
+    expect(details.isApproximate).toBe(true);
+    expect(details.lastAssistantBreakdown).toEqual({
+      output: 4,
+      reasoning: 1,
+      total: 5,
+      isApproximate: true,
+    });
+  });
+
+  it("adds estimated trailing messages to the latest exact usage", () => {
+    const messages: ChatMessage[] = [
+      {
+        id: "assistant-1",
+        role: "assistant",
+        activeVariantIndex: 0,
+        createdAt: new Date(0).toISOString(),
+        variants: [
+          {
+            id: "variant-1",
+            content: "Done.",
+            createdAt: new Date(0).toISOString(),
+            metrics: {
+              startedAt: new Date(0).toISOString(),
+              tokenUsage: {
+                totalTokens: 100,
+                breakdown: {
+                  input: 80,
+                  output: 20,
+                },
+              },
+            },
+          },
+        ],
+      },
+      {
+        id: "user-1",
+        role: "user",
+        content: "12345678",
+        createdAt: new Date(1).toISOString(),
+      },
+      {
+        id: "assistant-2",
+        role: "assistant",
+        activeVariantIndex: 0,
+        createdAt: new Date(2).toISOString(),
+        variants: [
+          {
+            id: "variant-2",
+            content: "123456789012",
+            status: "streaming",
+            createdAt: new Date(2).toISOString(),
+          },
+        ],
+      },
+    ];
+
+    const details = buildContextUsageDetails({
+      messages,
+      contextLimit: 200,
+    });
+
+    expect(details.usedTokens).toBe(105);
+    expect(details.usagePercent).toBe(52.5);
+    expect(details.isApproximate).toBe(true);
+    expect(details.lastAssistantBreakdown).toEqual({
+      output: 3,
+      total: 3,
+      isApproximate: true,
+    });
+  });
 });

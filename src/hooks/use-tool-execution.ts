@@ -390,6 +390,7 @@ export function useToolExecution({
     }
 
     const loadedInstructions = buildLoadedSkillInstructions(skill);
+    const skillContent = skill.manifestContent || skill.instructions || "";
     const resultPayload = {
       ok: true,
       status: "loaded",
@@ -409,6 +410,8 @@ export function useToolExecution({
       toolName: LOAD_SKILL_TOOL_NAME,
       content: JSON.stringify(resultPayload, null, 2),
       loadedSkillName: skillName,
+      loadedSkillDescription: skill.description,
+      loadedSkillContent: skillContent,
       loadedSkillInstructions: loadedInstructions,
       loadedSkillRecommendedToolNames: [],
     };

@@ -216,6 +216,8 @@ export type ChatToolResult = {
   execution?: ToolExecutionPreview;
   changePreview?: FileToolChangePreview;
   loadedSkillName?: string;
+  loadedSkillDescription?: string;
+  loadedSkillContent?: string;
   loadedSkillInstructions?: string;
   loadedSkillRecommendedToolNames?: string[];
   generatedFiles?: ChatGeneratedFile[];

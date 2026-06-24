@@ -7,31 +7,34 @@ import { cn } from "@/lib/utils";
 
 export type ContextUsageInfo = ContextUsageDetails;
 
-function formatNumber(value: number | undefined) {
-  return value === undefined || !Number.isFinite(value)
-    ? "—"
-    : new Intl.NumberFormat().format(Math.round(value));
+function formatNumber(value: number | undefined, approximate = false) {
+  if (value === undefined || !Number.isFinite(value)) return "—";
+
+  return `${approximate ? "~" : ""}${new Intl.NumberFormat().format(
+    Math.round(value),
+  )}`;
 }
 
-function formatCompact(value: number | undefined) {
+function formatCompact(value: number | undefined, approximate = false) {
   const safeValue =
     value !== undefined && Number.isFinite(value) && value > 0 ? value : 0;
+  const prefix = approximate ? "~" : "";
 
   if (safeValue >= 1_000_000) {
-    return `${Math.round(safeValue / 1_000_000)}M`;
+    return `${prefix}${Math.round(safeValue / 1_000_000)}M`;
   }
 
   if (safeValue >= 1_000) {
-    return `${Math.round(safeValue / 1_000)}k`;
+    return `${prefix}${Math.round(safeValue / 1_000)}k`;
   }
 
-  return String(Math.round(safeValue));
+  return `${prefix}${Math.round(safeValue)}`;
 }
 
-function formatPercent(value: number | undefined) {
+function formatPercent(value: number | undefined, approximate = false) {
   return value === undefined || !Number.isFinite(value)
     ? "—"
-    : `${Math.min(value, 999).toFixed(1)}%`;
+    : `${approximate ? "~" : ""}${Math.min(value, 999).toFixed(1)}%`;
 }
 
 function formatMoney(value: number | undefined) {
@@ -61,9 +64,15 @@ function getUsageBarColor(percentage: number | undefined) {
   return "bg-red-500";
 }
 
-function formatField(value: number | undefined, kind: "count" | "percent") {
+function formatField(
+  value: number | undefined,
+  kind: "count" | "percent",
+  approximate = false,
+) {
   if (value === undefined || !Number.isFinite(value)) return "—";
-  return kind === "percent" ? formatPercent(value) : formatNumber(value);
+  return kind === "percent"
+    ? formatPercent(value, approximate)
+    : formatNumber(value, approximate);
 }
 
 function StatCard({ label, value }: { label: string; value: string }) {
@@ -109,6 +118,8 @@ function ContextUsageModalContent({ usage }: { usage: ContextUsageInfo }) {
       ? `${Math.min(100, Math.max(0, usagePercent))}%`
       : "0%";
   const breakdown = usage.lastAssistantBreakdown;
+  const approximateUsage = usage.isApproximate ?? false;
+  const approximateBreakdown = breakdown?.isApproximate ?? false;
   const segments = [
     {
       key: "user",
@@ -142,7 +153,7 @@ function ContextUsageModalContent({ usage }: { usage: ContextUsageInfo }) {
         <div className="flex items-baseline justify-between gap-4">
           <span className="text-sm text-muted-foreground">Context</span>
           <span className="text-sm tabular-nums text-muted-foreground">
-            {formatNumber(usage.usedTokens)}
+            {formatNumber(usage.usedTokens, approximateUsage)}
             {hasLimit ? ` / ${formatNumber(usage.limitTokens)}` : ""}
           </span>
         </div>
@@ -158,7 +169,7 @@ function ContextUsageModalContent({ usage }: { usage: ContextUsageInfo }) {
               />
             </div>
             <div className="mt-2 text-sm font-medium tabular-nums text-foreground">
-              {formatPercent(usagePercent)} used
+              {formatPercent(usagePercent, approximateUsage)} used
             </div>
           </>
         ) : (
@@ -214,7 +225,11 @@ function ContextUsageModalContent({ usage }: { usage: ContextUsageInfo }) {
             <div key={item.label}>
               <div className="text-sm text-muted-foreground">{item.label}</div>
               <div className="mt-1 tabular-nums text-foreground">
-                {formatField(item.value, item.kind)}
+                {formatField(
+                  item.value,
+                  item.kind,
+                  item.kind === "count" && approximateBreakdown,
+                )}
               </div>
             </div>
           ))}
@@ -265,8 +280,8 @@ export const ContextUsageIndicator = memo(function ContextUsageIndicator({
     Number.isFinite(usage.limitTokens) &&
     usage.limitTokens > 0;
   const label = hasLimit
-    ? formatPercent(usage.usagePercent)
-    : formatCompact(usage.usedTokens);
+    ? formatPercent(usage.usagePercent, usage.isApproximate)
+    : formatCompact(usage.usedTokens, usage.isApproximate);
   const colorClass = getUsageColor(usage.usagePercent);
 
   return (

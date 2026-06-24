@@ -17,6 +17,7 @@ export type ContextUsageTokenBreakdown = {
   cacheRead?: number;
   cacheWrite?: number;
   total: number;
+  isApproximate?: boolean;
 };
 
 export type ContextUsageDistribution = {
@@ -37,6 +38,7 @@ export type ContextUsageDetails = {
   costUsd: number;
   lastAssistantBreakdown?: ContextUsageTokenBreakdown;
   cacheHitPercent?: number;
+  isApproximate?: boolean;
   distribution: ContextUsageDistribution;
   distributionTotal: number;
 };
@@ -114,7 +116,9 @@ function getLatestAssistantBreakdown(messages: ChatMessage[]) {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const variant = getActiveVariant(messages[index]);
     const breakdown = extractTokenBreakdown(variant?.metrics?.tokenUsage);
-    if (breakdown && breakdown.total > 0) return breakdown;
+    if (breakdown && breakdown.total > 0) {
+      return { breakdown, index };
+    }
   }
 
   return undefined;
@@ -169,6 +173,91 @@ function estimateVariantToolTokens(variant: ChatAssistantVariant): number {
   );
 
   return toolCallTokens + toolResultTokens;
+}
+
+function estimateMessageTokens(message: ChatMessage): number {
+  if (message.role === "user") {
+    return (
+      estimateTokensFromText(message.content) +
+      (message.attachments ?? []).reduce<number>(
+        (sum, attachment) =>
+          sum +
+          (attachment.tokenEstimate ??
+            estimateTokensFromText(attachment.extractedText ?? attachment.name)),
+        0,
+      )
+    );
+  }
+
+  const variant = getActiveVariant(message);
+  if (!variant) return 0;
+
+  return estimateVariantAssistantTokens(variant) + estimateVariantToolTokens(variant);
+}
+
+function estimateLastAssistantBreakdown(
+  messages: ChatMessage[],
+): ContextUsageTokenBreakdown | undefined {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const variant = getActiveVariant(messages[index]);
+    if (!variant) continue;
+
+    const exactBreakdown = extractTokenBreakdown(variant.metrics?.tokenUsage);
+    if (exactBreakdown && exactBreakdown.total > 0) return exactBreakdown;
+
+    const output = estimateTokensFromText(variant.content);
+    const reasoning = estimateTokensFromText(variant.reasoning);
+    const tool = estimateVariantToolTokens(variant);
+    const total = output + reasoning + tool;
+
+    if (total <= 0) return undefined;
+
+    return {
+      output,
+      reasoning: reasoning || undefined,
+      total,
+      isApproximate: true,
+    };
+  }
+
+  return undefined;
+}
+
+function estimateContextTokens({
+  messages,
+  systemPrompt,
+  exactBreakdown,
+  exactBreakdownIndex,
+}: {
+  messages: ChatMessage[];
+  systemPrompt: string;
+  exactBreakdown?: ContextUsageTokenBreakdown;
+  exactBreakdownIndex?: number;
+}) {
+  if (exactBreakdown && exactBreakdown.total > 0) {
+    const trailingTokens = messages
+      .slice((exactBreakdownIndex ?? messages.length - 1) + 1)
+      .reduce<number>((sum, message) => sum + estimateMessageTokens(message), 0);
+
+    return {
+      tokens: exactBreakdown.total + trailingTokens,
+      trailingTokens,
+      isApproximate: trailingTokens > 0,
+    };
+  }
+
+  const estimatedTokens =
+    estimateTokensFromText(systemPrompt) +
+    messages.reduce<number>(
+      (sum, message) => sum + estimateMessageTokens(message),
+      0,
+    );
+
+  return {
+    tokens: estimatedTokens,
+    trailingTokens: estimatedTokens,
+    isApproximate: estimatedTokens > 0,
+  };
 }
 
 function computeDistribution({
@@ -232,22 +321,37 @@ export function buildContextUsageDetails({
   attachmentTokens?: number;
   systemPrompt?: string;
 }): ContextUsageDetails {
-  const lastAssistantBreakdown = getLatestAssistantBreakdown(messages);
+  const latestExactAssistantBreakdown = getLatestAssistantBreakdown(messages);
+  const exactBreakdown = latestExactAssistantBreakdown?.breakdown;
   const safeAttachmentTokens = Math.max(0, attachmentTokens);
-  const usedTokens =
-    lastAssistantBreakdown !== undefined
-      ? lastAssistantBreakdown.total + safeAttachmentTokens
+  const contextEstimate = estimateContextTokens({
+    messages,
+    systemPrompt,
+    exactBreakdown,
+    exactBreakdownIndex: latestExactAssistantBreakdown?.index,
+  });
+  const estimatedUsedTokens =
+    contextEstimate.tokens > 0
+      ? contextEstimate.tokens + safeAttachmentTokens
       : safeAttachmentTokens || undefined;
+  const usedTokens =
+    exactBreakdown !== undefined && !contextEstimate.isApproximate
+      ? exactBreakdown.total + safeAttachmentTokens
+      : estimatedUsedTokens;
   const hasLimit =
     contextLimit !== undefined && Number.isFinite(contextLimit) && contextLimit > 0;
   const usagePercent =
     hasLimit && usedTokens !== undefined ? (usedTokens / contextLimit) * 100 : undefined;
-  const inputTokens = lastAssistantBreakdown?.input;
+  const inputTokens = exactBreakdown?.input;
   const distribution = computeDistribution({
     messages,
     systemPrompt,
     inputTokens,
   });
+  const lastAssistantBreakdown = estimateLastAssistantBreakdown(messages);
+  const isApproximate =
+    contextEstimate.isApproximate ||
+    Boolean(lastAssistantBreakdown?.isApproximate);
 
   return {
     usedTokens,
@@ -259,7 +363,10 @@ export function buildContextUsageDetails({
     assistantMessagesCount: messages.filter((message) => message.role === "assistant").length,
     costUsd: 0,
     lastAssistantBreakdown,
-    cacheHitPercent: computeCacheHitPercent(lastAssistantBreakdown),
+    cacheHitPercent: lastAssistantBreakdown?.isApproximate
+      ? undefined
+      : computeCacheHitPercent(lastAssistantBreakdown),
+    isApproximate,
     distribution: distribution.distribution,
     distributionTotal: distribution.total,
   };

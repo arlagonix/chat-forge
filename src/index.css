@@ -234,6 +234,10 @@
     }
   }
 
+  .chat-tool-details-scroll {
+    --chat-code-header-sticky-top: -1rem;
+  }
+
   .chat-scrollbar::-webkit-scrollbar {
     display: none;
     width: 0;
@@ -627,6 +631,13 @@
     .chat-code-block:not(.chat-code-block-fullscreen)
     .chat-code-scroll {
     max-height: min(50rem, 50dvh);
+    overflow-y: auto;
+  }
+
+  .chat-skill-content-codeblock
+    .chat-code-block:not(.chat-code-block-fullscreen)
+    .chat-code-scroll {
+    max-height: min(72rem, 70dvh);
     overflow-y: auto;
   }
 

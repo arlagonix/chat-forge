@@ -1801,6 +1801,9 @@ export function useChatGeneration({
   ): ChatToolResult {
     const skill = availableSkillsByName.get(skillName);
     const loadedInstructions = skill ? buildLoadedSkillInstructions(skill) : "";
+    const skillContent = skill
+      ? skill.manifestContent || skill.instructions || ""
+      : "";
     const payload = {
       ok: Boolean(skill),
       status: skill ? "loaded" : "missing",
@@ -1821,6 +1824,8 @@ export function useChatGeneration({
       content: JSON.stringify(payload, null, 2),
       isError: !skill,
       loadedSkillName: skill ? skillName : undefined,
+      loadedSkillDescription: skill?.description,
+      loadedSkillContent: skillContent,
       loadedSkillInstructions: loadedInstructions,
       loadedSkillRecommendedToolNames: [],
     };

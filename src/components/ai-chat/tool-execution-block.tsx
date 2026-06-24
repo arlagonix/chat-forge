@@ -61,6 +61,8 @@ import { cn } from "@/lib/utils";
 
 const TOOL_INFO_CODE_BLOCK_CLASS_NAME =
   "chat-markdown-compact chat-tool-info-codeblock";
+const SKILL_CONTENT_CODE_BLOCK_CLASS_NAME =
+  "chat-markdown-compact chat-skill-content-codeblock";
 
 const BUILTIN_TOOL_DESCRIPTIONS: Record<string, string> = {
   [ASK_USER_TOOL.name]: ASK_USER_TOOL.description,
@@ -373,6 +375,8 @@ function getLoadSkillDetails(toolResult?: ChatToolResult) {
   if (!toolResult || toolResult.toolName !== LOAD_SKILL_TOOL_NAME) {
     return {
       instructions: "",
+      skillContent: "",
+      description: "",
       recommendedToolNames: [] as string[],
       compactOutput: toolResult?.content ?? "",
       location: "",
@@ -385,6 +389,8 @@ function getLoadSkillDetails(toolResult?: ChatToolResult) {
   let parsedName: unknown;
   let parsedLocation: unknown;
   let parsedDirectoryPath: unknown;
+  let parsedDescription: unknown;
+  let parsedSkillContent: unknown;
   let parsedInstructions: unknown;
   let parsedRecommendedToolNames: unknown;
 
@@ -398,6 +404,8 @@ function getLoadSkillDetails(toolResult?: ChatToolResult) {
     parsedName = parsed.name;
     parsedLocation = parsed.location;
     parsedDirectoryPath = parsed.directoryPath;
+    parsedDescription = parsed.description;
+    parsedSkillContent = parsed.skillContent;
     parsedInstructions = parsed.instructions;
     parsedRecommendedToolNames = parsed.recommendedToolNames;
   } catch {
@@ -407,6 +415,16 @@ function getLoadSkillDetails(toolResult?: ChatToolResult) {
   const instructions =
     toolResult.loadedSkillInstructions ??
     (typeof parsedInstructions === "string" ? parsedInstructions : "");
+  const parsedSkillContentValue =
+    typeof parsedSkillContent === "string" ? parsedSkillContent : "";
+  const explicitSkillContent =
+    toolResult.loadedSkillContent ??
+    parsedSkillContentValue;
+  const skillContent =
+    explicitSkillContent || extractLoadedSkillContent(instructions);
+  const description =
+    toolResult.loadedSkillDescription ??
+    (typeof parsedDescription === "string" ? parsedDescription : "");
   const recommendedToolNames =
     toolResult.loadedSkillRecommendedToolNames ??
     (Array.isArray(parsedRecommendedToolNames)
@@ -443,11 +461,34 @@ function getLoadSkillDetails(toolResult?: ChatToolResult) {
 
   return {
     instructions,
+    skillContent,
+    description,
     recommendedToolNames,
     compactOutput,
     location,
     directoryPath,
   };
+}
+
+function extractLoadedSkillContent(instructions: string) {
+  const normalized = instructions.replace(/\r\n/g, "\n").trim();
+  const openingTagMatch = /^<skill\b[^>]*>\n*/.exec(normalized);
+  if (!openingTagMatch) return normalized;
+
+  let content = normalized
+    .slice(openingTagMatch[0].length)
+    .replace(/\n*<\/skill>\s*$/u, "");
+  const lines = content.split("\n");
+  const firstNonEmptyLineIndex = lines.findIndex((line) => line.trim());
+
+  if (
+    firstNonEmptyLineIndex >= 0 &&
+    lines[firstNonEmptyLineIndex].trim().startsWith("References are relative to ")
+  ) {
+    content = lines.slice(firstNonEmptyLineIndex + 1).join("\n");
+  }
+
+  return content.trim();
 }
 
 function normalizeToolDescription(description?: string) {
@@ -466,7 +507,13 @@ function getLoadedToolInfo(toolName: string, loadedTools: LoadedToolInfo[]) {
 function getToolDescription(
   toolCall: ChatToolCall,
   loadedTools: LoadedToolInfo[],
+  toolResult?: ChatToolResult,
 ) {
+  if (toolCall.function.name === LOAD_SKILL_TOOL_NAME) {
+    const loadSkillDetails = getLoadSkillDetails(toolResult);
+    return normalizeToolDescription(loadSkillDetails.description);
+  }
+
   const loadedToolDescription = getLoadedToolInfo(
     toolCall.function.name,
     loadedTools,
@@ -701,8 +748,8 @@ const ToolExecutionDetailsPanel = memo(function ToolExecutionDetailsPanel({
     toolCall.function.name === TERMINAL_EXEC_TOOL_NAME ||
     toolCall.function.name === BASH_TOOL_NAME;
   const toolDescription = useMemo(
-    () => getToolDescription(toolCall, loadedTools),
-    [loadedTools, toolCall],
+    () => getToolDescription(toolCall, loadedTools, toolResult),
+    [loadedTools, toolCall, toolResult],
   );
   const showToolInput =
     hasMeaningfulToolInput(toolCall.function.arguments || "") &&
@@ -710,7 +757,7 @@ const ToolExecutionDetailsPanel = memo(function ToolExecutionDetailsPanel({
 
   return (
     <>
-      <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4 chat-message-scrollbar">
+      <div className="chat-tool-details-scroll min-h-0 flex-1 overflow-y-auto px-5 py-4 chat-message-scrollbar">
         <div className="grid gap-3 text-sm leading-5 text-muted-foreground">
           {toolDescription ? (
             <div className="grid gap-1.5">
@@ -753,6 +800,20 @@ const ToolExecutionDetailsPanel = memo(function ToolExecutionDetailsPanel({
               {renderTerminalOutput(toolResult)}
             </div>
           ) : null}
+          {isLoadSkillTool &&
+            !toolResult?.isError &&
+            loadSkillDetails.skillContent.trim() && (
+              <div className="grid gap-1.5">
+                <div className="text-sm font-medium uppercase tracking-wide text-muted-foreground/80">
+                  SKILL.md
+                </div>
+                {renderCodeBlock(
+                  loadSkillDetails.skillContent,
+                  "markdown",
+                  SKILL_CONTENT_CODE_BLOCK_CLASS_NAME,
+                )}
+              </div>
+            )}
           {toolResult?.content.trim() &&
             (!isTerminalTool || !toolResult.terminal) && (
               <div className="grid gap-1.5">
@@ -767,14 +828,6 @@ const ToolExecutionDetailsPanel = memo(function ToolExecutionDetailsPanel({
               </div>
             )}
           {renderFileChangePreview(toolResult?.changePreview)}
-          {isLoadSkillTool && loadSkillDetails.instructions.trim() && (
-            <div className="grid gap-1.5">
-              <div className="text-sm font-medium uppercase tracking-wide text-muted-foreground/80">
-                Instructions
-              </div>
-              {renderCodeBlock(loadSkillDetails.instructions, "markdown")}
-            </div>
-          )}
           {isLoadSkillTool &&
             loadSkillDetails.recommendedToolNames.length > 0 && (
               <div className="grid gap-1.5">
