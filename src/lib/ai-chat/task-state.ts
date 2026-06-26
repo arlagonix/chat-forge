@@ -44,11 +44,7 @@ export function dedupeTaskList(tasks: AgentTask[]) {
 }
 
 export function normalizeTaskCounter(tasks: AgentTask[], nextTaskId?: number) {
-  const maxTaskId = tasks.reduce(
-    (maxId, task) => Math.max(maxId, task.id),
-    0,
-  );
-  return Math.max(nextTaskId ?? 1, maxTaskId + 1);
+  return Math.max(nextTaskId ?? 1, tasks.length + 1);
 }
 
 function parseTaskToolResult(toolResult?: ChatToolResult): AgentTask[] | undefined {
@@ -66,7 +62,6 @@ function parseTaskToolResult(toolResult?: ChatToolResult): AgentTask[] | undefin
 
       const source = task as Record<string, unknown>;
       return (
-        typeof source.id === "number" &&
         typeof source.subject === "string" &&
         typeof source.done === "boolean"
       );

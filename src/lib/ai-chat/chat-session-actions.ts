@@ -16,7 +16,7 @@ export function cloneWorkspaceRoots(roots?: ChatWorkspaceRoot[]) {
 }
 
 export function getFolderDefaultWorkspaceRoots(
-  folder?: Pick<ChatFolder, "workspaceRoots">,
+  folder?: ChatFolder | Pick<ChatFolder, "workspaceRoots">,
 ) {
   return cloneWorkspaceRoots(folder?.workspaceRoots);
 }
