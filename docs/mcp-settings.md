@@ -102,11 +102,11 @@ mcp_<server-name>_<tool-name>
 Examples:
 
 ```text
-server: Serena, tool: edit_memory -> mcp_Serena_edit_memory
+server: Serena, tool: edit_memory -> mcp_serena_edit_memory
 server: serena, tool: edit_memory -> mcp_serena_edit_memory
 ```
 
-When a server is renamed and saved, all exposed names for that server are regenerated from the saved server name. This fixes stale names such as `mcp_Serena_edit_memory` remaining after the server is renamed to `serena`.
+When a server is renamed and saved, all exposed names for that server are regenerated from the saved server name. The server part of generated MCP tool names is lowercased, so `Serena` and `serena` both produce `mcp_serena_*` names.
 
 ## Permission migration on rename
 

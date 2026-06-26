@@ -67,7 +67,7 @@ describe("MCP settings helpers", () => {
       "mcp_serena_edit_memory",
     );
     expect(createMcpExposedToolName("Serena", "edit_memory")).toBe(
-      "mcp_Serena_edit_memory",
+      "mcp_serena_edit_memory",
     );
   });
 

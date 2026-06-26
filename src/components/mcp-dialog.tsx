@@ -3,13 +3,16 @@
 import {
   AlertTriangle,
   CheckCircle2,
+  ChevronDown,
+  ChevronRight,
   Info,
   MoreHorizontal,
   Plus,
   RefreshCw,
-  Server,
+  Search,
   Trash2,
   Wand2,
+  Wrench,
   X,
 } from "lucide-react";
 import {
@@ -19,9 +22,12 @@ import {
   useRef,
   useState,
   type ComponentProps,
+  type Dispatch,
   type ReactNode,
+  type SetStateAction,
 } from "react";
 
+import { MarkdownMessage } from "@/components/ai-chat/markdown-message";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -56,11 +62,28 @@ import {
 import { UnsavedChangesDialog } from "@/components/unsaved-changes-dialog";
 import { useMcpSettingsForm } from "@/hooks/use-mcp-settings-form";
 import { createMcpExposedToolName } from "@/lib/ai-chat/mcp";
-import type { McpSettings, McpToolConfig } from "@/lib/ai-chat/types";
+import type {
+  McpServerConfig,
+  McpSettings,
+  McpToolConfig,
+  Permission,
+  ToolsSettings,
+} from "@/lib/ai-chat/types";
 import { cn } from "@/lib/utils";
 
 const TLS_WARNING =
   "Use only for local, self-signed, or corporate-proxy MCP servers you trust.";
+const MCP_INFO_CODE_BLOCK_CLASS_NAME =
+  "chat-markdown-compact chat-tool-info-codeblock";
+
+function renderJsonCodeBlock(value: unknown) {
+  return (
+    <MarkdownMessage
+      className={MCP_INFO_CODE_BLOCK_CLASS_NAME}
+      content={`~~~json\n${JSON.stringify(value ?? {}, null, 2)}\n~~~`}
+    />
+  );
+}
 
 function InfoTooltip({
   label,
@@ -136,7 +159,7 @@ function ToggleBlock({
           onCheckedChange(!checked);
         }
       }}
-      className="flex cursor-pointer select-none items-center justify-between gap-4 rounded-lg border p-3 transition-colors hover:bg-accent/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="flex cursor-pointer select-none items-center justify-between gap-4 rounded-sm border p-3 transition-colors hover:bg-accent/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       <div className="min-w-0">
         <div className="flex items-center gap-1.5">
@@ -161,6 +184,8 @@ type McpDialogProps = {
   onOpenChange: (open: boolean) => void;
   mcpSettings: McpSettings;
   onMcpSettingsChange: (settings: McpSettings) => void;
+  toolsSettings: ToolsSettings;
+  onToolsSettingsChange: Dispatch<SetStateAction<ToolsSettings>>;
   showSuccess: (message: string, description?: string) => void;
   showError: (message: string, description?: string) => void;
 };
@@ -201,7 +226,6 @@ function textToArgs(value: string) {
     .map((line) => line.trim())
     .filter(Boolean);
 }
-
 
 type BufferedTextareaProps = Omit<
   ComponentProps<typeof Textarea>,
@@ -244,11 +268,74 @@ function sortTools(tools?: Record<string, McpToolConfig>) {
   );
 }
 
+type SavedMcpToolEntry = {
+  server: McpServerConfig;
+  tool: McpToolConfig;
+  exposedName: string;
+};
+
+function getSavedEnabledTools(server: McpServerConfig) {
+  return sortTools(server.tools).filter((tool) => tool.enabled);
+}
+
+function getSavedToolEntryKey(serverId: string, toolName: string) {
+  return `${serverId}:${toolName}`;
+}
+
+function getMcpToolSearchText(server: McpServerConfig, tool: McpToolConfig) {
+  return [
+    server.name,
+    server.transport,
+    tool.originalName,
+    tool.exposedName,
+    tool.description,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+}
+
+function getMcpToolPermission(
+  settings: ToolsSettings,
+  toolName: string,
+): Permission {
+  return settings.toolPermissions?.[toolName] ?? "ask";
+}
+
+function PermissionSelect({
+  value,
+  onChange,
+}: {
+  value: Permission;
+  onChange: (value: Permission) => void;
+}) {
+  return (
+    <Select
+      value={value}
+      onValueChange={(next) => onChange(next as Permission)}
+    >
+      <SelectTrigger
+        className="h-8 w-[6.25rem] shrink-0"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value="allow">Allow</SelectItem>
+        <SelectItem value="ask">Ask</SelectItem>
+        <SelectItem value="deny">Deny</SelectItem>
+      </SelectContent>
+    </Select>
+  );
+}
+
 export const McpDialog = memo(function McpDialog({
   open,
   onOpenChange,
   mcpSettings,
   onMcpSettingsChange,
+  toolsSettings,
+  onToolsSettingsChange,
   showSuccess,
   showError,
 }: McpDialogProps) {
@@ -288,16 +375,157 @@ export const McpDialog = memo(function McpDialog({
     showError,
   });
 
+  const [serverSearch, setServerSearch] = useState("");
+  const [discoveredToolSearch, setDiscoveredToolSearch] = useState("");
+  const [expandedServerIds, setExpandedServerIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [selectedToolEntryKey, setSelectedToolEntryKey] = useState<
+    string | null
+  >(null);
+
   const activeServerTools = useMemo(
     () => sortTools(activeServer?.tools),
     [activeServer?.tools],
   );
 
+  const filteredActiveServerTools = useMemo(() => {
+    const query = discoveredToolSearch.trim().toLowerCase();
+    if (!activeServer || !query) return activeServerTools;
+
+    return activeServerTools.filter((tool) =>
+      getMcpToolSearchText(activeServer, {
+        ...tool,
+        exposedName: createMcpExposedToolName(
+          activeServer.name,
+          tool.originalName,
+        ),
+      }).includes(query),
+    );
+  }, [activeServer, activeServerTools, discoveredToolSearch]);
+
+  const visibleSavedServers = useMemo(() => {
+    const serverQuery = serverSearch.trim().toLowerCase();
+
+    return savedServers
+      .map((server, index) => ({ server, index }))
+      .filter(({ server }) =>
+        !serverQuery
+          ? true
+          : [server.name, server.transport, server.url, server.command]
+              .filter(Boolean)
+              .join(" ")
+              .toLowerCase()
+              .includes(serverQuery),
+      )
+      .sort((left, right) => {
+        if (left.server.enabled !== right.server.enabled) {
+          return left.server.enabled ? -1 : 1;
+        }
+        return left.index - right.index;
+      })
+      .map(({ server }) => server);
+  }, [savedServers, serverSearch]);
+
+  const selectedSavedToolEntry = useMemo<SavedMcpToolEntry | null>(() => {
+    if (!selectedToolEntryKey) return null;
+
+    for (const server of savedServers) {
+      for (const tool of getSavedEnabledTools(server)) {
+        const entryKey = getSavedToolEntryKey(server.id, tool.originalName);
+        if (entryKey !== selectedToolEntryKey) continue;
+        const exposedName = createMcpExposedToolName(
+          server.name,
+          tool.originalName,
+        );
+        return { server, tool, exposedName };
+      }
+    }
+
+    return null;
+  }, [savedServers, selectedToolEntryKey]);
+
+  useEffect(() => {
+    if (!selectedToolEntryKey) return;
+    if (!selectedSavedToolEntry) setSelectedToolEntryKey(null);
+  }, [selectedSavedToolEntry, selectedToolEntryKey]);
+
+  function toggleServerExpanded(serverId: string) {
+    setExpandedServerIds((current) => {
+      const next = new Set(current);
+      if (next.has(serverId)) next.delete(serverId);
+      else next.add(serverId);
+      return next;
+    });
+  }
+
+  function setMcpToolPermission(toolName: string, permission: Permission) {
+    onToolsSettingsChange((current) => ({
+      ...current,
+      permissionModelVersion: 2,
+      toolPermissions: {
+        ...(current.toolPermissions ?? {}),
+        [toolName]: permission,
+      },
+    }));
+  }
+
+  function selectServerForEditing(serverId: string) {
+    setSelectedToolEntryKey(null);
+    requestSelectServer(serverId);
+  }
+
+  function renderSavedToolDetails(entry: SavedMcpToolEntry) {
+    return (
+      <>
+        <div className="z-20 flex shrink-0 items-center border-b bg-background px-4 py-2.5">
+          <Label className="text-sm font-medium uppercase tracking-wide text-muted-foreground min-h-8">
+            MCP tool
+          </Label>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4">
+          <div className="grid gap-5 pb-1">
+            <div className="grid gap-1">
+              <h3 className="min-w-0 break-all text-lg font-semibold text-foreground">
+                {entry.tool.originalName}
+              </h3>
+              <p className="max-w-2xl text-base leading-6 text-muted-foreground">
+                {entry.tool.description || "No description."}
+              </p>
+            </div>
+
+            <div className="grid gap-1 text-sm leading-5">
+              <Label>Generated tool name</Label>
+              <div className="break-all font-mono text-muted-foreground">
+                {entry.exposedName}
+              </div>
+            </div>
+
+            <div className="grid gap-2">
+              <Label>Input schema</Label>
+              {renderJsonCodeBlock(entry.tool.inputSchema ?? {})}
+            </div>
+          </div>
+        </div>
+      </>
+    );
+  }
+
   return (
     <>
       <Dialog open={open} onOpenChange={requestClose}>
         <DialogContent
-          className="flex h-[min(1000px,calc(100dvh-2rem))] max-h-none flex-col gap-0 overflow-hidden p-0 sm:max-w-6xl"
+          className="flex h-[min(1000px,calc(100dvh-2rem))] max-h-none flex-col gap-0 overflow-hidden p-0 outline-none focus:outline-none focus-visible:ring-0 sm:max-w-6xl"
+          onOpenAutoFocus={(event) => {
+            event.preventDefault();
+            window.requestAnimationFrame(() => {
+              const activeElement =
+                document.activeElement as HTMLElement | null;
+              if (activeElement?.closest?.('[data-slot="dialog-content"]')) {
+                activeElement.blur();
+              }
+            });
+          }}
           onInteractOutside={(event) => {
             // Toasts render outside the dialog (at the app root). Selecting or
             // clicking toast text must not be treated as an outside click that
@@ -314,109 +542,246 @@ export const McpDialog = memo(function McpDialog({
 
           <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden md:grid-cols-[400px_minmax(0,1fr)]">
             <aside className="flex min-h-0 flex-col border-b bg-card/70 md:border-b-0 md:border-r">
-              <div className="min-h-0 flex-1 overflow-y-auto p-2">
-                <div
-                  role="button"
-                  tabIndex={0}
-                  className="mb-2 flex cursor-pointer items-center justify-between gap-3 rounded-lg border bg-background px-2 py-2 text-base outline-none transition-colors hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-ring"
-                  onClick={() => updateGlobalEnabled(!mcpEnabled)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" || event.key === " ") {
-                      event.preventDefault();
-                      updateGlobalEnabled(!mcpEnabled);
-                    }
-                  }}
-                >
-                  <span className="min-w-0">
-                    <span className="flex items-center gap-1.5 font-medium">
-                      Enable MCP globally
-                      <InfoTooltip label="Enable MCP globally">
-                        Master switch for MCP. When disabled, all server
-                        switches appear off, but their saved values are
-                        preserved.
-                      </InfoTooltip>
-                    </span>
-                    <span className="block select-none text-sm leading-5 text-muted-foreground">
-                      Disabled globally hides all MCP tools from model context.
-                    </span>
-                  </span>
-                  <Switch
-                    checked={mcpEnabled}
-                    onClick={(event) => event.stopPropagation()}
-                    onCheckedChange={updateGlobalEnabled}
-                    className="shrink-0 cursor-pointer"
+              <div className="shrink-0 border-b bg-card/90 p-2">
+                <div className="relative">
+                  <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    value={serverSearch}
+                    onChange={(event) => setServerSearch(event.target.value)}
+                    placeholder="Search MCP servers"
+                    aria-label="Search MCP servers"
+                    autoFocus={false}
+                    className="h-9 pl-8 pr-8"
                   />
+                  {serverSearch ? (
+                    <button
+                      type="button"
+                      className="absolute right-2 top-1/2 inline-flex size-5 -translate-y-1/2 items-center justify-center text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      onClick={() => setServerSearch("")}
+                      title="Clear server search"
+                    >
+                      <X className="size-3.5" />
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+
+              <div className="min-h-0 flex-1 overflow-y-auto">
+                <div className="border-b">
+                  <div
+                    role="button"
+                    tabIndex={0}
+                    className="flex cursor-pointer items-center justify-between gap-3 bg-transparent px-2 py-2 text-base outline-none transition-colors hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-ring"
+                    onClick={() => updateGlobalEnabled(!mcpEnabled)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        updateGlobalEnabled(!mcpEnabled);
+                      }
+                    }}
+                  >
+                    <span className="min-w-0">
+                      <span className="flex items-center gap-1.5 font-medium select-none min-h-8">
+                        Enable MCP globally
+                        <InfoTooltip label="Enable MCP globally">
+                          Master switch for MCP. When disabled, all server
+                          switches appear off and all MCP tools stay out of
+                          model context, but saved values are preserved.
+                        </InfoTooltip>
+                      </span>
+                    </span>
+                    <Switch
+                      checked={mcpEnabled}
+                      onClick={(event) => event.stopPropagation()}
+                      onCheckedChange={updateGlobalEnabled}
+                      className="shrink-0 cursor-pointer"
+                    />
+                  </div>
                 </div>
 
-                <div className="grid gap-1.5">
-                  {savedServers.map((server) => {
-                    const toolCount = Object.keys(server.tools ?? {}).length;
+                <div>
+                  {visibleSavedServers.map((server) => {
+                    const savedEnabledTools = getSavedEnabledTools(server);
+                    const visibleTools = savedEnabledTools;
+                    const toolCount = savedEnabledTools.length;
                     const serverSwitchChecked = mcpEnabled
                       ? server.enabled
                       : false;
+                    const expanded = expandedServerIds.has(server.id);
+                    const isSelectedServer =
+                      !isNewServer &&
+                      !selectedSavedToolEntry &&
+                      selectedServerId === server.id;
 
                     return (
-                      <div
-                        key={server.id}
-                        role="button"
-                        tabIndex={0}
-                        className={cn(
-                          "group flex min-w-0 cursor-pointer select-none items-start gap-2 rounded-lg border px-2 py-2 outline-none transition-colors",
-                          !isNewServer && selectedServerId === server.id
-                            ? "border-primary/30 bg-accent text-accent-foreground"
-                            : "border-transparent hover:border-border hover:bg-muted/60",
-                        )}
-                        onClick={() => {
-                          if (!isNewServer && selectedServerId === server.id) {
-                            if (mcpEnabled) {
-                              updateServerEnabled(server.id, !server.enabled);
+                      <div key={server.id} className="border-b last:border-b-0">
+                        <div
+                          role="button"
+                          tabIndex={0}
+                          className={cn(
+                            "group flex min-w-0 cursor-pointer select-none items-start gap-2 px-2 py-2 outline-none transition-colors",
+                            isSelectedServer
+                              ? "bg-accent text-accent-foreground"
+                              : "hover:bg-muted/60",
+                            !server.enabled && "opacity-70",
+                          )}
+                          onClick={() => {
+                            if (
+                              !isNewServer &&
+                              selectedServerId === server.id &&
+                              !selectedSavedToolEntry
+                            ) {
+                              if (mcpEnabled) {
+                                updateServerEnabled(server.id, !server.enabled);
+                              }
+                              return;
                             }
-                            return;
-                          }
 
-                          requestSelectServer(server.id);
-                        }}
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter" || event.key === " ") {
-                            event.preventDefault();
-                            requestSelectServer(server.id);
-                          }
-                        }}
-                      >
-                        <Server className="mt-[5px] size-4 shrink-0 text-muted-foreground" />
-                        <div className="min-w-0 flex-1">
-                          <div className="truncate text-base leading-6">
-                            {server.name}
+                            selectServerForEditing(server.id);
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter" || event.key === " ") {
+                              event.preventDefault();
+                              selectServerForEditing(server.id);
+                            }
+                          }}
+                        >
+                          <button
+                            type="button"
+                            className="mt-[3px] inline-flex size-5 shrink-0 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              toggleServerExpanded(server.id);
+                            }}
+                            aria-label={`${expanded ? "Collapse" : "Expand"} ${server.name} tools`}
+                            title={`${expanded ? "Collapse" : "Expand"} tools`}
+                          >
+                            {expanded ? (
+                              <ChevronDown className="size-4" />
+                            ) : (
+                              <ChevronRight className="size-4" />
+                            )}
+                          </button>
+                          <div className="min-w-0 flex-1">
+                            <div className="truncate text-base font-medium leading-6">
+                              {server.name}
+                            </div>
+                            <div className="truncate text-sm text-muted-foreground">
+                              {server.transport} · {toolCount} active tool
+                              {toolCount === 1 ? "" : "s"}
+                            </div>
                           </div>
-                          <div className="truncate text-sm text-muted-foreground">
-                            {server.transport} · {toolCount} tool
-                            {toolCount === 1 ? "" : "s"}
-                          </div>
+                          <Switch
+                            aria-label={`${server.name} MCP server`}
+                            checked={serverSwitchChecked}
+                            disabled={!mcpEnabled}
+                            onClick={(event) => event.stopPropagation()}
+                            onCheckedChange={(checked) =>
+                              updateServerEnabled(server.id, checked)
+                            }
+                            className="mt-0.5 shrink-0 cursor-pointer"
+                            title={
+                              server.enabled
+                                ? "Disable MCP server"
+                                : "Enable MCP server"
+                            }
+                          />
                         </div>
-                        <Switch
-                          aria-label={`${server.name} MCP server`}
-                          checked={serverSwitchChecked}
-                          disabled={!mcpEnabled}
-                          onClick={(event) => event.stopPropagation()}
-                          onCheckedChange={(checked) =>
-                            updateServerEnabled(server.id, checked)
-                          }
-                          className="mt-0.5 shrink-0 cursor-pointer"
-                          title={
-                            server.enabled
-                              ? "Disable MCP server"
-                              : "Enable MCP server"
-                          }
-                        />
+
+                        {expanded && visibleTools.length > 0 ? (
+                          <div className="grid gap-0">
+                            {visibleTools.map((tool) => {
+                              const exposedName = createMcpExposedToolName(
+                                server.name,
+                                tool.originalName,
+                              );
+                              const entryKey = getSavedToolEntryKey(
+                                server.id,
+                                tool.originalName,
+                              );
+                              const selected =
+                                selectedSavedToolEntry?.server.id ===
+                                  server.id &&
+                                selectedSavedToolEntry.tool.originalName ===
+                                  tool.originalName;
+                              return (
+                                <div
+                                  key={entryKey}
+                                  role="button"
+                                  tabIndex={0}
+                                  className={cn(
+                                    "group flex min-w-0 cursor-pointer items-start gap-2 px-2 py-2 outline-none transition-colors",
+                                    selected
+                                      ? "bg-accent text-accent-foreground"
+                                      : "hover:bg-muted/60",
+                                  )}
+                                  onClick={() => {
+                                    if (hasChanges) return;
+                                    setSelectedToolEntryKey(entryKey);
+                                  }}
+                                  onKeyDown={(event) => {
+                                    if (
+                                      event.key === "Enter" ||
+                                      event.key === " "
+                                    ) {
+                                      event.preventDefault();
+                                      if (!hasChanges)
+                                        setSelectedToolEntryKey(entryKey);
+                                    }
+                                  }}
+                                  title={
+                                    hasChanges
+                                      ? "Save or reset changes before viewing tool details."
+                                      : tool.description
+                                  }
+                                >
+                                  <Wrench className="mt-1 size-4 shrink-0 text-muted-foreground" />
+                                  <div className="min-w-0 flex-1">
+                                    <div className="truncate text-base leading-6">
+                                      {tool.originalName}
+                                    </div>
+                                    <div className="mt-0.5 break-all font-mono text-sm leading-5 text-muted-foreground">
+                                      {exposedName}
+                                    </div>
+                                    {tool.description ? (
+                                      <div className="mt-1 line-clamp-2 text-sm leading-5 text-muted-foreground">
+                                        {tool.description}
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                  <PermissionSelect
+                                    value={getMcpToolPermission(
+                                      toolsSettings,
+                                      exposedName,
+                                    )}
+                                    onChange={(permission) =>
+                                      setMcpToolPermission(
+                                        exposedName,
+                                        permission,
+                                      )
+                                    }
+                                  />
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ) : null}
                       </div>
                     );
                   })}
 
                   {savedServers.length === 0 && (
-                    <div className="rounded-lg border border-dashed px-3 py-4 text-center text-base text-muted-foreground">
+                    <div className="m-2 rounded-sm border border-dashed px-3 py-4 text-center text-base text-muted-foreground">
                       No MCP servers configured.
                     </div>
                   )}
+
+                  {savedServers.length > 0 &&
+                    visibleSavedServers.length === 0 && (
+                      <div className="m-2 rounded-sm border border-dashed px-3 py-4 text-center text-base text-muted-foreground">
+                        No MCP servers match your search.
+                      </div>
+                    )}
                 </div>
               </div>
 
@@ -426,7 +791,10 @@ export const McpDialog = memo(function McpDialog({
                   variant="secondary"
                   size="sm"
                   className="h-[36px] w-full"
-                  onClick={requestAddServer}
+                  onClick={() => {
+                    setSelectedToolEntryKey(null);
+                    requestAddServer();
+                  }}
                 >
                   <Plus className="size-4" />
                   Add server
@@ -435,12 +803,14 @@ export const McpDialog = memo(function McpDialog({
             </aside>
 
             <div className="min-h-0 flex flex-col overflow-hidden">
-              {activeServer ? (
+              {selectedSavedToolEntry ? (
+                renderSavedToolDetails(selectedSavedToolEntry)
+              ) : activeServer ? (
                 <>
-                  <div className="z-20 flex  shrink-0 items-center border-b bg-background px-4 py-2">
+                  <div className="z-20 flex shrink-0 items-center border-b bg-background px-4 py-2.5">
                     <div className="flex w-full items-center justify-between gap-4">
                       <div>
-                        <Label className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
+                        <Label className="text-sm font-medium uppercase tracking-wide text-muted-foreground min-h-8">
                           {isNewServer ? "New MCP server" : "Edit MCP server"}
                         </Label>
                       </div>
@@ -721,15 +1091,13 @@ export const McpDialog = memo(function McpDialog({
                               </h4>
                               <InfoTooltip label="Discovered tools">
                                 Tools discovered from this server. Enable a tool
-                                here to show it in Tools settings and model
-                                context; permissions are configured in Tools
-                                settings.
+                                here to show it under this MCP server and make
+                                it available to model context after saving.
+                                Disabled tools stay hidden from model context.
+                                Ask, Allow, and Deny are configured from the
+                                saved tool rows on the left.
                               </InfoTooltip>
                             </div>
-                            <p className="text-sm text-muted-foreground">
-                              Disabled tools stay hidden from Tools settings and
-                              model context.
-                            </p>
                           </div>
                           <Button
                             type="button"
@@ -752,28 +1120,49 @@ export const McpDialog = memo(function McpDialog({
                         </div>
 
                         {activeServerTools.length > 0 ? (
-                          <div className="rounded-lg border bg-muted/20 px-3 py-2 text-sm leading-5 text-muted-foreground">
-                            Tool switches here control whether MCP tools are
-                            visible in Tools settings and model context. Ask,
-                            Allow, and Deny are still configured in Tools
-                            settings after a tool is enabled.
+                          <div className="relative">
+                            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                            <Input
+                              value={discoveredToolSearch}
+                              onChange={(event) =>
+                                setDiscoveredToolSearch(event.target.value)
+                              }
+                              placeholder="Search MCP tools"
+                              aria-label="Search MCP tools"
+                              autoFocus={false}
+                              className="h-9 pl-8 pr-8"
+                            />
+                            {discoveredToolSearch ? (
+                              <button
+                                type="button"
+                                className="absolute right-2 top-1/2 inline-flex size-5 -translate-y-1/2 items-center justify-center text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                onClick={() => setDiscoveredToolSearch("")}
+                                title="Clear MCP tool search"
+                              >
+                                <X className="size-3.5" />
+                              </button>
+                            ) : null}
                           </div>
                         ) : null}
 
-                        <div className="grid gap-2">
+                        <div className="grid gap-0">
                           {activeServerTools.length === 0 ? (
-                            <div className="rounded-lg border border-dashed px-3 py-4 text-center text-base text-muted-foreground">
+                            <div className="rounded-sm border border-dashed px-3 py-4 text-center text-base text-muted-foreground">
                               No tools discovered yet. Use Load tools after
                               configuring the server.
                             </div>
+                          ) : filteredActiveServerTools.length === 0 ? (
+                            <p className="text-sm leading-5 text-muted-foreground">
+                              No MCP tools match the search.
+                            </p>
                           ) : (
-                            activeServerTools.map((tool) => (
+                            filteredActiveServerTools.map((tool) => (
                               <div
                                 key={tool.originalName}
                                 role="button"
                                 aria-pressed={tool.enabled}
                                 tabIndex={0}
-                                className="cursor-pointer select-none rounded-lg border bg-background px-3 py-2 outline-none transition-colors hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-ring"
+                                className="cursor-pointer select-none rounded-sm px-2 py-2 outline-none transition-colors hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-ring"
                                 onClick={() => {
                                   updateActiveServerToolEnabled(
                                     tool.originalName,
@@ -798,7 +1187,7 @@ export const McpDialog = memo(function McpDialog({
                                     <div className="truncate text-base font-medium leading-6">
                                       {tool.originalName}
                                     </div>
-                                    <div className="mt-0.5 break-all font-mono text-xs font-medium text-muted-foreground">
+                                    <div className="mt-0.5 break-all font-mono text-sm leading-5 text-muted-foreground">
                                       {createMcpExposedToolName(
                                         activeServer.name,
                                         tool.originalName,
@@ -870,7 +1259,6 @@ export const McpDialog = memo(function McpDialog({
               ) : (
                 <div className="flex min-h-0 flex-1 items-center justify-center p-6 text-center text-muted-foreground">
                   <div className="grid max-w-sm gap-2">
-                    <Server className="mx-auto size-8 opacity-50" />
                     <div className="text-lg font-medium text-foreground">
                       No MCP server selected
                     </div>

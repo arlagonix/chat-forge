@@ -280,8 +280,8 @@ export const ContextUsageIndicator = memo(function ContextUsageIndicator({
     Number.isFinite(usage.limitTokens) &&
     usage.limitTokens > 0;
   const label = hasLimit
-    ? formatPercent(usage.usagePercent, usage.isApproximate)
-    : formatCompact(usage.usedTokens, usage.isApproximate);
+    ? formatPercent(usage.usagePercent)
+    : formatCompact(usage.usedTokens);
   const colorClass = getUsageColor(usage.usagePercent);
 
   return (

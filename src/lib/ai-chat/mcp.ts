@@ -93,7 +93,7 @@ export function sanitizeMcpToolNamePart(value: string, fallback: string) {
 }
 
 export function createMcpExposedToolName(serverName: string, toolName: string) {
-  const serverPart = sanitizeMcpToolNamePart(serverName, "server");
+  const serverPart = sanitizeMcpToolNamePart(serverName, "server").toLowerCase();
   const toolPart = sanitizeMcpToolNamePart(toolName, "tool");
   const name = `mcp_${serverPart}_${toolPart}`.slice(0, 64);
   return TOOL_NAME_PATTERN.test(name) ? name : "";

@@ -6,10 +6,10 @@ import {
   Brain,
   Cpu,
   FileText,
-  MessageSquareText,
-  Moon,
   Layers3,
   Maximize2,
+  MessageSquareText,
+  Moon,
   Network,
   SlidersHorizontal,
   Sun,
@@ -19,13 +19,13 @@ import {
 import { memo, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
-import { GroupHeading } from "@/components/ui/group-heading";
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { GroupHeading } from "@/components/ui/group-heading";
 import {
   Select,
   SelectContent,
@@ -34,12 +34,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import type { ThemePreference } from "@/lib/theme";
 import type {
   AppFontFamily,
   ChatTitleGenerationMode,
   ChatWidth,
 } from "@/lib/ai-chat/types";
+import type { ThemePreference } from "@/lib/theme";
 
 function SettingsSwitchRow({
   icon,
@@ -66,7 +66,7 @@ function SettingsSwitchRow({
           onCheckedChange(!checked);
         }
       }}
-      className="flex cursor-pointer select-none items-center justify-between gap-4 rounded-lg border p-3 transition-colors hover:bg-accent/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="flex cursor-pointer select-none items-center justify-between gap-4 rounded-sm border p-3 transition-colors hover:bg-accent/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       <div className="flex min-w-0 items-start gap-3">
         <div className="mt-[5px] text-muted-foreground">{icon}</div>
@@ -78,7 +78,12 @@ function SettingsSwitchRow({
         </div>
       </div>
       {/* Presentational only — the whole block is the click target. */}
-      <Switch checked={checked} tabIndex={-1} aria-hidden className="pointer-events-none" />
+      <Switch
+        checked={checked}
+        tabIndex={-1}
+        aria-hidden
+        className="pointer-events-none"
+      />
     </div>
   );
 }
@@ -99,7 +104,7 @@ function SettingsSelectRow({
   options: { value: string; label: string }[];
 }) {
   return (
-    <div className="flex items-center justify-between gap-4 rounded-lg border p-3">
+    <div className="flex items-center justify-between gap-4 rounded-sm border p-3">
       <div className="flex min-w-0 items-start gap-3">
         <div className="mt-[5px] text-muted-foreground">{icon}</div>
         <div className="min-w-0">
@@ -208,7 +213,7 @@ export const SettingsDialog = memo(function SettingsDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="grid h-[min(1000px,calc(100dvh-2rem))] grid-rows-[auto_1fr] gap-0 p-0 sm:max-w-3xl">
-        <DialogHeader className="border-b px-6 py-4">
+        <DialogHeader className="border-b px-4 py-4">
           <DialogTitle>Settings</DialogTitle>
         </DialogHeader>
 
@@ -317,7 +322,9 @@ export const SettingsDialog = memo(function SettingsDialog({
                   title="Chat width"
                   description="Set the maximum width of the message column and composer."
                   value={chatWidth}
-                  onValueChange={(value) => onChatWidthChange(value as ChatWidth)}
+                  onValueChange={(value) =>
+                    onChatWidthChange(value as ChatWidth)
+                  }
                   options={[
                     { value: "720", label: "720 px" },
                     { value: "768", label: "768 px" },

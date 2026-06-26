@@ -142,7 +142,7 @@ export function sanitizeMcpToolNamePart(value: string, fallback: string) {
 }
 
 export function createMcpExposedToolName(serverName: string, toolName: string) {
-  const serverPart = sanitizeMcpToolNamePart(serverName, "server");
+  const serverPart = sanitizeMcpToolNamePart(serverName, "server").toLowerCase();
   const toolPart = sanitizeMcpToolNamePart(toolName, "tool");
   return `mcp_${serverPart}_${toolPart}`.slice(0, 64);
 }
@@ -934,17 +934,16 @@ function normalizeMcpContent(result: unknown) {
     parts.push(stringifyToolResult(item));
   }
 
-  if (isPlainObject(result.structuredContent)) {
-    parts.push(
-      `Structured content:\n${stringifyToolResult(result.structuredContent)}`,
-    );
-  }
-
   if ("toolResult" in result) {
     parts.push(stringifyToolResult(result.toolResult));
   }
 
-  return parts.filter(Boolean).join("\n\n") || stringifyToolResult(result);
+  const normalizedParts = parts.filter(Boolean);
+  if (normalizedParts.length > 0) return normalizedParts.join("\n\n");
+
+  const { structuredContent: _structuredContent, ...withoutStructuredContent } =
+    result;
+  return stringifyToolResult(withoutStructuredContent);
 }
 
 export async function executeMcpTool({

@@ -1144,7 +1144,7 @@ export default function Home() {
     const userRoots = isNewChatDraft
       ? newChatDraftWorkspaceRoots
       : activeChat
-        ? activeChat.workspaceRoots ?? []
+        ? (activeChat.workspaceRoots ?? [])
         : [];
 
     return getEffectiveWorkspaceRoots({
@@ -1420,7 +1420,8 @@ export default function Home() {
     scrollElement.scrollTop = mainChatScrollTop;
     window.requestAnimationFrame(() => {
       const currentScrollElement = chatScrollRef.current;
-      if (currentScrollElement) currentScrollElement.scrollTop = mainChatScrollTop;
+      if (currentScrollElement)
+        currentScrollElement.scrollTop = mainChatScrollTop;
     });
     mainChatScrollTopBeforeAgentRef.current = null;
   }, [chatScrollRef, selectedAgentChat?.status, selectedAgentChatId]);
@@ -2498,8 +2499,9 @@ export default function Home() {
       // Create and persist the real chat now, then queue the send for after
       // the new chat becomes the active chat (see the effect above).
       const emptyChat = createEmptyChat();
-      const workspaceRoots = newChatDraftWorkspaceRoots
-        .map((root) => ({ ...root }));
+      const workspaceRoots = newChatDraftWorkspaceRoots.map((root) => ({
+        ...root,
+      }));
 
       const draftFolderId = appSettings.chatFolders.some(
         (folder) => folder.id === newChatDraftFolderId,
@@ -2886,7 +2888,10 @@ export default function Home() {
       showSuccess("Default accessible folder added.");
     } catch (error) {
       console.error("Failed to add default accessible folder:", error);
-      showError("Failed to add default accessible folder.", labelForError(error));
+      showError(
+        "Failed to add default accessible folder.",
+        labelForError(error),
+      );
     }
   }
 
@@ -2950,7 +2955,7 @@ export default function Home() {
       folders.map((folder) =>
         folder.id === folderId
           ? { ...folder, workspaceRoots: undefined, updatedAt: now }
-        : folder,
+          : folder,
       ),
     );
     showSuccess("Default accessible paths removed.");
@@ -3202,7 +3207,7 @@ export default function Home() {
     () =>
       (isNewChatDraft
         ? newChatDraftWorkspaceRoots
-        : activeChat?.workspaceRoots ?? []
+        : (activeChat?.workspaceRoots ?? [])
       )
         .map((root) => root.path)
         .join("\n"),
@@ -3391,6 +3396,7 @@ export default function Home() {
   const headerContextUsage = selectedAgentChat
     ? selectedAgentContextUsage
     : latestContextUsage;
+  const visibleHeaderContextUsage = isSending ? undefined : headerContextUsage;
   const headerWorkspaceRoots = selectedAgentChat
     ? (selectedAgentChat.workspaceRoots ?? activeChatVisibleWorkspaceRoots)
     : activeChatVisibleWorkspaceRoots;
@@ -3589,9 +3595,9 @@ export default function Home() {
             >
               <Settings2 className="size-4" />
             </Button>
-            {headerContextUsage ? (
+            {visibleHeaderContextUsage ? (
               <ContextUsageIndicator
-                usage={headerContextUsage}
+                usage={visibleHeaderContextUsage}
                 onOpen={() => {
                   setSelectedToolSidebarDetails(undefined);
                   setSelectedGenerationInfoVariant(undefined);
@@ -4043,6 +4049,8 @@ export default function Home() {
         onOpenChange={setMcpOpen}
         mcpSettings={mcpSettings}
         onMcpSettingsChange={handleMcpSettingsChange}
+        toolsSettings={toolsSettings}
+        onToolsSettingsChange={setToolsSettings}
         showSuccess={stableShowSuccess}
         showError={stableShowError}
       />

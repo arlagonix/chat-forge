@@ -12,7 +12,6 @@ import {
   MessageSquareText,
   MoreHorizontal,
   Plus,
-  Server,
   Terminal,
   Trash2,
   Upload,
@@ -1206,23 +1205,11 @@ export const ToolsDialog = memo(function ToolsDialog({
     () => new Map(availableTools.map((tool) => [tool.name, tool] as const)),
     [availableTools],
   );
-  const loadedMcpTools = useMemo(
-    () =>
-      availableTools
-        .filter((tool) => tool.source === "mcp")
-        .sort((left, right) => left.name.localeCompare(right.name)),
-    [availableTools],
-  );
   const selectedTool = useMemo(
     () => loadedTools.find((tool) => tool.name === selectedToolName) ?? null,
     [loadedTools, selectedToolName],
   );
-  const selectedMcpTool = useMemo(
-    () => loadedMcpTools.find((tool) => tool.name === selectedToolName) ?? null,
-    [loadedMcpTools, selectedToolName],
-  );
-  const totalToolsCount =
-    loadedTools.length + loadedMcpTools.length + builtInToolNames.length;
+  const totalToolsCount = loadedTools.length + builtInToolNames.length;
   const enabledToolsCount = useMemo(() => {
     const builtInNames = [
       BUILTIN_ASK_USER_TOOL_NAME,
@@ -1237,16 +1224,12 @@ export const ToolsDialog = memo(function ToolsDialog({
         (tool) =>
           getDisplayedToolPermission(toolsSettings, tool.name) !== "deny",
       ).length +
-      loadedMcpTools.filter(
-        (tool) =>
-          getDisplayedToolPermission(toolsSettings, tool.name) !== "deny",
-      ).length +
       builtInNames.filter(
         (toolName) =>
           getDisplayedToolPermission(toolsSettings, toolName) !== "deny",
       ).length
     );
-  }, [loadedMcpTools, loadedTools, toolsSettings]);
+  }, [loadedTools, toolsSettings]);
   const currentToolTestState = toolDraft
     ? toolTestStatesByToolId[toolDraft.id]
     : undefined;
@@ -1287,7 +1270,6 @@ export const ToolsDialog = memo(function ToolsDialog({
       selectedToolName === BUILTIN_CALL_AGENT_TOOL_NAME ||
       selectedToolName === BUILTIN_LOAD_SKILL_TOOL_NAME ||
       selectedToolName === BUILTIN_WEB_FETCH_TOOL_NAME ||
-      Boolean(selectedMcpTool) ||
       Boolean(
         selectedToolName && BUILTIN_FILE_TOOL_NAMES.includes(selectedToolName),
       )
@@ -1297,16 +1279,13 @@ export const ToolsDialog = memo(function ToolsDialog({
 
     if (
       !selectedToolName ||
-      (!loadedTools.some((tool) => tool.name === selectedToolName) &&
-        !loadedMcpTools.some((tool) => tool.name === selectedToolName))
+      !loadedTools.some((tool) => tool.name === selectedToolName)
     ) {
       setSelectedToolName(BUILTIN_ASK_USER_TOOL_NAME);
     }
   }, [
     isTaskToolsSelected,
-    loadedMcpTools,
     loadedTools,
-    selectedMcpTool,
     selectedToolName,
     toolDraft,
   ]);
@@ -1318,7 +1297,6 @@ export const ToolsDialog = memo(function ToolsDialog({
       selectedToolName === BUILTIN_CALL_AGENT_TOOL_NAME ||
       selectedToolName === BUILTIN_LOAD_SKILL_TOOL_NAME ||
       selectedToolName === BUILTIN_WEB_FETCH_TOOL_NAME ||
-      Boolean(selectedMcpTool) ||
       Boolean(
         selectedToolName && BUILTIN_FILE_TOOL_NAMES.includes(selectedToolName),
       )
@@ -1331,7 +1309,7 @@ export const ToolsDialog = memo(function ToolsDialog({
     if (selected) {
       setToolDraft(toolToDraft(selected));
     }
-  }, [isTaskToolsSelected, loadedTools, selectedMcpTool, selectedToolName]);
+  }, [isTaskToolsSelected, loadedTools, selectedToolName]);
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
@@ -1542,8 +1520,7 @@ export const ToolsDialog = memo(function ToolsDialog({
       isTaskToolsSelected ||
       isLoadSkillToolSelected ||
       isCallAgentToolSelected ||
-      isWebFetchToolSelected ||
-      selectedMcpTool
+      isWebFetchToolSelected
     ) {
       return false;
     }
@@ -1559,7 +1536,6 @@ export const ToolsDialog = memo(function ToolsDialog({
     isLoadSkillToolSelected,
     isCallAgentToolSelected,
     isWebFetchToolSelected,
-    selectedMcpTool,
     selectedTool,
     toolDraft,
   ]);
@@ -1821,109 +1797,6 @@ export const ToolsDialog = memo(function ToolsDialog({
           onChange={(next) => setToolPermission(name, next)}
         />
       </div>
-    );
-  }
-
-  function renderMcpToolRow(tool: LoadedToolInfo) {
-    const permission = getDisplayedToolPermission(toolsSettings, tool.name);
-
-    return (
-      <div
-        key={tool.id}
-        role="button"
-        tabIndex={0}
-        className={cn(
-          "group flex min-w-0 cursor-pointer items-start gap-2 rounded-lg border px-2 py-2 outline-none",
-          selectedMcpTool?.id === tool.id
-            ? "border-primary/30 bg-accent text-accent-foreground"
-            : "border-transparent hover:border-border hover:bg-muted/60",
-        )}
-        onClick={() => setSelectedToolName(tool.name)}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" || event.key === " ") {
-            event.preventDefault();
-            setSelectedToolName(tool.name);
-          }
-        }}
-      >
-        <Server className="mt-1 size-4 shrink-0 text-muted-foreground" />
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-base leading-6">{tool.name}</div>
-          <p className="line-clamp-2 text-sm leading-5 text-muted-foreground">
-            {tool.displayName || tool.description || "MCP tool."}
-          </p>
-        </div>
-        <PermissionSelect
-          value={permission}
-          disabled={childPermissionsLocked}
-          onChange={(next) => setToolPermission(tool.name, next)}
-        />
-      </div>
-    );
-  }
-
-  function renderMcpToolDetails(tool: LoadedToolInfo) {
-    return (
-      <>
-        <div className="z-20 flex min-h-[4.25rem] shrink-0 items-center border-b bg-background px-5 py-3">
-          <div className="flex w-full items-center justify-between gap-4">
-            <Label className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
-              MCP tool
-            </Label>
-            <span className="inline-flex shrink-0 items-center gap-1 rounded-sm border bg-muted/40 px-2 py-1 text-sm text-muted-foreground">
-              <Server className="size-3.5" />
-              Read-only manifest
-            </span>
-          </div>
-        </div>
-
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4">
-          <div className="grid gap-5 pb-1">
-            <div className="grid gap-1">
-              <h3 className="flex items-center gap-2 text-lg font-semibold text-foreground">
-                <Server className="size-5 text-muted-foreground" />
-                {tool.name}
-              </h3>
-              <p className="max-w-2xl text-base leading-6 text-muted-foreground">
-                {tool.description}
-              </p>
-            </div>
-
-            <div className="grid gap-3 rounded-lg border bg-muted/10 p-3 text-sm leading-5">
-              <div className="grid gap-1">
-                <Label>Permission</Label>
-                <div className="text-muted-foreground">
-                  Set Ask, Allow, or Deny from the MCP tool row on the left.
-                  Denied MCP tools are not sent to the model.
-                </div>
-              </div>
-              <div className="grid gap-1">
-                <Label>Server</Label>
-                <div className="break-all text-muted-foreground">
-                  {tool.mcp?.serverName ?? "Unknown server"}
-                </div>
-              </div>
-              <div className="grid gap-1">
-                <Label>Original MCP tool name</Label>
-                <div className="break-all font-mono text-muted-foreground">
-                  {tool.mcp?.originalToolName ?? tool.name}
-                </div>
-              </div>
-              <div className="grid gap-1">
-                <Label>Transport</Label>
-                <div className="text-muted-foreground">
-                  {tool.mcp?.transport ?? "unknown"}
-                </div>
-              </div>
-            </div>
-
-            <div className="grid gap-2">
-              <Label>Model-facing JSON schema</Label>
-              {renderJsonCodeBlock(JSON.stringify(tool.parameters, null, 2))}
-            </div>
-          </div>
-        </div>
-      </>
     );
   }
 
@@ -2196,16 +2069,6 @@ export const ToolsDialog = memo(function ToolsDialog({
                 </div>
               )}
 
-              <GroupHeading>MCP tools</GroupHeading>
-
-              {loadedMcpTools.map((tool) => renderMcpToolRow(tool))}
-
-              {loadedMcpTools.length === 0 && (
-                <div className="rounded-lg border border-dashed px-3 py-4 text-center text-base text-muted-foreground">
-                  No MCP tools discovered. Add or refresh MCP servers from MCP
-                  settings.
-                </div>
-              )}
             </div>
 
             {toolLoadErrors.length > 0 && (
@@ -2650,8 +2513,6 @@ export const ToolsDialog = memo(function ToolsDialog({
                   </div>
                 </div>
               </>
-            ) : selectedMcpTool ? (
-              renderMcpToolDetails(selectedMcpTool)
             ) : toolDraft ? (
               <>
                 <div className="z-20 flex min-h-[4.25rem] shrink-0 items-center border-b bg-background px-5 py-3">
@@ -3005,7 +2866,6 @@ export const ToolsDialog = memo(function ToolsDialog({
             !isCallAgentToolSelected &&
             !isWebFetchToolSelected &&
             !selectedFileToolInfo &&
-            !selectedMcpTool &&
             toolDraft ? (
               <Button
                 type="button"
@@ -3034,8 +2894,7 @@ export const ToolsDialog = memo(function ToolsDialog({
               !isLoadSkillToolSelected &&
               !isCallAgentToolSelected &&
               !isWebFetchToolSelected &&
-              !selectedFileToolInfo &&
-              !selectedMcpTool && (
+              !selectedFileToolInfo && (
                 <Button
                   type="button"
                   className=""

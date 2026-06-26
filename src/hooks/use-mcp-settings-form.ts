@@ -485,7 +485,16 @@ export function useMcpSettingsForm({
   );
 
   const sortedServers = useMemo(
-    () => mcpSettings.servers,
+    () =>
+      mcpSettings.servers
+        .map((server, index) => ({ server, index }))
+        .sort((left, right) => {
+          if (left.server.enabled !== right.server.enabled) {
+            return left.server.enabled ? -1 : 1;
+          }
+          return left.index - right.index;
+        })
+        .map(({ server }) => server),
     [mcpSettings.servers],
   );
 

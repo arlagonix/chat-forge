@@ -113,7 +113,7 @@ export function getGlobalToolPermission(
   if (toolName === EDIT_TOOL_NAME) return toolsSettings.editEnabled ? (toolsSettings.editAutoApproveEnabled ? "allow" : "ask") : "deny";
   if (toolName === WRITE_TOOL_NAME) return toolsSettings.writeEnabled ? (toolsSettings.writeAutoApproveEnabled ? "allow" : "ask") : "deny";
   if (toolName === FILE_FIND_TOOL_NAME || toolName === FILE_SEARCH_TOOL_NAME) return "ask";
-  if (toolName.startsWith("mcp_")) return "deny";
+  if (toolName.startsWith("mcp_")) return "ask";
   return "ask";
 }
 
@@ -128,9 +128,13 @@ export function getEffectiveGlobalToolPermission(
   toolName: string,
   toolsSettings: ToolsSettings,
 ): Permission {
+  const itemPermission = getGlobalToolPermission(toolName, toolsSettings);
+
+  if (toolName.startsWith("mcp_")) return itemPermission;
+
   return resolveMasterPermission(
     toolsSettings.toolsPermission ?? "custom",
-    getGlobalToolPermission(toolName, toolsSettings),
+    itemPermission,
   );
 }
 

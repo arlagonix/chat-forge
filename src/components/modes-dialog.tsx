@@ -1,5 +1,6 @@
 import {
   Copy,
+  Info,
   Layers3,
   Maximize2,
   MoreHorizontal,
@@ -39,6 +40,11 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
   FEATURE_PERMISSION_KEY,
   getBuiltInModeDefaults,
   normalizeModePermissionMap,
@@ -49,6 +55,7 @@ import {
   getEffectiveGlobalSkillPermission,
   getEffectiveGlobalToolPermission,
 } from "@/lib/ai-chat/request-builder";
+import { groupToolsBySource } from "@/lib/ai-chat/tool-groups";
 import type {
   AgentsSettings,
   LoadedAgentInfo,
@@ -328,9 +335,29 @@ function getDisplayedModePermission(
     : "global";
 }
 
+function PermissionSourceTooltip({ text }: { text: string }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          aria-label="Permission source"
+          className="inline-flex size-5 shrink-0 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <Info className="size-3.5" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="top" className="max-w-[22rem] text-left">
+        {text}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
 function PermissionRows({
   title,
   items,
+  groups,
   permissions,
   globalPermissionFor,
   modeName,
@@ -340,6 +367,7 @@ function PermissionRows({
 }: {
   title: string;
   items: Array<{ name: string; description?: string }>;
+  groups?: Array<{ id: string; title: string; items: Array<{ name: string; description?: string }> }>;
   permissions: ModePermissionMap;
   globalPermissionFor: (name: string) => Permission;
   modeName: string;
@@ -364,25 +392,27 @@ function PermissionRows({
         className="flex min-w-0 items-start gap-3 rounded-lg border bg-card px-3 py-2"
       >
         <div className="min-w-0 flex-1">
-          <div className="truncate text-base font-medium leading-6">
-            {item.name}
+          <div className="flex min-w-0 items-center gap-1.5">
+            <div className="truncate text-base font-medium leading-6">
+              {item.name}
+            </div>
+            <PermissionSourceTooltip
+              text={getModeSourceText({
+                modeName,
+                modePermission:
+                  modePermission === "global" ||
+                  modePermission === "allow" ||
+                  modePermission === "ask" ||
+                  modePermission === "deny"
+                    ? modePermission
+                    : undefined,
+                globalPermission,
+                masterPermission,
+              })}
+            />
           </div>
           <div className="mt-0.5 line-clamp-2 text-sm leading-5 text-muted-foreground">
             {item.description || "No description."}
-          </div>
-          <div className="mt-1 text-xs text-muted-foreground">
-            {getModeSourceText({
-              modeName,
-              modePermission:
-                modePermission === "global" ||
-                modePermission === "allow" ||
-                modePermission === "ask" ||
-                modePermission === "deny"
-                  ? modePermission
-                  : undefined,
-              globalPermission,
-              masterPermission,
-            })}
           </div>
         </div>
         <PermissionSelect
@@ -413,16 +443,20 @@ function PermissionRows({
       <div className="grid gap-1.5">
         <div className="flex min-w-0 items-start gap-3 rounded-lg border bg-card px-3 py-2">
           <div className="min-w-0 flex-1">
-            <div className="truncate text-base font-medium leading-6">
-              {featureRow.label}
+            <div className="flex min-w-0 items-center gap-1.5">
+              <div className="truncate text-base font-medium leading-6">
+                {featureRow.label}
+              </div>
+              <PermissionSourceTooltip
+                text={
+                  masterPermission === "custom"
+                    ? "Child permissions are custom."
+                    : `Child permissions are forced to ${formatModeFeaturePermission(masterPermission)}.`
+                }
+              />
             </div>
             <div className="mt-0.5 line-clamp-2 text-sm leading-5 text-muted-foreground">
               {featureRow.description}
-            </div>
-            <div className="mt-1 text-xs text-muted-foreground">
-              {masterPermission === "custom"
-                ? "Child permissions are custom."
-                : `Child permissions are forced to ${formatModeFeaturePermission(masterPermission)}.`}
             </div>
           </div>
           <FeaturePermissionSelect
@@ -430,7 +464,20 @@ function PermissionRows({
             onChange={(permission) => onChange(featureRow.key, permission)}
           />
         </div>
-        {items.length > 0 ? (
+        {groups ? (
+          groups.length > 0 ? (
+            groups.map((group) => (
+              <div key={group.id} className="grid gap-1.5">
+                <GroupHeading>{group.title}</GroupHeading>
+                {group.items.map((item) => renderRow(item))}
+              </div>
+            ))
+          ) : (
+            <div className="rounded-lg border border-dashed px-3 py-4 text-sm text-muted-foreground">
+              No {title.toLowerCase()} available.
+            </div>
+          )
+        ) : items.length > 0 ? (
           items.map((item) => renderRow(item))
         ) : (
           <div className="rounded-lg border border-dashed px-3 py-4 text-sm text-muted-foreground">
@@ -478,6 +525,18 @@ export const ModesDialog = memo(function ModesDialog({
       availableTools.map((tool) => ({
         name: tool.name,
         description: tool.description,
+      })),
+    [availableTools],
+  );
+  const toolGroups = useMemo(
+    () =>
+      groupToolsBySource(availableTools).map((group) => ({
+        id: group.id,
+        title: group.title,
+        items: group.tools.map((tool) => ({
+          name: tool.name,
+          description: tool.description,
+        })),
       })),
     [availableTools],
   );
@@ -847,6 +906,7 @@ export const ModesDialog = memo(function ModesDialog({
                       <PermissionRows
                         title="Tools"
                         items={toolItems}
+                        groups={toolGroups}
                         permissions={modeDraft.toolPermissions}
                         globalPermissionFor={(name) =>
                           getEffectiveGlobalToolPermission(name, toolsSettings)

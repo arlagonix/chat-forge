@@ -23,6 +23,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { FEATURE_PERMISSION_KEY } from "@/lib/ai-chat/modes";
+import { groupToolsBySource } from "@/lib/ai-chat/tool-groups";
 import type {
   LoadedAgentInfo,
   LoadedSkillInfo,
@@ -228,18 +229,42 @@ function ChatCapabilitiesContent({
   modeAgentPermissions,
   modeName,
 }: ChatCapabilitiesProps) {
+  const toolGroups = groupToolsBySource(tools)
+    .map((group) => ({
+      ...group,
+      tools: group.tools.filter(
+        (tool) => toolPermissions.get(tool.name) !== "deny",
+      ),
+    }))
+    .filter((group) => group.tools.length > 0);
+
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
       <div className="grid gap-4">
-        <CapabilitySection
-          title="Tools"
-          icon={<Wrench className="size-4" />}
-          items={tools}
-          permissions={toolPermissions}
-          globalPermissions={globalToolPermissions}
-          modePermissions={modeToolPermissions}
-          modeName={modeName}
-        />
+        {toolGroups.length > 0 ? (
+          toolGroups.map((group) => (
+            <CapabilitySection
+              key={group.id}
+              title={group.title}
+              icon={<Wrench className="size-4" />}
+              items={group.tools}
+              permissions={toolPermissions}
+              globalPermissions={globalToolPermissions}
+              modePermissions={modeToolPermissions}
+              modeName={modeName}
+            />
+          ))
+        ) : (
+          <CapabilitySection
+            title="Tools"
+            icon={<Wrench className="size-4" />}
+            items={[]}
+            permissions={toolPermissions}
+            globalPermissions={globalToolPermissions}
+            modePermissions={modeToolPermissions}
+            modeName={modeName}
+          />
+        )}
         <CapabilitySection
           title="Skills"
           icon={<BookOpen className="size-4" />}

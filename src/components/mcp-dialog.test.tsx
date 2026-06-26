@@ -4,6 +4,7 @@ import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import { McpDialog } from "@/components/mcp-dialog";
+import { DEFAULT_TOOLS_SETTINGS } from "@/lib/ai-chat/builtin-tools";
 import type { McpSettings } from "@/lib/ai-chat/types";
 
 function createSettings(): McpSettings {
@@ -50,6 +51,7 @@ function renderMcpDialog(initialSettings = createSettings()) {
   function Harness() {
     const [open, setOpen] = useState(true);
     const [settings, setSettings] = useState(initialSettings);
+    const [toolsSettings, setToolsSettings] = useState(DEFAULT_TOOLS_SETTINGS);
 
     return (
       <>
@@ -58,6 +60,8 @@ function renderMcpDialog(initialSettings = createSettings()) {
           onOpenChange={setOpen}
           mcpSettings={settings}
           onMcpSettingsChange={setSettings}
+          toolsSettings={toolsSettings}
+          onToolsSettingsChange={setToolsSettings}
           showSuccess={showSuccess}
           showError={showError}
         />
@@ -150,23 +154,10 @@ describe("McpDialog", () => {
     expect(screen.getByText("mcp_serena_edit_memory")).toBeInTheDocument();
   });
 
+  it("keeps discovered tool visibility guidance in the info tooltip", () => {
+    renderMcpDialog();
 
-  it("shows the MCP tool settings note only after tools are discovered", async () => {
-    const { user } = renderMcpDialog();
-
-    expect(
-      screen.getByText(
-        /Tool switches here control whether MCP tools are visible in Tools settings and model context/i,
-      ),
-    ).toBeInTheDocument();
-
-    await user.click(screen.getByText("github"));
-
-    expect(
-      screen.queryByText(
-        /Tool switches here control whether MCP tools are visible in Tools settings and model context/i,
-      ),
-    ).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Discovered tools info")).toBeInTheDocument();
   });
 
   it("uses Create and Cancel actions for a new unchanged server", async () => {

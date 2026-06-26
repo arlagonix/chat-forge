@@ -78,6 +78,7 @@ import {
   openAgentsFolder,
   saveAgent,
 } from "@/lib/ai-chat/storage";
+import { filterToolsForSearch, groupToolsBySource } from "@/lib/ai-chat/tool-groups";
 import type {
   AgentContextMode,
   AgentImportResult,
@@ -624,14 +625,10 @@ export const AgentsDialog = memo(function AgentsDialog({
     [availableSkills],
   );
 
-  const toolSearchText = toolSearch.trim().toLowerCase();
-  const visibleTools = toolSearchText
-    ? availableTools.filter((tool) =>
-        `${tool.name} ${tool.description}`
-          .toLowerCase()
-          .includes(toolSearchText),
-      )
-    : availableTools;
+  const visibleToolGroups = useMemo(
+    () => groupToolsBySource(filterToolsForSearch(availableTools, toolSearch)),
+    [availableTools, toolSearch],
+  );
   const toolsByName = useMemo(
     () => new Map(availableTools.map((tool) => [tool.name, tool] as const)),
     [availableTools],
@@ -1319,50 +1316,57 @@ export const AgentsDialog = memo(function AgentsDialog({
                                       event.stopPropagation()
                                     }
                                   >
-                                    {visibleTools.length > 0 ? (
-                                      visibleTools.map((tool) => {
-                                        const checked =
-                                          agentDraft.allowedToolNames.includes(
-                                            tool.name,
-                                          );
-                                        return (
-                                          <div
-                                            key={tool.name}
-                                            role="button"
-                                            tabIndex={0}
-                                            className="flex w-full min-w-0 cursor-pointer items-start gap-2 px-2 py-2 text-left hover:bg-accent hover:text-accent-foreground focus-visible:outline-none"
-                                            onClick={() =>
-                                              toggleAllowedTool(tool.name)
-                                            }
-                                            onKeyDown={(event) => {
-                                              if (
-                                                event.key === "Enter" ||
-                                                event.key === " "
-                                              ) {
-                                                event.preventDefault();
-                                                toggleAllowedTool(tool.name);
-                                              }
-                                            }}
-                                            title={tool.description}
-                                          >
-                                            <Checkbox
-                                              checked={checked}
-                                              tabIndex={-1}
-                                              className="mt-1 shrink-0 pointer-events-none"
-                                            />
-                                            <span className="min-w-0 flex-1">
-                                              <span className="block truncate font-medium">
-                                                {tool.name}
-                                              </span>
-                                              {tool.description && (
-                                                <span className="mt-0.5 line-clamp-2 text-sm leading-5 text-muted-foreground">
-                                                  {tool.description}
-                                                </span>
-                                              )}
-                                            </span>
+                                    {visibleToolGroups.length > 0 ? (
+                                      visibleToolGroups.map((group) => (
+                                        <div key={group.id} className="grid gap-0.5 py-1">
+                                          <div className="px-2 py-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                                            {group.title}
                                           </div>
-                                        );
-                                      })
+                                          {group.tools.map((tool) => {
+                                            const checked =
+                                              agentDraft.allowedToolNames.includes(
+                                                tool.name,
+                                              );
+                                            return (
+                                              <div
+                                                key={tool.name}
+                                                role="button"
+                                                tabIndex={0}
+                                                className="flex w-full min-w-0 cursor-pointer items-start gap-2 px-2 py-2 text-left hover:bg-accent hover:text-accent-foreground focus-visible:outline-none"
+                                                onClick={() =>
+                                                  toggleAllowedTool(tool.name)
+                                                }
+                                                onKeyDown={(event) => {
+                                                  if (
+                                                    event.key === "Enter" ||
+                                                    event.key === " "
+                                                  ) {
+                                                    event.preventDefault();
+                                                    toggleAllowedTool(tool.name);
+                                                  }
+                                                }}
+                                                title={tool.description}
+                                              >
+                                                <Checkbox
+                                                  checked={checked}
+                                                  tabIndex={-1}
+                                                  className="mt-1 shrink-0 pointer-events-none"
+                                                />
+                                                <span className="min-w-0 flex-1">
+                                                  <span className="block truncate font-medium">
+                                                    {tool.name}
+                                                  </span>
+                                                  {tool.description && (
+                                                    <span className="mt-0.5 line-clamp-2 text-sm leading-5 text-muted-foreground">
+                                                      {tool.description}
+                                                    </span>
+                                                  )}
+                                                </span>
+                                              </div>
+                                            );
+                                          })}
+                                        </div>
+                                      ))
                                     ) : (
                                       <div className="px-3 py-6 text-center text-base text-muted-foreground">
                                         No tools found.
