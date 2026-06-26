@@ -621,7 +621,7 @@ export const ChatComposer = memo(
       >
         <div
           className={cn(
-            "mx-auto w-full rounded-lg border bg-card p-3 pt-0 shadow-sm",
+            "mx-auto w-full rounded-sm border bg-card p-3 pt-0 shadow-sm",
             contentWidthClassName,
             isDraggingAttachments && "border-primary bg-primary/5",
           )}
@@ -667,7 +667,7 @@ export const ChatComposer = memo(
               {isMentionMenuOpen && mentionMenuPosition && (
                 <div
                   ref={mentionMenuRef}
-                  className="absolute z-20 w-[min(28rem,calc(100vw-2rem))] overflow-y-auto rounded-lg border bg-popover p-1 text-popover-foreground shadow-lg"
+                  className="absolute z-20 w-[min(28rem,calc(100vw-2rem))] overflow-y-auto rounded-sm border bg-popover p-1 text-popover-foreground shadow-lg"
                   style={{
                     left: mentionMenuPosition.left,
                     top: mentionMenuPosition.top,
@@ -820,7 +820,9 @@ export const ChatComposer = memo(
             </div>
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="min-w-0 flex-1">{footerStart}</div>
-              {contextUsage ? <ContextUsageIndicator usage={contextUsage} /> : null}
+              {contextUsage ? (
+                <ContextUsageIndicator usage={contextUsage} />
+              ) : null}
               <Button
                 type="button"
                 variant="ghost"

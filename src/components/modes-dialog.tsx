@@ -367,7 +367,11 @@ function PermissionRows({
 }: {
   title: string;
   items: Array<{ name: string; description?: string }>;
-  groups?: Array<{ id: string; title: string; items: Array<{ name: string; description?: string }> }>;
+  groups?: Array<{
+    id: string;
+    title: string;
+    items: Array<{ name: string; description?: string }>;
+  }>;
   permissions: ModePermissionMap;
   globalPermissionFor: (name: string) => Permission;
   modeName: string;
@@ -389,7 +393,7 @@ function PermissionRows({
     return (
       <div
         key={item.name}
-        className="flex min-w-0 items-start gap-3 rounded-lg border bg-card px-3 py-2"
+        className="flex min-w-0 items-start gap-3 rounded-sm border bg-card px-3 py-2"
       >
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-center gap-1.5">
@@ -441,7 +445,7 @@ function PermissionRows({
         </Button>
       </div>
       <div className="grid gap-1.5">
-        <div className="flex min-w-0 items-start gap-3 rounded-lg border bg-card px-3 py-2">
+        <div className="flex min-w-0 items-start gap-3 rounded-sm border bg-card px-3 py-2">
           <div className="min-w-0 flex-1">
             <div className="flex min-w-0 items-center gap-1.5">
               <div className="truncate text-base font-medium leading-6">
@@ -473,14 +477,14 @@ function PermissionRows({
               </div>
             ))
           ) : (
-            <div className="rounded-lg border border-dashed px-3 py-4 text-sm text-muted-foreground">
+            <div className="rounded-sm border border-dashed px-3 py-4 text-sm text-muted-foreground">
               No {title.toLowerCase()} available.
             </div>
           )
         ) : items.length > 0 ? (
           items.map((item) => renderRow(item))
         ) : (
-          <div className="rounded-lg border border-dashed px-3 py-4 text-sm text-muted-foreground">
+          <div className="rounded-sm border border-dashed px-3 py-4 text-sm text-muted-foreground">
             No {title.toLowerCase()} available.
           </div>
         )}
@@ -770,7 +774,7 @@ export const ModesDialog = memo(function ModesDialog({
                             role="button"
                             tabIndex={0}
                             className={cn(
-                              "group flex min-w-0 cursor-pointer items-start gap-2 rounded-lg border px-2 py-2 outline-none",
+                              "group flex min-w-0 cursor-pointer items-start gap-2 rounded-sm border px-2 py-2 outline-none",
                               selected
                                 ? "border-primary/30 bg-accent text-accent-foreground"
                                 : "border-transparent hover:border-border hover:bg-muted/60",
@@ -928,7 +932,10 @@ export const ModesDialog = memo(function ModesDialog({
                         items={skillItems}
                         permissions={modeDraft.skillPermissions}
                         globalPermissionFor={(name) =>
-                          getEffectiveGlobalSkillPermission(name, skillsSettings)
+                          getEffectiveGlobalSkillPermission(
+                            name,
+                            skillsSettings,
+                          )
                         }
                         modeName={modeDraft.name || "Mode"}
                         onChange={(name, permission) =>
@@ -947,7 +954,10 @@ export const ModesDialog = memo(function ModesDialog({
                         items={agentItems}
                         permissions={modeDraft.agentPermissions}
                         globalPermissionFor={(name) =>
-                          getEffectiveGlobalAgentPermission(name, agentsSettings)
+                          getEffectiveGlobalAgentPermission(
+                            name,
+                            agentsSettings,
+                          )
                         }
                         modeName={modeDraft.name || "Mode"}
                         onChange={(name, permission) =>

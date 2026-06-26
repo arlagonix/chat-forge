@@ -11,7 +11,10 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import type { ComponentProps, KeyboardEvent as ReactKeyboardEvent } from "react";
+import type {
+  ComponentProps,
+  KeyboardEvent as ReactKeyboardEvent,
+} from "react";
 import {
   memo,
   useEffect,
@@ -332,7 +335,9 @@ const ThinkingLevelJsonEditor = memo(function ThinkingLevelJsonEditor({
       parseRequestBodyJson(nextJson);
       setError(undefined);
     } catch (parseError) {
-      setError(parseError instanceof Error ? parseError.message : "Invalid JSON.");
+      setError(
+        parseError instanceof Error ? parseError.message : "Invalid JSON.",
+      );
     }
   }
 
@@ -343,7 +348,9 @@ const ThinkingLevelJsonEditor = memo(function ThinkingLevelJsonEditor({
       setError(undefined);
       onChange({ ...level, requestBody });
     } catch (parseError) {
-      setError(parseError instanceof Error ? parseError.message : "Invalid JSON.");
+      setError(
+        parseError instanceof Error ? parseError.message : "Invalid JSON.",
+      );
     }
   }
 
@@ -491,11 +498,7 @@ export const ProviderSettingsDialog = memo(function ProviderSettingsDialog({
     if (activeProviderModelIds.includes(selectedModelTarget.model)) return;
 
     setSelectedModelTarget(null);
-  }, [
-    activeProviderModelIds,
-    editingProviderDraft.id,
-    selectedModelTarget,
-  ]);
+  }, [activeProviderModelIds, editingProviderDraft.id, selectedModelTarget]);
 
   useEffect(() => {
     setCustomModelValue("");
@@ -1266,7 +1269,7 @@ export const ProviderSettingsDialog = memo(function ProviderSettingsDialog({
                       );
                     })
                   ) : (
-                    <div className="rounded-lg border border-dashed px-3 py-4 text-center text-base text-muted-foreground">
+                    <div className="rounded-sm border border-dashed px-3 py-4 text-center text-base text-muted-foreground">
                       {providers.length > 0
                         ? "No providers match the search."
                         : "No providers configured."}
@@ -1741,7 +1744,9 @@ export const ProviderSettingsDialog = memo(function ProviderSettingsDialog({
 
                       <div className="grid gap-3">
                         <div className="grid gap-2">
-                          <Label htmlFor="thinking-preset">Thinking preset</Label>
+                          <Label htmlFor="thinking-preset">
+                            Thinking preset
+                          </Label>
                           <Select
                             value={selectedThinkingPreset.id}
                             onValueChange={updateSelectedModelThinkingPreset}
@@ -1812,52 +1817,59 @@ export const ProviderSettingsDialog = memo(function ProviderSettingsDialog({
                               const isEditable = selectedThinkingPresetIsCustom;
 
                               return (
-                              <div
-                                key={level.id}
-                                className="grid gap-3 rounded-md border p-3"
-                              >
-                                <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
-                                  <div className="grid gap-1.5">
-                                    <Label htmlFor={`thinking-level-${level.id}-label`}>
-                                      Label
-                                    </Label>
-                                    <Input
-                                      id={`thinking-level-${level.id}-label`}
-                                      value={level.label}
-                                      disabled={!isEditable}
-                                      onChange={(event) =>
-                                        updateSelectedModelThinkingLevel(
-                                          level.id,
-                                          { label: event.target.value },
-                                        )
-                                      }
-                                    />
+                                <div
+                                  key={level.id}
+                                  className="grid gap-3 rounded-md border p-3"
+                                >
+                                  <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+                                    <div className="grid gap-1.5">
+                                      <Label
+                                        htmlFor={`thinking-level-${level.id}-label`}
+                                      >
+                                        Label
+                                      </Label>
+                                      <Input
+                                        id={`thinking-level-${level.id}-label`}
+                                        value={level.label}
+                                        disabled={!isEditable}
+                                        onChange={(event) =>
+                                          updateSelectedModelThinkingLevel(
+                                            level.id,
+                                            { label: event.target.value },
+                                          )
+                                        }
+                                      />
+                                    </div>
+                                    {isEditable ? (
+                                      <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="icon"
+                                        className="self-end text-muted-foreground hover:text-destructive"
+                                        onClick={() =>
+                                          deleteSelectedModelThinkingLevel(
+                                            level.id,
+                                          )
+                                        }
+                                        title="Delete thinking level"
+                                      >
+                                        <Trash2 className="size-4" />
+                                      </Button>
+                                    ) : null}
                                   </div>
-                                  {isEditable ? (
-                                    <Button
-                                      type="button"
-                                      variant="ghost"
-                                      size="icon"
-                                      className="self-end text-muted-foreground hover:text-destructive"
-                                      onClick={() =>
-                                        deleteSelectedModelThinkingLevel(level.id)
-                                      }
-                                      title="Delete thinking level"
-                                    >
-                                      <Trash2 className="size-4" />
-                                    </Button>
-                                  ) : null}
+                                  <ThinkingLevelJsonEditor
+                                    level={level}
+                                    disabled={!isEditable}
+                                    onChange={(nextLevel) =>
+                                      updateSelectedModelThinkingLevel(
+                                        level.id,
+                                        {
+                                          requestBody: nextLevel.requestBody,
+                                        },
+                                      )
+                                    }
+                                  />
                                 </div>
-                                <ThinkingLevelJsonEditor
-                                  level={level}
-                                  disabled={!isEditable}
-                                  onChange={(nextLevel) =>
-                                    updateSelectedModelThinkingLevel(level.id, {
-                                      requestBody: nextLevel.requestBody,
-                                    })
-                                  }
-                                />
-                              </div>
                               );
                             })}
                           </div>

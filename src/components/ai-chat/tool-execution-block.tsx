@@ -44,8 +44,8 @@ import {
   FILE_FIND_TOOL_NAME,
   FILE_READ_TOOL_NAME,
   FILE_REPLACE_TEXT_TOOL_NAME,
-  FILE_SEARCH_TOOL_NAME,
   FILE_SEARCH_TEXT_TOOL_NAME,
+  FILE_SEARCH_TOOL_NAME,
 } from "@/lib/ai-chat/file-tool-names";
 import { TERMINAL_EXEC_TOOL_NAME } from "@/lib/ai-chat/terminal-tool";
 import { buildToolExecutionPreviewForCall } from "@/lib/ai-chat/tool-preview";
@@ -138,7 +138,7 @@ function renderFileChangePreview(preview?: FileToolChangePreview) {
       <div className="text-sm font-medium uppercase tracking-wide text-muted-foreground/80">
         Changes
       </div>
-      <div className="overflow-hidden rounded-lg border bg-muted/20 font-mono text-xs leading-5">
+      <div className="overflow-hidden rounded-sm border bg-muted/20 font-mono text-xs leading-5">
         <div className="border-b bg-muted/40 px-3 py-2 font-sans text-xs text-muted-foreground">
           {getChangePreviewTitle(preview)} · {preview.path}
           {preview.truncated ? " · Preview truncated" : ""}
@@ -204,7 +204,7 @@ function renderTerminalTextBlock(value: string) {
   if (!text.trim()) return null;
 
   return (
-    <pre className="max-h-[min(50rem,50dvh)] overflow-auto rounded-lg border bg-background/80 px-3 py-2 font-mono text-xs leading-5 text-foreground whitespace-pre-wrap [overflow-wrap:anywhere]">
+    <pre className="max-h-[min(50rem,50dvh)] overflow-auto rounded-sm border bg-background/80 px-3 py-2 font-mono text-xs leading-5 text-foreground whitespace-pre-wrap [overflow-wrap:anywhere]">
       {text}
     </pre>
   );
@@ -217,7 +217,7 @@ function renderTerminalOutput(toolResult?: ChatToolResult) {
   return (
     <div className="grid gap-2">
       {terminal.warnings?.length ? (
-        <div className="grid gap-1 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+        <div className="grid gap-1 rounded-sm border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
           {terminal.warnings.map((warning) => (
             <div key={warning}>{warning}</div>
           ))}
@@ -291,7 +291,7 @@ function GeneratedFileChip({
 
   return (
     <div
-      className="flex min-h-12 min-w-0 max-w-[15rem] items-center gap-2 rounded-lg border bg-muted/25 px-2 py-1.5 text-xs"
+      className="flex min-h-12 min-w-0 max-w-[15rem] items-center gap-2 rounded-sm border bg-muted/25 px-2 py-1.5 text-xs"
       title={file.name}
     >
       <span className="flex size-8 shrink-0 items-center justify-center">
@@ -418,8 +418,7 @@ function getLoadSkillDetails(toolResult?: ChatToolResult) {
   const parsedSkillContentValue =
     typeof parsedSkillContent === "string" ? parsedSkillContent : "";
   const explicitSkillContent =
-    toolResult.loadedSkillContent ??
-    parsedSkillContentValue;
+    toolResult.loadedSkillContent ?? parsedSkillContentValue;
   const skillContent =
     explicitSkillContent || extractLoadedSkillContent(instructions);
   const description =
@@ -483,7 +482,9 @@ function extractLoadedSkillContent(instructions: string) {
 
   if (
     firstNonEmptyLineIndex >= 0 &&
-    lines[firstNonEmptyLineIndex].trim().startsWith("References are relative to ")
+    lines[firstNonEmptyLineIndex]
+      .trim()
+      .startsWith("References are relative to ")
   ) {
     content = lines.slice(firstNonEmptyLineIndex + 1).join("\n");
   }

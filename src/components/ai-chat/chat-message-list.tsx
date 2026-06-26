@@ -332,7 +332,7 @@ function GenerationStatCard({
   value: string;
 }) {
   return (
-    <div className="min-w-0 rounded-lg bg-muted/50 px-4 py-3">
+    <div className="min-w-0 rounded-sm bg-muted/50 px-4 py-3">
       <div className="truncate text-sm text-muted-foreground">{label}</div>
       <div
         className="mt-1 truncate text-base font-medium tabular-nums text-foreground"
@@ -359,7 +359,7 @@ function GenerationInfoDetails({
 
   return (
     <div className="space-y-5">
-      <div className="rounded-lg bg-muted/50 px-5 py-4">
+      <div className="rounded-sm bg-muted/50 px-5 py-4">
         <div className="flex items-baseline justify-between gap-4">
           <span className="text-sm text-muted-foreground">Generation</span>
           <span className="text-sm tabular-nums text-muted-foreground">
@@ -394,7 +394,7 @@ function GenerationInfoDetails({
         />
       </div>
 
-      <div className="rounded-lg bg-muted/50 px-5 py-4">
+      <div className="rounded-sm bg-muted/50 px-5 py-4">
         <div className="mb-3 text-sm text-muted-foreground">Token usage</div>
         <div className="grid grid-cols-3 gap-x-5 gap-y-3">
           {[
@@ -412,7 +412,7 @@ function GenerationInfoDetails({
         </div>
       </div>
 
-      <div className="rounded-lg bg-muted/50 px-5 py-4">
+      <div className="rounded-sm bg-muted/50 px-5 py-4">
         <div className="mb-3 text-sm text-muted-foreground">Timing</div>
         <div className="grid gap-3">
           <div>
@@ -513,7 +513,7 @@ const UserMessageContent = memo(function UserMessageContent({
     <div className="space-y-2">
       <button
         type="button"
-        className="flex w-full min-w-0 items-start gap-2 rounded-lg border border-primary-foreground/20 bg-primary-foreground/10 px-3 py-2 text-left transition hover:bg-primary-foreground/15"
+        className="flex w-full min-w-0 items-start gap-2 rounded-sm border border-primary-foreground/20 bg-primary-foreground/10 px-3 py-2 text-left transition hover:bg-primary-foreground/15"
         onClick={() => setSkillModalOpen(true)}
         title={skillInvocation.location}
       >
@@ -546,7 +546,7 @@ const UserMessageContent = memo(function UserMessageContent({
             ) : null}
           </DialogHeader>
           <div className="min-h-0 flex-1 overflow-auto p-5 chat-message-scrollbar">
-            <pre className="whitespace-pre-wrap break-words rounded-lg border bg-muted/30 p-4 font-mono text-sm leading-6">
+            <pre className="whitespace-pre-wrap break-words rounded-sm border bg-muted/30 p-4 font-mono text-sm leading-6">
               <code>{skillInvocation.content}</code>
             </pre>
           </div>
@@ -1229,7 +1229,7 @@ const ChatMessageItem = memo(
                 className={cn(
                   "min-w-0 text-base leading-6 [overflow-wrap:anywhere] w-full ",
                   message.role === "user"
-                    ? "max-h-[32rem] overflow-y-auto overflow-x-hidden chat-message-scrollbar rounded-lg bg-primary px-4 py-3 text-primary-foreground shadow-xs"
+                    ? "max-h-[32rem] overflow-y-auto overflow-x-hidden chat-message-scrollbar rounded-sm bg-primary px-4 py-3 text-primary-foreground shadow-xs"
                     : "min-w-0 max-w-full overflow-visible px-0 py-1 text-card-foreground shadow-xs",
                   status === "error" && "border-destructive/50",
                 )}
@@ -1254,9 +1254,7 @@ const ChatMessageItem = memo(
                     freezeVisualUpdates={
                       freezeAssistantStreaming && status === "streaming"
                     }
-                    renderMarkdownWhileStreaming={
-                      renderMarkdownWhileStreaming
-                    }
+                    renderMarkdownWhileStreaming={renderMarkdownWhileStreaming}
                     flushVersion={visualFlushRequests[message.id] ?? 0}
                     onVisualProgress={() =>
                       onAssistantVisualProgress(activeChatId)
@@ -1280,7 +1278,7 @@ const ChatMessageItem = memo(
           createPortal(
             <div
               data-message-context-menu
-              className="fixed z-50 min-w-55 rounded-lg border bg-popover p-1 text-base text-popover-foreground shadow-md"
+              className="fixed z-50 min-w-55 rounded-sm border bg-popover p-1 text-base text-popover-foreground shadow-md"
               style={{
                 left: messageContextMenu.x,
                 top: messageContextMenu.y,

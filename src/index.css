@@ -512,7 +512,7 @@
   }
 
   .chat-markdown details {
-    @apply my-3 rounded-lg border border-border px-3 py-2;
+    @apply my-3 rounded-sm border border-border px-3 py-2;
   }
 
   .chat-markdown summary {
@@ -786,13 +786,13 @@
   .chat-code-preview-fullscreen .chat-code-preview-loading,
   .chat-code-fullscreen-preview .chat-code-preview-loading,
   .chat-markdown .chat-code-preview-loading {
-    @apply flex min-h-36 items-center justify-center rounded-lg border border-dashed border-border bg-muted/40 px-4 py-8 text-sm text-muted-foreground;
+    @apply flex min-h-36 items-center justify-center rounded-sm border border-dashed border-border bg-muted/40 px-4 py-8 text-sm text-muted-foreground;
   }
 
   .chat-code-preview-fullscreen .chat-code-preview-error,
   .chat-code-fullscreen-preview .chat-code-preview-error,
   .chat-markdown .chat-code-preview-error {
-    @apply whitespace-pre-wrap rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive;
+    @apply whitespace-pre-wrap rounded-sm border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive;
   }
 
   .chat-code-preview-fullscreen .chat-code-mermaid-preview,
@@ -814,7 +814,7 @@
   }
 
   .chat-markdown .chat-code-mermaid-controls {
-    @apply absolute right-3 top-3 z-30 flex items-center gap-1 rounded-lg border border-border bg-background/95 p-1 shadow-md backdrop-blur;
+    @apply absolute right-3 top-3 z-30 flex items-center gap-1 rounded-sm border border-border bg-background/95 p-1 shadow-md backdrop-blur;
   }
 
   .chat-markdown .chat-code-mermaid-zoom-label {
@@ -852,7 +852,7 @@
   .chat-code-preview-fullscreen .chat-code-html-preview,
   .chat-code-fullscreen-preview .chat-code-html-preview,
   .chat-markdown .chat-code-html-preview {
-    @apply h-full min-h-72 min-w-0 overflow-auto rounded-lg border border-border bg-background;
+    @apply h-full min-h-72 min-w-0 overflow-auto rounded-sm border border-border bg-background;
   }
 
   .chat-code-preview-fullscreen .chat-code-html-preview,

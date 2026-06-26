@@ -25,7 +25,7 @@ export const FindBar = memo(function FindBar({
   onClose,
 }: FindBarProps) {
   return (
-    <div className="absolute right-3 top-3 z-40 flex max-w-[calc(100%-1.5rem)] items-center gap-1 rounded-lg border bg-card/95 p-1.5 text-card-foreground shadow-md backdrop-blur">
+    <div className="absolute right-3 top-3 z-40 flex max-w-[calc(100%-1.5rem)] items-center gap-1 rounded-sm border bg-card/95 p-1.5 text-card-foreground shadow-md backdrop-blur">
       <Search className="ml-1 size-4 shrink-0 text-muted-foreground" />
       <Input
         ref={inputRef}

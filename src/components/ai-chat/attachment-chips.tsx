@@ -529,7 +529,7 @@ export function AttachmentChips({
           {previewImage && (
             <div className="relative h-full min-h-0 overflow-hidden">
               {previewImage.notice && (
-                <div className="absolute left-4 top-4 z-10 max-w-[calc(100%-2rem)] rounded-lg border bg-background/90 px-3 py-2 text-xs text-muted-foreground shadow">
+                <div className="absolute left-4 top-4 z-10 max-w-[calc(100%-2rem)] rounded-sm border bg-background/90 px-3 py-2 text-xs text-muted-foreground shadow">
                   {previewImage.notice}
                 </div>
               )}
@@ -574,7 +574,7 @@ export function AttachmentChips({
 
               {previewImage.dataUrl && (
                 <div
-                  className="absolute bottom-4 left-1/2 z-20 flex -translate-x-1/2 items-center gap-2 rounded-lg border bg-background/95 px-3 py-2 shadow"
+                  className="absolute bottom-4 left-1/2 z-20 flex -translate-x-1/2 items-center gap-2 rounded-sm border bg-background/95 px-3 py-2 shadow"
                   onPointerDown={(event) => event.stopPropagation()}
                   onPointerMove={(event) => event.stopPropagation()}
                   onPointerUp={(event) => event.stopPropagation()}

@@ -870,7 +870,7 @@ export const McpDialog = memo(function McpDialog({
                           <div
                             role={testResult.ok ? "status" : "alert"}
                             className={cn(
-                              "relative grid gap-1 rounded-lg border px-3 py-2.5 pr-9 text-sm",
+                              "relative grid gap-1 rounded-sm border px-3 py-2.5 pr-9 text-sm",
                               testResult.ok
                                 ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
                                 : "border-destructive/40 bg-destructive/10 text-destructive",

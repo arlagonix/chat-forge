@@ -18,7 +18,6 @@ import { ThinkingBlock } from "@/components/ai-chat/thinking-block";
 import { AskUserBlock } from "@/components/ai-chat/tool-interaction-blocks";
 import { useAgentRunRowText } from "@/components/ai-chat/use-agent-run-row-text";
 import { Button } from "@/components/ui/button";
-import { getAgentRunRenderSignature } from "@/lib/ai-chat/agent-status-label";
 import {
   Dialog,
   DialogContent,
@@ -26,6 +25,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Spinner } from "@/components/ui/spinner";
+import { getAgentRunRenderSignature } from "@/lib/ai-chat/agent-status-label";
 import {
   ASK_USER_TOOL_NAME,
   parseAskUserRequestFromToolCall,
@@ -208,7 +208,7 @@ function MiniChatMessage({
         className={cn(
           "min-w-0 max-w-full text-base leading-6 [overflow-wrap:anywhere]",
           isUser
-            ? "w-full rounded-lg bg-primary px-4 py-3 text-primary-foreground shadow-xs"
+            ? "w-full rounded-sm bg-primary px-4 py-3 text-primary-foreground shadow-xs"
             : "w-full px-0 py-1 text-card-foreground shadow-xs",
         )}
       >
@@ -324,12 +324,13 @@ const AgentResultFooter = memo(function AgentResultFooter({
   const isRunning =
     agentCall.status === "running" || agentCall.status === "pending";
   const generatedModelName = agentCall.model?.trim() ?? "";
-  const duration = formatAgentDuration(agentCall.startedAt, agentCall.completedAt);
-  const details = [
-    generatedModelName,
-    agentCall.agentName,
-    duration,
-  ].filter(Boolean);
+  const duration = formatAgentDuration(
+    agentCall.startedAt,
+    agentCall.completedAt,
+  );
+  const details = [generatedModelName, agentCall.agentName, duration].filter(
+    Boolean,
+  );
 
   return (
     <div className="grid gap-2 text-sm leading-5 text-muted-foreground">
@@ -620,7 +621,7 @@ function AgentTranscriptFlatBody({
       !agentCall.reasoning?.trim() &&
       visibleToolCalls.length === 0 &&
       childAgentCalls.length === 0 ? (
-        <div className="rounded-lg border bg-muted/35 px-3 py-2 text-base text-muted-foreground">
+        <div className="rounded-sm border bg-muted/35 px-3 py-2 text-base text-muted-foreground">
           {agentCall.status === "running" || agentCall.status === "pending"
             ? "Waiting for agent output..."
             : "No runtime output recorded."}
@@ -962,7 +963,7 @@ function AgentTranscriptStepsBody({
       {groups.map((group) => renderBaseGroup(group))}
 
       {!hasAnyContent ? (
-        <div className="rounded-lg border bg-muted/35 px-3 py-2 text-base text-muted-foreground">
+        <div className="rounded-sm border bg-muted/35 px-3 py-2 text-base text-muted-foreground">
           {agentRunning
             ? "Waiting for agent output..."
             : "No runtime output recorded."}
