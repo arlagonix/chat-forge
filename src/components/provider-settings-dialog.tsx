@@ -86,6 +86,11 @@ const EMPTY_MODEL_CONFIG: ProviderModelConfig = {};
 
 type ModelLoadStatus = "idle" | "success" | "empty" | "error";
 
+type SelectedModelTarget = {
+  providerId: string;
+  model: string;
+};
+
 type ProviderSettingsDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -407,7 +412,8 @@ export const ProviderSettingsDialog = memo(function ProviderSettingsDialog({
     useState<ModelLoadStatus>("idle");
   const [providerSearchQuery, setProviderSearchQuery] = useState("");
   const [loadedModelSearchQuery, setLoadedModelSearchQuery] = useState("");
-  const [selectedModelId, setSelectedModelId] = useState<string | undefined>();
+  const [selectedModelTarget, setSelectedModelTarget] =
+    useState<SelectedModelTarget | null>(null);
   const [newProviderDraft, setNewProviderDraft] =
     useState<ProviderConfig | null>(null);
   const [newProviderInitialDraft, setNewProviderInitialDraft] =
@@ -427,8 +433,10 @@ export const ProviderSettingsDialog = memo(function ProviderSettingsDialog({
   const isCreatingProvider = newProviderDraft !== null;
 
   const selectedModel =
-    selectedModelId && activeProviderModelIds.includes(selectedModelId)
-      ? selectedModelId
+    selectedModelTarget &&
+    selectedModelTarget.providerId === editingProviderDraft.id &&
+    activeProviderModelIds.includes(selectedModelTarget.model)
+      ? selectedModelTarget.model
       : undefined;
   const selectedModelSettings = useMemo(
     () =>
@@ -478,10 +486,16 @@ export const ProviderSettingsDialog = memo(function ProviderSettingsDialog({
   }, [activeProvider.id, open]);
 
   useEffect(() => {
-    if (selectedModelId && !activeProviderModelIds.includes(selectedModelId)) {
-      setSelectedModelId(undefined);
-    }
-  }, [activeProvider.id, activeProviderModelIds, selectedModelId]);
+    if (!selectedModelTarget) return;
+    if (selectedModelTarget.providerId !== editingProviderDraft.id) return;
+    if (activeProviderModelIds.includes(selectedModelTarget.model)) return;
+
+    setSelectedModelTarget(null);
+  }, [
+    activeProviderModelIds,
+    editingProviderDraft.id,
+    selectedModelTarget,
+  ]);
 
   useEffect(() => {
     setCustomModelValue("");
@@ -555,7 +569,7 @@ export const ProviderSettingsDialog = memo(function ProviderSettingsDialog({
     requestWithUnsavedCheck(() => {
       setNewProviderDraft(null);
       setNewProviderInitialDraft(null);
-      setSelectedModelId(undefined);
+      setSelectedModelTarget(null);
       onProvidersStateChange((currentState) => ({
         ...currentState,
         activeProviderId: providerId,
@@ -567,7 +581,7 @@ export const ProviderSettingsDialog = memo(function ProviderSettingsDialog({
     requestWithUnsavedCheck(() => {
       setNewProviderDraft(null);
       setNewProviderInitialDraft(null);
-      setSelectedModelId(model);
+      setSelectedModelTarget({ providerId, model });
       onProvidersStateChange((currentState) => ({
         ...currentState,
         activeProviderId: providerId,
@@ -578,7 +592,7 @@ export const ProviderSettingsDialog = memo(function ProviderSettingsDialog({
   function startCreateProvider() {
     requestWithUnsavedCheck(() => {
       const provider = createNewProvider();
-      setSelectedModelId(undefined);
+      setSelectedModelTarget(null);
       setCustomModelValue("");
       setLoadedModelSearchQuery("");
       setNewProviderDraft(provider);
@@ -607,7 +621,7 @@ export const ProviderSettingsDialog = memo(function ProviderSettingsDialog({
     setNewProviderDraft(null);
     setNewProviderInitialDraft(null);
     setEditingProviderDraft(provider);
-    setSelectedModelId(undefined);
+    setSelectedModelTarget(null);
   }
 
   function buildProvidersStateWithProvider(

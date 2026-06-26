@@ -52,14 +52,17 @@ function renderMcpDialog(initialSettings = createSettings()) {
     const [settings, setSettings] = useState(initialSettings);
 
     return (
-      <McpDialog
-        open={open}
-        onOpenChange={setOpen}
-        mcpSettings={settings}
-        onMcpSettingsChange={setSettings}
-        showSuccess={showSuccess}
-        showError={showError}
-      />
+      <>
+        <McpDialog
+          open={open}
+          onOpenChange={setOpen}
+          mcpSettings={settings}
+          onMcpSettingsChange={setSettings}
+          showSuccess={showSuccess}
+          showError={showError}
+        />
+        <pre data-testid="mcp-settings-state">{JSON.stringify(settings)}</pre>
+      </>
     );
   }
 
@@ -69,6 +72,11 @@ function renderMcpDialog(initialSettings = createSettings()) {
     showError,
     ...render(<Harness />),
   };
+}
+
+function readRenderedMcpSettings(): McpSettings {
+  const rawState = screen.getByTestId("mcp-settings-state").textContent ?? "";
+  return JSON.parse(rawState) as McpSettings;
 }
 
 describe("McpDialog", () => {
@@ -178,5 +186,37 @@ describe("McpDialog", () => {
     await user.click(screen.getByText("github"));
 
     expect(screen.queryByText("Discard unsaved changes?")).not.toBeInTheDocument();
+  });
+
+  it("allows typing incomplete environment variable lines before they become valid", async () => {
+    const { user } = renderMcpDialog();
+    const envTextarea = screen.getByLabelText("Environment variables");
+
+    await user.type(envTextarea, "A");
+
+    expect(envTextarea).toHaveValue("A");
+
+    await user.type(envTextarea, "PI_KEY=");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(readRenderedMcpSettings().servers[0].env).toEqual({
+      API_KEY: "",
+    });
+  });
+
+  it("preserves blank arg lines while editing but stores only real args", async () => {
+    const { user } = renderMcpDialog();
+    const argsTextarea = screen.getByLabelText("Args, one per line");
+
+    await user.type(argsTextarea, "--foo{enter}{enter}--bar");
+
+    expect(argsTextarea).toHaveValue("--foo\n\n--bar");
+
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(readRenderedMcpSettings().servers[0].args).toEqual([
+      "--foo",
+      "--bar",
+    ]);
   });
 });

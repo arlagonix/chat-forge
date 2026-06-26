@@ -508,7 +508,7 @@ export function resolveChatThinkingRequestBody(
     return { reasoning_effort: "none" };
   }
 
-  if (["low", "medium", "high"].includes(thinkingMode)) {
+  if (thinkingMode && ["low", "medium", "high"].includes(thinkingMode)) {
     return { reasoning_effort: thinkingMode };
   }
 

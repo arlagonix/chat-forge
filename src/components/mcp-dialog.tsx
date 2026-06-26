@@ -12,7 +12,15 @@ import {
   Wand2,
   X,
 } from "lucide-react";
-import { memo, useMemo, type ReactNode } from "react";
+import {
+  memo,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ComponentProps,
+  type ReactNode,
+} from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -175,7 +183,7 @@ function textToRecord(value: string): Record<string, string> | undefined {
       if (separator <= 0) return undefined;
       const key = line.slice(0, separator).trim();
       const rawValue = line.slice(separator + 1).trim();
-      if (!key || !rawValue) return undefined;
+      if (!key) return undefined;
       return [key, rawValue] as const;
     })
     .filter((entry): entry is readonly [string, string] => Boolean(entry));
@@ -193,6 +201,42 @@ function textToArgs(value: string) {
     .map((line) => line.trim())
     .filter(Boolean);
 }
+
+
+type BufferedTextareaProps = Omit<
+  ComponentProps<typeof Textarea>,
+  "value" | "onChange"
+> & {
+  value: string;
+  onValueChange: (value: string) => void;
+};
+
+const BufferedTextarea = memo(function BufferedTextarea({
+  value,
+  onValueChange,
+  ...props
+}: BufferedTextareaProps) {
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const [draftValue, setDraftValue] = useState(value);
+
+  useEffect(() => {
+    if (document.activeElement === textareaRef.current) return;
+    setDraftValue(value);
+  }, [value]);
+
+  return (
+    <Textarea
+      {...props}
+      ref={textareaRef}
+      value={draftValue}
+      onChange={(event) => {
+        const nextValue = event.target.value;
+        setDraftValue(nextValue);
+        onValueChange(nextValue);
+      }}
+    />
+  );
+});
 
 function sortTools(tools?: Record<string, McpToolConfig>) {
   return Object.values(tools ?? {}).sort((left, right) =>
@@ -553,15 +597,16 @@ export const McpDialog = memo(function McpDialog({
                               label="Args, one per line"
                               description="Arguments passed to the command. Put each argument on a separate line."
                             />
-                            <Textarea
+                            <BufferedTextarea
+                              aria-label="Args, one per line"
                               className="min-h-24 font-mono text-xs"
                               placeholder={
                                 "-y\n@modelcontextprotocol/server-filesystem\nC:/Users/..."
                               }
                               value={argsToText(activeServer.args)}
-                              onChange={(event) =>
+                              onValueChange={(value) =>
                                 updateActiveServer({
-                                  args: textToArgs(event.target.value),
+                                  args: textToArgs(value),
                                 })
                               }
                             />
@@ -587,13 +632,14 @@ export const McpDialog = memo(function McpDialog({
                               label="Environment variables"
                               description="KEY=value entries passed to the server process. Use for API keys, tokens, secrets, flags, or environment-based config."
                             />
-                            <Textarea
+                            <BufferedTextarea
+                              aria-label="Environment variables"
                               className="min-h-20 font-mono text-xs"
                               placeholder="API_KEY=..."
                               value={recordToText(activeServer.env)}
-                              onChange={(event) =>
+                              onValueChange={(value) =>
                                 updateActiveServer({
-                                  env: textToRecord(event.target.value),
+                                  env: textToRecord(value),
                                 })
                               }
                             />
@@ -620,13 +666,14 @@ export const McpDialog = memo(function McpDialog({
                               label="Headers"
                               description="HTTP headers sent to the server. Put one key=value entry per line, for example Authorization=Bearer ..."
                             />
-                            <Textarea
+                            <BufferedTextarea
+                              aria-label="Headers"
                               className="min-h-20 font-mono text-xs"
                               placeholder="Authorization=Bearer ..."
                               value={recordToText(activeServer.headers)}
-                              onChange={(event) =>
+                              onValueChange={(value) =>
                                 updateActiveServer({
-                                  headers: textToRecord(event.target.value),
+                                  headers: textToRecord(value),
                                 })
                               }
                             />

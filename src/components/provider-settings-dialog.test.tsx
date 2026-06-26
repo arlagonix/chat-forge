@@ -478,6 +478,21 @@ describe("ProviderSettingsDialog", () => {
     expect(modelNameInput).toBeDisabled();
   });
 
+  it("opens a model from another provider with one sidebar click", async () => {
+    const { user } = renderProviderSettingsDialog();
+    const openRouterModelSwitch = screen.getByRole("switch", {
+      name: "OpenRouter or-model model",
+    });
+    const openRouterModelRow = openRouterModelSwitch.closest('[role="button"]');
+    expect(openRouterModelRow).toBeInstanceOf(HTMLElement);
+
+    await user.click(openRouterModelRow as HTMLElement);
+
+    const modelNameInput = await screen.findByLabelText("Model name");
+    expect(modelNameInput).toHaveValue("or-model");
+    expect(readRenderedState().activeProviderId).toBe("openrouter");
+  });
+
   it("keeps model numeric settings within their accepted formats while allowing empty values", async () => {
     const { user } = renderProviderSettingsDialog();
     const alphaModelSwitch = screen.getByRole("switch", {

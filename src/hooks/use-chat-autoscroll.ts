@@ -233,7 +233,7 @@ export function useChatAutoscroll({
     let current: HTMLElement | null = element;
 
     while (current && current !== root) {
-      const parent = current.parentElement;
+      const parent: HTMLElement | null = current.parentElement;
       if (!parent) return null;
 
       const index = Array.prototype.indexOf.call(parent.children, current);
