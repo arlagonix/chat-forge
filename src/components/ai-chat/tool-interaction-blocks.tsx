@@ -16,6 +16,7 @@ import { flushSync } from "react-dom";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
+import { getAskUserAnswerSummaries } from "@/lib/ai-chat/chat-interactions";
 import { BASH_TOOL_NAME } from "@/lib/ai-chat/file-tool-names";
 import type {
   AgentTask,
@@ -334,46 +335,10 @@ export const AskUserBlock = memo(function AskUserBlock({
       .filter(Boolean);
   }
 
-  function getResponseAnswerText(question: AskUserQuestion) {
-    if (!response) return "";
-
-    const answerLabel = response.answerLabels?.[question.id];
-    if (Array.isArray(answerLabel)) {
-      return answerLabel.filter(Boolean).join(", ");
-    }
-    if (answerLabel?.trim()) return answerLabel.trim();
-
-    const questionType = getAskUserQuestionType(question);
-    if (questionType === "multi_select") {
-      return getMultiAnswerLabels(
-        question,
-        response.multiAnswers?.[question.id] ?? [],
-      ).join(", ");
-    }
-
-    if (questionType === "text") {
-      return response.answers[question.id]?.trim() ?? "";
-    }
-
-    const selectedAnswer = response.answers[question.id];
-    if (selectedAnswer === ASK_USER_CUSTOM_ANSWER_ID) {
-      return response.customAnswers?.[question.id]?.trim() ?? "";
-    }
-
-    return getSelectedOptionLabel(question.id, selectedAnswer).trim();
-  }
-
   const collapsedAnswerSummaries = useMemo(() => {
     if (!response) return [];
-
-    return request.questions
-      .map((question) => ({
-        id: question.id,
-        question: question.question.trim(),
-        answer: getResponseAnswerText(question),
-      }))
-      .filter((item) => item.question && item.answer.trim());
-  }, [request.questions, response]);
+    return getAskUserAnswerSummaries(request, response);
+  }, [request, response]);
 
   function renderTextAnswer(question: AskUserQuestion, readOnly = false) {
     const value = readOnly

@@ -19,7 +19,6 @@ import {
   memo,
   useEffect,
   useMemo,
-  useRef,
   useState,
   type ComponentProps,
   type Dispatch,
@@ -240,18 +239,11 @@ const BufferedTextarea = memo(function BufferedTextarea({
   onValueChange,
   ...props
 }: BufferedTextareaProps) {
-  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const [draftValue, setDraftValue] = useState(value);
-
-  useEffect(() => {
-    if (document.activeElement === textareaRef.current) return;
-    setDraftValue(value);
-  }, [value]);
 
   return (
     <Textarea
       {...props}
-      ref={textareaRef}
       value={draftValue}
       onChange={(event) => {
         const nextValue = event.target.value;
@@ -346,6 +338,7 @@ export const McpDialog = memo(function McpDialog({
     confirmDiscardUnsavedChanges,
     deleteActiveServer,
     discardNewServer,
+    draftRevision,
     hasChanges,
     isNewServer,
     isSaving,
@@ -974,6 +967,7 @@ export const McpDialog = memo(function McpDialog({
                               description="Arguments passed to the command. Put each argument on a separate line."
                             />
                             <BufferedTextarea
+                              key={`args:${draftRevision}`}
                               aria-label="Args, one per line"
                               className="min-h-24 font-mono text-xs"
                               placeholder={
@@ -1009,6 +1003,7 @@ export const McpDialog = memo(function McpDialog({
                               description="KEY=value entries passed to the server process. Use for API keys, tokens, secrets, flags, or environment-based config."
                             />
                             <BufferedTextarea
+                              key={`env:${draftRevision}`}
                               aria-label="Environment variables"
                               className="min-h-20 font-mono text-xs"
                               placeholder="API_KEY=..."
@@ -1043,6 +1038,7 @@ export const McpDialog = memo(function McpDialog({
                               description="HTTP headers sent to the server. Put one key=value entry per line, for example Authorization=Bearer ..."
                             />
                             <BufferedTextarea
+                              key={`headers:${draftRevision}`}
                               aria-label="Headers"
                               className="min-h-20 font-mono text-xs"
                               placeholder="Authorization=Bearer ..."

@@ -215,7 +215,7 @@ describe("InteractionDock", () => {
     expect(
       screen.getByText("call_agent", { selector: "code" }),
     ).toBeInTheDocument();
-    expect(screen.getByText("Agent name")).toBeInTheDocument();
+    expect(screen.getByText("Agent Name")).toBeInTheDocument();
     expect(screen.getByText("general")).toBeInTheDocument();
     expect(screen.getByText("Task")).toBeInTheDocument();
     expect(screen.getByText("Review the pending changes")).toBeInTheDocument();

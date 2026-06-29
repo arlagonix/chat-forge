@@ -125,6 +125,7 @@ export function useMcpSettingsForm({
     useState<McpServerConfig | null>(null);
   const [activeServerBase, setActiveServerBase] =
     useState<McpServerConfig | null>(null);
+  const [draftRevision, setDraftRevision] = useState(0);
   const [isNewServer, setIsNewServer] = useState(false);
   const [busyServerId, setBusyServerId] = useState<string | undefined>();
   const [isSaving, setIsSaving] = useState(false);
@@ -139,6 +140,7 @@ export function useMcpSettingsForm({
       setSelectedServerId(server?.id);
       setActiveServerDraft(server ? cloneServer(server) : null);
       setActiveServerBase(server ? cloneServer(server) : null);
+      setDraftRevision((current) => current + 1);
       setIsNewServer(false);
       setTestResult(null);
     },
@@ -169,6 +171,7 @@ export function useMcpSettingsForm({
     if (currentServer) {
       setActiveServerDraft(cloneServer(currentServer));
       setActiveServerBase(cloneServer(currentServer));
+      setDraftRevision((current) => current + 1);
       return;
     }
 
@@ -270,6 +273,7 @@ export function useMcpSettingsForm({
       setSelectedServerId(undefined);
       setActiveServerDraft(server);
       setActiveServerBase(cloneServer(server));
+      setDraftRevision((current) => current + 1);
       setIsNewServer(true);
       setTestResult(null);
     });
@@ -559,6 +563,7 @@ export function useMcpSettingsForm({
     confirmDiscardUnsavedChanges,
     deleteActiveServer,
     discardNewServer,
+    draftRevision,
     hasChanges,
     isNewServer,
     isSaving,
