@@ -20,7 +20,6 @@ import {
   useEffect,
   useMemo,
   useState,
-  type ComponentProps,
   type Dispatch,
   type ReactNode,
   type SetStateAction,
@@ -189,71 +188,6 @@ type McpDialogProps = {
   showError: (message: string, description?: string) => void;
 };
 
-function recordToText(value?: Record<string, string>) {
-  return Object.entries(value ?? {})
-    .map(([key, rawValue]) => `${key}=${rawValue}`)
-    .join("\n");
-}
-
-function textToRecord(value: string): Record<string, string> | undefined {
-  const entries = value
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => {
-      const separator = line.includes("=")
-        ? line.indexOf("=")
-        : line.indexOf(":");
-      if (separator <= 0) return undefined;
-      const key = line.slice(0, separator).trim();
-      const rawValue = line.slice(separator + 1).trim();
-      if (!key) return undefined;
-      return [key, rawValue] as const;
-    })
-    .filter((entry): entry is readonly [string, string] => Boolean(entry));
-
-  return entries.length ? Object.fromEntries(entries) : undefined;
-}
-
-function argsToText(args?: string[]) {
-  return (args ?? []).join("\n");
-}
-
-function textToArgs(value: string) {
-  return value
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-}
-
-type BufferedTextareaProps = Omit<
-  ComponentProps<typeof Textarea>,
-  "value" | "onChange"
-> & {
-  value: string;
-  onValueChange: (value: string) => void;
-};
-
-const BufferedTextarea = memo(function BufferedTextarea({
-  value,
-  onValueChange,
-  ...props
-}: BufferedTextareaProps) {
-  const [draftValue, setDraftValue] = useState(value);
-
-  return (
-    <Textarea
-      {...props}
-      value={draftValue}
-      onChange={(event) => {
-        const nextValue = event.target.value;
-        setDraftValue(nextValue);
-        onValueChange(nextValue);
-      }}
-    />
-  );
-});
-
 function sortTools(tools?: Record<string, McpToolConfig>) {
   return Object.values(tools ?? {}).sort((left, right) =>
     left.originalName.localeCompare(right.originalName),
@@ -333,12 +267,12 @@ export const McpDialog = memo(function McpDialog({
 }: McpDialogProps) {
   const {
     activeServer,
+    activeServerText,
     busyServerId,
     cancelDiscardUnsavedChanges,
     confirmDiscardUnsavedChanges,
     deleteActiveServer,
     discardNewServer,
-    draftRevision,
     hasChanges,
     isNewServer,
     isSaving,
@@ -356,6 +290,7 @@ export const McpDialog = memo(function McpDialog({
     testServer,
     unsavedChangesDialogOpen,
     updateActiveServer,
+    updateActiveServerText,
     updateActiveServerToolEnabled,
     updateGlobalEnabled,
     updateServerEnabled,
@@ -966,18 +901,18 @@ export const McpDialog = memo(function McpDialog({
                               label="Args, one per line"
                               description="Arguments passed to the command. Put each argument on a separate line."
                             />
-                            <BufferedTextarea
-                              key={`args:${draftRevision}`}
+                            <Textarea
                               aria-label="Args, one per line"
                               className="min-h-24 font-mono text-xs"
                               placeholder={
                                 "-y\n@modelcontextprotocol/server-filesystem\nC:/Users/..."
                               }
-                              value={argsToText(activeServer.args)}
-                              onValueChange={(value) =>
-                                updateActiveServer({
-                                  args: textToArgs(value),
-                                })
+                              value={activeServerText?.args ?? ""}
+                              onChange={(event) =>
+                                updateActiveServerText(
+                                  "args",
+                                  event.target.value,
+                                )
                               }
                             />
                           </div>
@@ -1002,16 +937,16 @@ export const McpDialog = memo(function McpDialog({
                               label="Environment variables"
                               description="KEY=value entries passed to the server process. Use for API keys, tokens, secrets, flags, or environment-based config."
                             />
-                            <BufferedTextarea
-                              key={`env:${draftRevision}`}
+                            <Textarea
                               aria-label="Environment variables"
                               className="min-h-20 font-mono text-xs"
                               placeholder="API_KEY=..."
-                              value={recordToText(activeServer.env)}
-                              onValueChange={(value) =>
-                                updateActiveServer({
-                                  env: textToRecord(value),
-                                })
+                              value={activeServerText?.env ?? ""}
+                              onChange={(event) =>
+                                updateActiveServerText(
+                                  "env",
+                                  event.target.value,
+                                )
                               }
                             />
                           </div>
@@ -1037,16 +972,16 @@ export const McpDialog = memo(function McpDialog({
                               label="Headers"
                               description="HTTP headers sent to the server. Put one key=value entry per line, for example Authorization=Bearer ..."
                             />
-                            <BufferedTextarea
-                              key={`headers:${draftRevision}`}
+                            <Textarea
                               aria-label="Headers"
                               className="min-h-20 font-mono text-xs"
                               placeholder="Authorization=Bearer ..."
-                              value={recordToText(activeServer.headers)}
-                              onValueChange={(value) =>
-                                updateActiveServer({
-                                  headers: textToRecord(value),
-                                })
+                              value={activeServerText?.headers ?? ""}
+                              onChange={(event) =>
+                                updateActiveServerText(
+                                  "headers",
+                                  event.target.value,
+                                )
                               }
                             />
                           </div>

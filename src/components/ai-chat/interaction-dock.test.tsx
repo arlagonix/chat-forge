@@ -5,7 +5,12 @@ import { describe, expect, it, vi } from "vitest";
 import { InteractionDock } from "@/components/ai-chat/interaction-dock";
 import type { PendingChatInteraction } from "@/lib/ai-chat/chat-interactions";
 
-function approval(id: string): PendingChatInteraction {
+type PendingToolApprovalInteraction = Extract<
+  PendingChatInteraction,
+  { kind: "tool_approval" }
+>;
+
+function approval(id: string): PendingToolApprovalInteraction {
   return {
     id,
     kind: "tool_approval",
@@ -68,7 +73,7 @@ function askUser(id: string): PendingChatInteraction {
   };
 }
 
-function agentApproval(id: string): PendingChatInteraction {
+function agentApproval(id: string): PendingToolApprovalInteraction {
   return {
     ...approval(id),
     toolCall: {

@@ -194,6 +194,7 @@ describe("McpDialog", () => {
 
     await user.type(envTextarea, "A");
 
+    expect(screen.getByLabelText("Environment variables")).toBe(envTextarea);
     expect(envTextarea).toHaveValue("A");
 
     await user.type(envTextarea, "PI_KEY=");
@@ -210,6 +211,7 @@ describe("McpDialog", () => {
 
     await user.type(argsTextarea, "--foo{enter}{enter}--bar");
 
+    expect(screen.getByLabelText("Args, one per line")).toBe(argsTextarea);
     expect(argsTextarea).toHaveValue("--foo\n\n--bar");
 
     await user.click(screen.getByRole("button", { name: "Save" }));
@@ -218,5 +220,26 @@ describe("McpDialog", () => {
       "--foo",
       "--bar",
     ]);
+  });
+
+  it("restores saved multiline values when resetting raw edits", async () => {
+    const settings = createSettings();
+    settings.servers[0].args = ["--saved"];
+    settings.servers[0].env = { API_KEY: "saved" };
+    const { user } = renderMcpDialog(settings);
+
+    const argsTextarea = screen.getByLabelText("Args, one per line");
+    const envTextarea = screen.getByLabelText("Environment variables");
+    await user.clear(argsTextarea);
+    await user.type(argsTextarea, "--draft{enter}{enter}");
+    await user.clear(envTextarea);
+    await user.type(envTextarea, "INCOMPLETE");
+
+    await user.click(screen.getByRole("button", { name: "Reset" }));
+
+    expect(screen.getByLabelText("Args, one per line")).toHaveValue("--saved");
+    expect(screen.getByLabelText("Environment variables")).toHaveValue(
+      "API_KEY=saved",
+    );
   });
 });

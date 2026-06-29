@@ -24,6 +24,71 @@ type UseMcpSettingsFormOptions = {
   showError: (message: string, description?: string) => void;
 };
 
+type McpServerTextDraft = {
+  args: string;
+  env: string;
+  headers: string;
+};
+
+function recordToText(value?: Record<string, string>) {
+  return Object.entries(value ?? {})
+    .map(([key, rawValue]) => `${key}=${rawValue}`)
+    .join("\n");
+}
+
+function textToRecord(value: string): Record<string, string> | undefined {
+  const entries = value
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const separator = line.includes("=")
+        ? line.indexOf("=")
+        : line.indexOf(":");
+      if (separator <= 0) return undefined;
+      const key = line.slice(0, separator).trim();
+      const rawValue = line.slice(separator + 1).trim();
+      if (!key) return undefined;
+      return [key, rawValue] as const;
+    })
+    .filter((entry): entry is readonly [string, string] => Boolean(entry));
+
+  return entries.length ? Object.fromEntries(entries) : undefined;
+}
+
+function textToArgs(value: string) {
+  return value
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+function createServerTextDraft(server: McpServerConfig): McpServerTextDraft {
+  return {
+    args: (server.args ?? []).join("\n"),
+    env: recordToText(server.env),
+    headers: recordToText(server.headers),
+  };
+}
+
+function applyServerTextDraft(
+  server: McpServerConfig,
+  textDraft: McpServerTextDraft,
+): McpServerConfig {
+  if (server.transport === "http") {
+    return {
+      ...server,
+      headers: textToRecord(textDraft.headers),
+    };
+  }
+
+  return {
+    ...server,
+    args: textToArgs(textDraft.args),
+    env: textToRecord(textDraft.env),
+  };
+}
+
 function cloneServer(server: McpServerConfig): McpServerConfig {
   return JSON.parse(JSON.stringify(server)) as McpServerConfig;
 }
@@ -125,7 +190,10 @@ export function useMcpSettingsForm({
     useState<McpServerConfig | null>(null);
   const [activeServerBase, setActiveServerBase] =
     useState<McpServerConfig | null>(null);
-  const [draftRevision, setDraftRevision] = useState(0);
+  const [activeServerTextDraft, setActiveServerTextDraft] =
+    useState<McpServerTextDraft | null>(null);
+  const [activeServerTextBase, setActiveServerTextBase] =
+    useState<McpServerTextDraft | null>(null);
   const [isNewServer, setIsNewServer] = useState(false);
   const [busyServerId, setBusyServerId] = useState<string | undefined>();
   const [isSaving, setIsSaving] = useState(false);
@@ -140,7 +208,8 @@ export function useMcpSettingsForm({
       setSelectedServerId(server?.id);
       setActiveServerDraft(server ? cloneServer(server) : null);
       setActiveServerBase(server ? cloneServer(server) : null);
-      setDraftRevision((current) => current + 1);
+      setActiveServerTextDraft(server ? createServerTextDraft(server) : null);
+      setActiveServerTextBase(server ? createServerTextDraft(server) : null);
       setIsNewServer(false);
       setTestResult(null);
     },
@@ -157,6 +226,14 @@ export function useMcpSettingsForm({
 
   useEffect(() => {
     if (!open || isNewServer) return;
+    if (!selectedServerId) return;
+    if (
+      activeServerTextDraft &&
+      activeServerTextBase &&
+      !areEqual(activeServerTextDraft, activeServerTextBase)
+    ) {
+      return;
+    }
     if (
       activeServerDraft &&
       hasServerFormChanges(activeServerDraft, activeServerBase)
@@ -169,18 +246,40 @@ export function useMcpSettingsForm({
     );
 
     if (currentServer) {
+      if (activeServerBase && areEqual(currentServer, activeServerBase)) return;
       setActiveServerDraft(cloneServer(currentServer));
       setActiveServerBase(cloneServer(currentServer));
-      setDraftRevision((current) => current + 1);
+      setActiveServerTextDraft(createServerTextDraft(currentServer));
+      setActiveServerTextBase(createServerTextDraft(currentServer));
       return;
     }
 
     selectSavedServer(mcpSettings.servers[0]?.id, mcpSettings);
-  }, [mcpSettings, open, isNewServer, selectedServerId]);
+  }, [
+    activeServerBase,
+    activeServerDraft,
+    activeServerTextBase,
+    activeServerTextDraft,
+    isNewServer,
+    mcpSettings,
+    open,
+    selectedServerId,
+    selectSavedServer,
+  ]);
 
-  const activeServer = activeServerDraft;
-  const formChanged = hasServerFormChanges(activeServerDraft, activeServerBase);
-  const hasChanges = formChanged;
+  const activeServer = useMemo(
+    () =>
+      activeServerDraft && activeServerTextDraft
+        ? applyServerTextDraft(activeServerDraft, activeServerTextDraft)
+        : activeServerDraft,
+    [activeServerDraft, activeServerTextDraft],
+  );
+  const formChanged = hasServerFormChanges(activeServer, activeServerBase);
+  const textChanged =
+    activeServerTextDraft !== null &&
+    activeServerTextBase !== null &&
+    !areEqual(activeServerTextDraft, activeServerTextBase);
+  const hasChanges = formChanged || textChanged;
   const unsavedChangesDialogOpen = Boolean(pendingNavigationAction);
 
   const requestNavigation = useCallback(
@@ -273,7 +372,8 @@ export function useMcpSettingsForm({
       setSelectedServerId(undefined);
       setActiveServerDraft(server);
       setActiveServerBase(cloneServer(server));
-      setDraftRevision((current) => current + 1);
+      setActiveServerTextDraft(createServerTextDraft(server));
+      setActiveServerTextBase(createServerTextDraft(server));
       setIsNewServer(true);
       setTestResult(null);
     });
@@ -284,6 +384,15 @@ export function useMcpSettingsForm({
       current ? { ...current, ...patch } : current,
     );
   }, []);
+
+  const updateActiveServerText = useCallback(
+    (field: keyof McpServerTextDraft, value: string) => {
+      setActiveServerTextDraft((current) =>
+        current ? { ...current, [field]: value } : current,
+      );
+    },
+    [],
+  );
 
   const updateActiveServerToolEnabled = useCallback(
     (toolName: string, enabled: boolean) => {
@@ -337,12 +446,12 @@ export function useMcpSettingsForm({
   ]);
 
   const saveCurrentDraft = useCallback(async () => {
-    if (!activeServerDraft) return;
+    if (!activeServer) return;
 
     const nameError = validateMcpServerName(
-      activeServerDraft.name,
+      activeServer.name,
       mcpSettings.servers,
-      isNewServer ? undefined : activeServerDraft.id,
+      isNewServer ? undefined : activeServer.id,
     );
 
     if (nameError) {
@@ -353,8 +462,8 @@ export function useMcpSettingsForm({
     setIsSaving(true);
     try {
       const trimmedServer = {
-        ...activeServerDraft,
-        name: activeServerDraft.name.trim(),
+        ...activeServer,
+        name: activeServer.name.trim(),
       };
       const serverWithToolNames = regenerateMcpServerToolExposedNames(
         stripTransientMcpServerState(trimmedServer),
@@ -370,7 +479,7 @@ export function useMcpSettingsForm({
       setIsSaving(false);
     }
   }, [
-    activeServerDraft,
+    activeServer,
     isNewServer,
     mcpSettings,
     onMcpSettingsChange,
@@ -563,7 +672,7 @@ export function useMcpSettingsForm({
     confirmDiscardUnsavedChanges,
     deleteActiveServer,
     discardNewServer,
-    draftRevision,
+    activeServerText: activeServerTextDraft,
     hasChanges,
     isNewServer,
     isSaving,
@@ -581,6 +690,7 @@ export function useMcpSettingsForm({
     testServer,
     unsavedChangesDialogOpen,
     updateActiveServer,
+    updateActiveServerText,
     updateActiveServerToolEnabled,
     updateGlobalEnabled,
     updateServerEnabled,
