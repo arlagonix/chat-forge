@@ -37,7 +37,6 @@ import { ThinkingBlock } from "@/components/ai-chat/thinking-block";
 import {
   AskUserBlock,
   TaskListBlock,
-  ToolApprovalBlock,
 } from "@/components/ai-chat/tool-interaction-blocks";
 import { TooltipIconButton } from "@/components/ai-chat/tooltip-icon-button";
 import { Button } from "@/components/ui/button";
@@ -61,12 +60,12 @@ import { getToolBuildingVisibleMetadata } from "@/lib/ai-chat/tool-building";
 import type {
   AskUserRequest,
   AskUserResponse,
+  ChatAgentCall,
   ChatAssistantProcessStep,
   ChatAssistantVariant,
   ChatMessage,
   ChatToolCall,
   ChatToolResult,
-  ToolApprovalResponse,
   ToolExecutionStatus,
 } from "@/lib/ai-chat/types";
 import { cn } from "@/lib/utils";
@@ -77,6 +76,38 @@ type ParsedSkillInvocation = {
   content: string;
   rest: string;
 };
+
+function hasPendingAgentInteraction(
+  agentCall: ChatAgentCall,
+  pendingInteractionIds: Set<string>,
+): boolean {
+  if (
+    (agentCall.toolCalls ?? []).some((toolCall) =>
+      pendingInteractionIds.has(toolCall.id),
+    )
+  ) {
+    return true;
+  }
+
+  return (agentCall.childAgentCalls ?? []).some((child) =>
+    hasPendingAgentInteraction(child, pendingInteractionIds),
+  );
+}
+
+function hasPendingInteraction(
+  processSteps: ChatAssistantProcessStep[],
+  pendingInteractionIds: Set<string>,
+) {
+  return processSteps.some((step) => {
+    if ("toolCall" in step && pendingInteractionIds.has(step.toolCall.id)) {
+      return true;
+    }
+    return (
+      step.type === "agent_call" &&
+      hasPendingAgentInteraction(step.agentCall, pendingInteractionIds)
+    );
+  });
+}
 
 function parseSkillInvocationMessage(
   content: string,
@@ -185,6 +216,7 @@ type ChatMessageListProps = {
   ) => (element: HTMLDivElement | null) => void;
   renderToolExecutionBlock: (args: RenderToolExecutionBlockArgs) => ReactNode;
   canSubmitAskUserResponse: (toolCallId: string) => boolean;
+  pendingInteractionIds: string[];
   onCaptureMessageContext: (
     event: ReactMouseEvent<HTMLElement>,
     messageId: string,
@@ -210,10 +242,6 @@ type ChatMessageListProps = {
     toolCall: ChatToolCall,
     request: AskUserRequest,
     response: AskUserResponse,
-  ) => void | Promise<void>;
-  onSubmitFileToolApprovalResponse: (
-    toolCall: ChatToolCall,
-    response: ToolApprovalResponse,
   ) => void | Promise<void>;
   onCancelAskUserRequest: (toolCallId: string) => void;
   onAskUserLayoutChange: () => void;
@@ -736,6 +764,7 @@ const ChatMessageItem = memo(
     registerMessageElement,
     renderToolExecutionBlock,
     canSubmitAskUserResponse,
+    pendingInteractionIds,
     onCaptureMessageContext,
     onCloseMessageContextMenu,
     onCopyLinkHref,
@@ -749,7 +778,6 @@ const ChatMessageItem = memo(
     onToggleToolExecutionCollapsed,
     onToggleThinkingCollapsed,
     onSubmitAskUserResponse,
-    onSubmitFileToolApprovalResponse,
     onCancelAskUserRequest,
     onAskUserLayoutChange,
     onAssistantVisualProgress,
@@ -797,8 +825,16 @@ const ChatMessageItem = memo(
       ? `${generatedModelName} · ${generatedModeAndDuration}`
       : "";
     const isMessageStreaming = status === "streaming";
-    const generationStatusLabel =
-      getAssistantGenerationStatusLabel(activeVariant);
+    const pendingInteractionIdSet = useMemo(
+      () => new Set(pendingInteractionIds),
+      [pendingInteractionIds],
+    );
+    const generationStatusLabel = hasPendingInteraction(
+      processSteps,
+      pendingInteractionIdSet,
+    )
+      ? "Waiting"
+      : getAssistantGenerationStatusLabel(activeVariant);
     const variantCount =
       message.role === "assistant" ? message.variants.length : 0;
     const activeVariantNumber =
@@ -968,6 +1004,7 @@ const ChatMessageItem = memo(
             status={step.status}
             renderToolExecutionBlock={renderToolExecutionBlock}
             canSubmitAskUserResponse={canSubmitAskUserResponse}
+            pendingInteractionIds={pendingInteractionIds}
             onSubmitAskUserResponse={onSubmitAskUserResponse}
             onCancelAskUserRequest={onCancelAskUserRequest}
             onAskUserLayoutChange={onAskUserLayoutChange}
@@ -977,20 +1014,20 @@ const ChatMessageItem = memo(
       }
 
       if (step.type === "user_input") {
-        const manualCollapsed = collapsedToolStepIds[step.id];
-        const isCollapsed = manualCollapsed ?? step.status !== "waiting";
-
-        return (
+        return step.response ? (
           <AskUserBlock
             key={step.id}
             id={step.id}
             request={step.request}
             response={step.response}
             status={step.status}
-            canSubmit={canSubmitAskUserResponse(step.toolCall.id)}
-            isCollapsed={isCollapsed}
+            canSubmit={false}
+            isCollapsed={collapsedToolStepIds[step.id] ?? true}
             onToggleCollapsed={() =>
-              onToggleToolExecutionCollapsed(step.id, !isCollapsed)
+              onToggleToolExecutionCollapsed(
+                step.id,
+                !(collapsedToolStepIds[step.id] ?? true),
+              )
             }
             onSubmit={(response) =>
               onSubmitAskUserResponse(step.toolCall, step.request, response)
@@ -998,32 +1035,11 @@ const ChatMessageItem = memo(
             onCancel={() => onCancelAskUserRequest(step.toolCall.id)}
             onLayoutChange={onAskUserLayoutChange}
           />
-        );
+        ) : null;
       }
 
       if (step.type === "approval" || step.type === "file_approval") {
-        const manualCollapsed = collapsedToolStepIds[step.id];
-        const isCollapsed = manualCollapsed ?? step.status !== "waiting";
-
-        return (
-          <ToolApprovalBlock
-            key={step.id}
-            id={step.id}
-            request={step.request}
-            response={step.response}
-            toolResult={step.toolResult}
-            status={step.status}
-            canSubmit={canSubmitAskUserResponse(step.toolCall.id)}
-            isCollapsed={isCollapsed}
-            onToggleCollapsed={() =>
-              onToggleToolExecutionCollapsed(step.id, !isCollapsed)
-            }
-            onSubmit={(response) =>
-              onSubmitFileToolApprovalResponse(step.toolCall, response)
-            }
-            onLayoutChange={onAskUserLayoutChange}
-          />
-        );
+        return null;
       }
 
       if (step.type === "tasks") {

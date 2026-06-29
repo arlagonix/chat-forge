@@ -65,6 +65,20 @@ describe("ThinkingBlock", () => {
     setIntervalSpy.mockRestore();
   });
 
+  it("does not show stale in-progress status after streaming ends", () => {
+    render(
+      <ThinkingBlock
+        {...baseProps}
+        status="in_progress"
+        isStreaming={false}
+        isCollapsed
+        renderMarkdownWhileStreaming
+      />,
+    );
+
+    expect(screen.queryByLabelText("Loading")).not.toBeInTheDocument();
+  });
+
   it("shows the first thinking row after completion while collapsed", () => {
     render(
       <ThinkingBlock

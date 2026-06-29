@@ -38,21 +38,44 @@ function hasPendingAskUser(
   );
 }
 
+function hasPendingUserInteraction(
+  agentCall: ChatAgentCall,
+  pendingInteractionIds: Set<string>,
+): boolean {
+  if (
+    (agentCall.toolCalls ?? []).some((toolCall) =>
+      pendingInteractionIds.has(toolCall.id),
+    )
+  ) {
+    return true;
+  }
+
+  return (agentCall.childAgentCalls ?? []).some((child) =>
+    hasPendingUserInteraction(child, pendingInteractionIds),
+  );
+}
+
 const AgentCallSummaryButton = memo(function AgentCallSummaryButton({
   agentCall,
   agentName,
   status,
+  isWaitingForUser,
   onOpen,
 }: {
   agentCall: ChatAgentCall;
   agentName: string;
   status: AgentCallStatus;
+  isWaitingForUser: boolean;
   onOpen: () => void;
 }) {
   const { statusLabel, previewLine } = useAgentRunRowText(agentCall);
   const shouldShowStatus = statusLabel !== "Complete" || status === "complete";
   const visibleStatusLabel =
-    status === "running" || status === "pending" ? statusLabel : undefined;
+    status === "running" || status === "pending"
+      ? isWaitingForUser
+        ? "Waiting"
+        : statusLabel
+      : undefined;
 
   return (
     <div
@@ -108,12 +131,14 @@ function areAgentCallSummaryPropsEqual(
     agentCall: ChatAgentCall;
     agentName: string;
     status: AgentCallStatus;
+    isWaitingForUser: boolean;
     onOpen: () => void;
   },
   next: {
     agentCall: ChatAgentCall;
     agentName: string;
     status: AgentCallStatus;
+    isWaitingForUser: boolean;
     onOpen: () => void;
   },
 ) {
@@ -121,6 +146,7 @@ function areAgentCallSummaryPropsEqual(
     previous.agentCall.id === next.agentCall.id &&
     previous.agentName === next.agentName &&
     previous.status === next.status &&
+    previous.isWaitingForUser === next.isWaitingForUser &&
     previous.onOpen === next.onOpen &&
     getAgentRunRenderSignature(previous.agentCall) ===
       getAgentRunRenderSignature(next.agentCall)
@@ -132,6 +158,7 @@ function AgentCallBlockComponent({
   status,
   renderToolExecutionBlock,
   canSubmitAskUserResponse,
+  pendingInteractionIds,
   onSubmitAskUserResponse,
   onCancelAskUserRequest,
   onAskUserLayoutChange,
@@ -142,6 +169,7 @@ function AgentCallBlockComponent({
   status?: AgentCallStatus;
   renderToolExecutionBlock?: RenderAgentToolExecutionBlock;
   canSubmitAskUserResponse: (toolCallId: string) => boolean;
+  pendingInteractionIds: string[];
   onSubmitAskUserResponse: (
     toolCall: ChatToolCall,
     request: AskUserRequest,
@@ -161,6 +189,11 @@ function AgentCallBlockComponent({
     () => hasPendingAskUser(agentCall, canSubmitAskUserResponse),
     [agentCall, canSubmitAskUserResponse],
   );
+  const isWaitingForUser = useMemo(
+    () =>
+      hasPendingUserInteraction(agentCall, new Set(pendingInteractionIds)),
+    [agentCall, pendingInteractionIds],
+  );
   useEffect(() => {
     if (shouldOpenForAskUser) onOpenAgentCall(agentCall.id);
   }, [agentCall.id, onOpenAgentCall, shouldOpenForAskUser]);
@@ -171,6 +204,7 @@ function AgentCallBlockComponent({
         agentCall={agentCall}
         agentName={agentName}
         status={effectiveStatus}
+        isWaitingForUser={isWaitingForUser}
         onOpen={handleOpen}
       />
     </article>
@@ -183,6 +217,7 @@ export const AgentCallBlock = memo(
     previous.id === next.id &&
     previous.status === next.status &&
     previous.agentCall.id === next.agentCall.id &&
+    previous.pendingInteractionIds === next.pendingInteractionIds &&
     previous.canSubmitAskUserResponse === next.canSubmitAskUserResponse &&
     previous.onOpenAgentCall === next.onOpenAgentCall &&
     getAgentRunRenderSignature(previous.agentCall) ===

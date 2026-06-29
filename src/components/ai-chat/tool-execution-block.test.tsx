@@ -186,6 +186,29 @@ describe("ToolExecutionBlock", () => {
     expect(screen.getByText("echo hello")).toBeInTheDocument();
   });
 
+  it("treats a final result as complete even when status is stale", () => {
+    const toolResult: ChatToolResult = {
+      toolCallId: toolCall.id,
+      toolName: toolCall.function.name,
+      content: "done",
+    };
+
+    render(
+      <ToolExecutionBlock
+        id="tool-call-1"
+        toolCall={toolCall}
+        toolResult={toolResult}
+        status="running"
+        loadedTools={[]}
+        isCollapsed
+        onToggleCollapsed={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByLabelText("Tool complete")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Loading")).not.toBeInTheDocument();
+  });
+
   it("compacts absolute file paths in the header", () => {
     const readToolCall: ChatToolCall = {
       id: "tool-call-read-1",

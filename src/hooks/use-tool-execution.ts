@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useRef, useState } from "react";
 
 import {
   ASK_USER_TOOL_NAME,
@@ -19,6 +19,7 @@ import {
   parseFileToolApprovalRequestFromToolCall,
 } from "@/lib/ai-chat/builtin-tools";
 import { runQueuedTool } from "@/lib/ai-chat/tool-execution-queue";
+import type { PendingChatInteraction } from "@/lib/ai-chat/chat-interactions";
 import type {
   AskUserRequest,
   AskUserResponse,
@@ -36,13 +37,7 @@ import type {
   UserInputStatus,
 } from "@/lib/ai-chat/types";
 
-type PendingUserInputRequest = {
-  kind: "ask_user" | "tool_approval";
-  chatId: string;
-  assistantMessageId: string;
-  variantId: string;
-  stepId: string;
-  toolCall: ChatToolCall;
+type PendingUserInputRequest = PendingChatInteraction & {
   resolve: (result: ChatToolResult) => void;
   reject: (error: unknown) => void;
   cleanup: () => void;
@@ -165,6 +160,22 @@ export function useToolExecution({
   const pendingUserInputRequestsRef = useRef<
     Record<string, PendingUserInputRequest>
   >({});
+  const [pendingInteractions, setPendingInteractions] = useState<
+    PendingChatInteraction[]
+  >([]);
+
+  function addPendingInteraction(interaction: PendingChatInteraction) {
+    setPendingInteractions((current) => [
+      ...current.filter((item) => item.id !== interaction.id),
+      interaction,
+    ]);
+  }
+
+  function removePendingInteraction(interactionId: string) {
+    setPendingInteractions((current) =>
+      current.filter((item) => item.id !== interactionId),
+    );
+  }
 
   async function executeAskUserToolCall(
     toolCall: ChatToolCall,
@@ -174,15 +185,18 @@ export function useToolExecution({
       variantId: string;
       stepId: string;
       signal?: AbortSignal;
+      interactionSourceAgentCallId?: string;
+      interactionSourceLabel?: string;
     },
   ): Promise<ChatToolResult> {
-    parseAskUserRequestFromToolCall(toolCall);
+    const request = parseAskUserRequestFromToolCall(toolCall);
 
     return new Promise<ChatToolResult>((resolve, reject) => {
       let settled = false;
 
       const cleanup = () => {
         delete pendingUserInputRequestsRef.current[toolCall.id];
+        removePendingInteraction(toolCall.id);
         options.signal?.removeEventListener("abort", abortHandler);
       };
 
@@ -214,16 +228,34 @@ export function useToolExecution({
       };
 
       pendingUserInputRequestsRef.current[toolCall.id] = {
+        id: toolCall.id,
         kind: "ask_user",
+        request,
         toolCall,
         chatId: options.chatId,
         assistantMessageId: options.assistantMessageId,
         variantId: options.variantId,
         stepId: options.stepId,
+        sourceAgentCallId: options.interactionSourceAgentCallId,
+        sourceLabel: options.interactionSourceLabel,
+        createdAt: new Date().toISOString(),
         resolve: settleResolve,
         reject: settleReject,
         cleanup,
       };
+      addPendingInteraction({
+        id: toolCall.id,
+        kind: "ask_user",
+        request,
+        toolCall,
+        chatId: options.chatId,
+        assistantMessageId: options.assistantMessageId,
+        variantId: options.variantId,
+        stepId: options.stepId,
+        sourceAgentCallId: options.interactionSourceAgentCallId,
+        sourceLabel: options.interactionSourceLabel,
+        createdAt: new Date().toISOString(),
+      });
 
       updateAssistantUserInputStepStatus(
         options.chatId,
@@ -257,24 +289,25 @@ export function useToolExecution({
       fileToolAutoApproval?: ChatFileToolAutoApproval;
       activeSkillNames?: string[];
       tool?: LoadedToolInfo;
+      interactionSourceAgentCallId?: string;
+      interactionSourceLabel?: string;
     },
   ): Promise<ChatToolResult> {
     const tool = options.tool ?? loadedTools.find((candidate) => candidate.name === toolCall.function.name);
 
-    if (requiresFileToolApproval(toolCall.function.name)) {
-      parseFileToolApprovalRequestFromToolCall(
-        toolCall,
-        options.workspaceRoots ?? workspaceRoots,
-      );
-    } else {
-      createToolApprovalRequest(toolCall, tool);
-    }
+    const request = requiresFileToolApproval(toolCall.function.name)
+      ? parseFileToolApprovalRequestFromToolCall(
+          toolCall,
+          options.workspaceRoots ?? workspaceRoots,
+        )
+      : createToolApprovalRequest(toolCall, tool);
 
     return new Promise<ChatToolResult>((resolve, reject) => {
       let settled = false;
 
       const cleanup = () => {
         delete pendingUserInputRequestsRef.current[toolCall.id];
+        removePendingInteraction(toolCall.id);
         options.signal?.removeEventListener("abort", abortHandler);
       };
 
@@ -306,12 +339,17 @@ export function useToolExecution({
       };
 
       pendingUserInputRequestsRef.current[toolCall.id] = {
+        id: toolCall.id,
         kind: "tool_approval",
+        request,
         toolCall,
         chatId: options.chatId,
         assistantMessageId: options.assistantMessageId,
         variantId: options.variantId,
         stepId: options.stepId,
+        sourceAgentCallId: options.interactionSourceAgentCallId,
+        sourceLabel: options.interactionSourceLabel,
+        createdAt: new Date().toISOString(),
         workspaceRoots: options.workspaceRoots ?? workspaceRoots,
         allowedExactFilePaths: options.allowedExactFilePaths,
         allowedReadRoots: options.allowedReadRoots,
@@ -322,6 +360,19 @@ export function useToolExecution({
         reject: settleReject,
         cleanup,
       };
+      addPendingInteraction({
+        id: toolCall.id,
+        kind: "tool_approval",
+        request,
+        toolCall,
+        chatId: options.chatId,
+        assistantMessageId: options.assistantMessageId,
+        variantId: options.variantId,
+        stepId: options.stepId,
+        sourceAgentCallId: options.interactionSourceAgentCallId,
+        sourceLabel: options.interactionSourceLabel,
+        createdAt: new Date().toISOString(),
+      });
 
       updateAssistantFileApprovalStepStatus(
         options.chatId,
@@ -465,6 +516,7 @@ export function useToolExecution({
     let lastPublishTime = 0;
     let pendingPublishTimer: ReturnType<typeof setTimeout> | null = null;
     let hasPendingPublish = false;
+    let finished = false;
 
     const cancelPendingPublish = () => {
       if (pendingPublishTimer !== null) {
@@ -552,6 +604,8 @@ export function useToolExecution({
     };
 
     return (event: TerminalStreamEvent) => {
+      if (finished) return;
+
       if (event.type === "started") {
         terminal.command = event.command;
         terminal.shell = event.shell;
@@ -574,6 +628,7 @@ export function useToolExecution({
       }
 
       if (event.type === "finished") {
+        finished = true;
         terminal.exitCode = event.exitCode;
         terminal.timedOut = event.timedOut;
         terminal.cancelled = event.cancelled;
@@ -671,6 +726,8 @@ export function useToolExecution({
       fileToolAutoApproval?: ChatFileToolAutoApproval;
       tool?: LoadedToolInfo;
       unavailableToolMessage?: string;
+      interactionSourceAgentCallId?: string;
+      interactionSourceLabel?: string;
     },
   ): Promise<ChatToolResult> {
     const toolName = toolCall.function.name;
@@ -740,6 +797,8 @@ export function useToolExecution({
       return;
     }
 
+    delete pendingUserInputRequestsRef.current[toolCall.id];
+    removePendingInteraction(toolCall.id);
     const toolResult = createAskUserToolResult(toolCall, request, response);
     completeAssistantUserInputStep(
       pendingRequest.chatId,
@@ -774,6 +833,8 @@ export function useToolExecution({
       return;
     }
 
+    delete pendingUserInputRequestsRef.current[toolCall.id];
+    removePendingInteraction(toolCall.id);
     try {
       let toolResult: ChatToolResult;
 
@@ -784,22 +845,20 @@ export function useToolExecution({
         const args = JSON.parse(argsText);
         const tool = pendingRequest.tool ?? loadedTools.find((candidate) => candidate.name === toolCall.function.name);
 
-        if (toolCall.function.name === BASH_TOOL_NAME) {
-          updateAssistantToolApprovalPartialResult(
-            pendingRequest.chatId,
-            pendingRequest.assistantMessageId,
-            pendingRequest.variantId,
-            pendingRequest.stepId,
-            response,
-            {
-              toolCallId: toolCall.id,
-              toolName: toolCall.function.name,
-              content: "Terminal command approved. Waiting for execution to start.",
-              isError: false,
-            },
-            "complete",
-          );
-        }
+        updateAssistantToolApprovalPartialResult(
+          pendingRequest.chatId,
+          pendingRequest.assistantMessageId,
+          pendingRequest.variantId,
+          pendingRequest.stepId,
+          response,
+          {
+            toolCallId: toolCall.id,
+            toolName: toolCall.function.name,
+            content: "Tool approved. Waiting for execution to start.",
+            isError: false,
+          },
+          "complete",
+        );
 
         if (toolCall.function.name === LOAD_SKILL_TOOL_NAME) {
           toolResult = await executeLoadSkillToolCall(
@@ -887,6 +946,7 @@ export function useToolExecution({
         ? updateAssistantFileApprovalStepStatus
         : updateAssistantUserInputStepStatus;
 
+    removePendingInteraction(toolCallId);
     updatePendingStatus(
       pendingRequest.chatId,
       pendingRequest.assistantMessageId,
@@ -907,6 +967,7 @@ export function useToolExecution({
 
   return {
     executeToolCall,
+    pendingInteractions,
     submitAskUserResponse,
     submitFileToolApprovalResponse,
     cancelAskUserRequest,

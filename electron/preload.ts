@@ -355,6 +355,10 @@ contextBridge.exposeInMainWorld("moltenForgeMcp", {
     return ipcRenderer.invoke("mcp:refresh-tools", request);
   },
 
+  reloadServer(request: unknown) {
+    return ipcRenderer.invoke("mcp:reload-server", request);
+  },
+
   testServer(request: unknown) {
     return ipcRenderer.invoke("mcp:test-server", request);
   },

@@ -429,7 +429,61 @@ export function useMcpSettingsForm({
     [showError, showSuccess],
   );
 
-  const refreshServer = useCallback(
+  const reloadServer = useCallback(
+    async (server: McpServerConfig) => {
+      const bridge = window.moltenForgeMcp;
+      if (!bridge) {
+        showError("MCP bridge is unavailable.");
+        return;
+      }
+      if (isNewServer || hasChanges) {
+        showError("Save or reset this server before reloading it.");
+        return;
+      }
+
+      setBusyServerId(server.id);
+      try {
+        const result = await bridge.reloadServer({
+          settings: mcpSettings,
+          serverId: server.id,
+        });
+        const updatedServer = result.settings.servers.find(
+          (item) => item.id === server.id,
+        );
+        const toolCount = Object.keys(updatedServer?.tools ?? {}).length;
+
+        onMcpSettingsChange(result.settings);
+        if (updatedServer) selectSavedServer(updatedServer.id, result.settings);
+
+        if (updatedServer?.lastError) {
+          showError("MCP reload failed", updatedServer.lastError);
+        } else {
+          showSuccess(
+            "MCP server reloaded",
+            `${toolCount} tool${toolCount === 1 ? "" : "s"} available.`,
+          );
+        }
+      } catch (error) {
+        showError(
+          "MCP reload failed",
+          error instanceof Error ? error.message : String(error),
+        );
+      } finally {
+        setBusyServerId(undefined);
+      }
+    },
+    [
+      hasChanges,
+      isNewServer,
+      mcpSettings,
+      onMcpSettingsChange,
+      selectSavedServer,
+      showError,
+      showSuccess,
+    ],
+  );
+
+  const loadServerTools = useCallback(
     async (server: McpServerConfig) => {
       const bridge = window.moltenForgeMcp;
       if (!bridge) {
@@ -465,16 +519,16 @@ export function useMcpSettingsForm({
         }
 
         if (updatedServer?.lastError) {
-          showError("MCP refresh failed", updatedServer.lastError);
+          showError("MCP tool discovery failed", updatedServer.lastError);
         } else {
           showSuccess(
-            "MCP tools refreshed",
+            "MCP tools loaded",
             `${toolCount} tool${toolCount === 1 ? "" : "s"} found. Save to keep these changes.`,
           );
         }
       } catch (error) {
         showError(
-          "MCP refresh failed",
+          "MCP tool discovery failed",
           error instanceof Error ? error.message : String(error),
         );
       } finally {
@@ -508,8 +562,9 @@ export function useMcpSettingsForm({
     hasChanges,
     isNewServer,
     isSaving,
+    loadServerTools,
     mcpEnabled: mcpSettings.enabled,
-    refreshServer,
+    reloadServer,
     requestAddServer,
     requestClose,
     requestSelectServer,

@@ -268,6 +268,10 @@ declare global {
         settings: McpSettings;
         serverId?: string;
       }) => Promise<{ settings: McpSettings; tools: LoadedToolInfo[] }>;
+      reloadServer: (request: {
+        settings: McpSettings;
+        serverId: string;
+      }) => Promise<{ settings: McpSettings; tools: LoadedToolInfo[] }>;
       testServer: (request: {
         server: McpSettings["servers"][number];
       }) => Promise<{ ok: boolean; message: string; toolCount?: number }>;

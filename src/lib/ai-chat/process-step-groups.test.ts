@@ -53,6 +53,64 @@ describe("getVisibleAssistantProcessSteps", () => {
       getVisibleAssistantProcessSteps(steps).map((step) => step.id),
     ).toEqual(["tool-1"]);
   });
+
+  it("hides a pending approval and its not-yet-running tool step", () => {
+    const steps: ChatAssistantProcessStep[] = [
+      {
+        id: "approval-1",
+        type: "approval",
+        status: "waiting",
+        toolCall,
+        request: {
+          title: "Approve command",
+          toolName: "bash",
+          action: "operation",
+        },
+      },
+      {
+        id: "tool-1",
+        type: "tool_execution",
+        status: "pending",
+        toolCall,
+      },
+    ];
+
+    expect(getVisibleAssistantProcessSteps(steps)).toEqual([]);
+  });
+
+  it("keeps a completed ask_user response as a tool-related step", () => {
+    const askToolCall = {
+      ...toolCall,
+      id: "ask-1",
+      function: { name: "ask_user", arguments: "{}" },
+    };
+    const visible = getVisibleAssistantProcessSteps([
+      {
+        id: "input-1",
+        type: "user_input",
+        status: "complete",
+        toolCall: askToolCall,
+        request: {
+          questions: [
+            {
+              id: "choice",
+              question: "Choose one",
+              options: [{ id: "a", label: "A" }],
+            },
+          ],
+        },
+        response: {
+          answers: { choice: "a" },
+          answeredAt: "2026-01-01T00:00:00.000Z",
+        },
+      },
+    ]);
+
+    expect(visible).toMatchObject([{ id: "input-1", type: "user_input" }]);
+    expect(groupVisibleAssistantProcessSteps(visible)[0]?.kind).toBe(
+      "runtime_group",
+    );
+  });
 });
 
 describe("getToolBatchGroupLabel", () => {

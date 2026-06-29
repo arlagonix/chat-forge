@@ -349,8 +349,9 @@ export const McpDialog = memo(function McpDialog({
     hasChanges,
     isNewServer,
     isSaving,
+    loadServerTools,
     mcpEnabled,
-    refreshServer,
+    reloadServer,
     requestAddServer,
     requestClose,
     requestSelectServer,
@@ -834,11 +835,16 @@ export const McpDialog = memo(function McpDialog({
                             Test connection
                           </DropdownMenuItem>
                           <DropdownMenuItem
-                            disabled={busyServerId === activeServer.id}
-                            onSelect={() => void refreshServer(activeServer)}
+                            disabled={
+                              busyServerId === activeServer.id ||
+                              isNewServer ||
+                              hasChanges ||
+                              !activeServer.enabled
+                            }
+                            onSelect={() => void reloadServer(activeServer)}
                           >
                             <RefreshCw className="size-4" />
-                            Refresh tools
+                            Reload server
                           </DropdownMenuItem>
                           <DropdownMenuSeparator />
                           {isNewServer ? (
@@ -1105,7 +1111,7 @@ export const McpDialog = memo(function McpDialog({
                             size="sm"
                             className="shrink-0 gap-2"
                             disabled={busyServerId === activeServer.id}
-                            onClick={() => void refreshServer(activeServer)}
+                            onClick={() => void loadServerTools(activeServer)}
                             title="Load tools from this server"
                           >
                             <RefreshCw

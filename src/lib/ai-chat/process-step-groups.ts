@@ -183,16 +183,37 @@ export function getVisibleAssistantProcessSteps(
   processSteps: ChatAssistantProcessStep[],
 ): VisibleAssistantProcessStep[] {
   const visibleSteps: VisibleAssistantProcessStep[] = [];
+  const pendingApprovalToolCallIds = new Set(
+    processSteps
+      .filter(
+        (step) =>
+          (step.type === "approval" || step.type === "file_approval") &&
+          step.status === "waiting",
+      )
+      .map((step) => ("toolCall" in step ? step.toolCall.id : ""))
+      .filter(Boolean),
+  );
 
   for (const step of processSteps) {
     if (step.type === "thinking" && !step.content.trim()) {
       continue;
     }
 
+    if (step.type === "approval" || step.type === "file_approval") {
+      continue;
+    }
+
     if (
-      (step.type === "approval" || step.type === "file_approval") &&
-      step.status === "complete" &&
-      step.response?.approved
+      step.type === "user_input" &&
+      (step.status !== "complete" || !step.response)
+    ) {
+      continue;
+    }
+
+    if (
+      step.type === "tool_execution" &&
+      pendingApprovalToolCallIds.has(step.toolCall.id) &&
+      !step.toolResult
     ) {
       continue;
     }

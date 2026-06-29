@@ -41,6 +41,7 @@ import {
   executeMcpTool,
   normalizeMcpSettings,
   refreshMcpTools,
+  reloadMcpServer,
   testMcpServer,
   type McpSettings,
 } from "./mcp-client";
@@ -5837,6 +5838,14 @@ ipcMain.handle("mcp:refresh-tools", async (_event, request: unknown) => {
   const settings = normalizeMcpSettings(value.settings);
   const serverId = safeString(value.serverId).trim() || undefined;
   return refreshMcpTools(settings, serverId);
+});
+
+ipcMain.handle("mcp:reload-server", async (_event, request: unknown) => {
+  const value = isPlainObject(request) ? request : {};
+  const settings = normalizeMcpSettings(value.settings);
+  const serverId = safeString(value.serverId).trim();
+  if (!serverId) throw new Error("MCP server id is required.");
+  return reloadMcpServer(settings, serverId);
 });
 
 ipcMain.handle("mcp:test-server", async (_event, request: unknown) => {

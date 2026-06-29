@@ -51,8 +51,14 @@ export function cancelUnfinishedTaskListSteps(
   return processSteps.map((step) => {
     if (step.type === "tool_execution") {
       if (step.status === "complete" || step.status === "failed") return step;
+      if (step.toolResult) {
+        return {
+          ...step,
+          status: step.toolResult.isError ? "failed" : "complete",
+          completedAt: step.completedAt ?? new Date().toISOString(),
+        };
+      }
       const toolResult =
-        step.toolResult ??
         cancelledToolResultsById.get(step.toolCall.id) ??
         createCancelledToolResult(step.toolCall);
       return { ...step, status: "failed", toolResult };
@@ -146,6 +152,20 @@ function completeThinkingProcessSteps(
 
   for (const step of processSteps) {
     if (step.type === "tool_building") continue;
+
+    if (
+      step.type === "tool_execution" &&
+      step.toolResult &&
+      step.status !== "complete" &&
+      step.status !== "failed"
+    ) {
+      nextSteps.push({
+        ...step,
+        status: step.toolResult.isError ? "failed" : "complete",
+        completedAt: step.completedAt ?? completedAt,
+      });
+      continue;
+    }
 
     if (step.type !== "thinking" || step.status === "complete") {
       nextSteps.push(step);

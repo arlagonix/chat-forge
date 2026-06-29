@@ -15,9 +15,9 @@ function getEffectiveThinkingStatus(
   status: ThinkingStatus | undefined,
   isStreaming: boolean,
 ) {
+  if (!isStreaming) return "complete";
   if (status === "complete") return "complete";
-  if (isStreaming || status === "in_progress") return "in_progress";
-  return status ?? "complete";
+  return "in_progress";
 }
 
 function cleanThinkingPreviewLine(value: string) {

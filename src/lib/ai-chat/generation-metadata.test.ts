@@ -72,4 +72,38 @@ describe("generation cancellation metadata", () => {
       },
     ]);
   });
+
+  it("keeps a completed tool result successful when its status is stale", () => {
+    const variant: ChatAssistantVariant = {
+      id: "variant-1",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      content: "",
+      status: "streaming",
+      processSteps: [
+        {
+          id: "tool-1",
+          type: "tool_execution",
+          status: "running",
+          toolCall: {
+            id: "call-1",
+            type: "function",
+            function: { name: "bash", arguments: "{}" },
+          },
+          toolResult: {
+            toolCallId: "call-1",
+            toolName: "bash",
+            content: "done",
+          },
+        },
+      ],
+    };
+
+    const finalized = finalizeCancelledAssistantVariant(variant);
+
+    expect(finalized.processSteps?.[0]).toMatchObject({
+      type: "tool_execution",
+      status: "complete",
+      toolResult: { content: "done" },
+    });
+  });
 });

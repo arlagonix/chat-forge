@@ -29,6 +29,7 @@ import {
   type ChatComposerHandle,
   type ToolMentionOption,
 } from "@/components/ai-chat/chat-composer";
+import { InteractionDock } from "@/components/ai-chat/interaction-dock";
 import {
   ChatMessageList,
   GenerationInfoSidebar,
@@ -957,12 +958,6 @@ export default function Home() {
   ]);
   const selectedAgentContextUsage = useMemo(() => {
     if (!selectedAgentChat) return undefined;
-    if (
-      selectedAgentChat.status === "running" ||
-      selectedAgentChat.status === "pending"
-    ) {
-      return undefined;
-    }
 
     const context = getEffectiveModelContext(
       activeChatProvider,
@@ -2296,6 +2291,7 @@ export default function Home() {
     selectAssistantVariant,
     stopChatGeneration,
     isChatGenerating,
+    pendingInteractions,
     submitAskUserResponse,
     submitFileToolApprovalResponse,
     cancelAskUserRequest,
@@ -3396,7 +3392,18 @@ export default function Home() {
   const headerContextUsage = selectedAgentChat
     ? selectedAgentContextUsage
     : latestContextUsage;
-  const visibleHeaderContextUsage = isSending ? undefined : headerContextUsage;
+  const visibleHeaderContextUsage = headerContextUsage;
+  const visiblePendingInteractions = useMemo(
+    () =>
+      pendingInteractions.filter(
+        (interaction) => interaction.chatId === activeChat?.id,
+      ),
+    [activeChat?.id, pendingInteractions],
+  );
+  const visiblePendingInteractionIds = useMemo(
+    () => visiblePendingInteractions.map((interaction) => interaction.id),
+    [visiblePendingInteractions],
+  );
   const headerWorkspaceRoots = selectedAgentChat
     ? (selectedAgentChat.workspaceRoots ?? activeChatVisibleWorkspaceRoots)
     : activeChatVisibleWorkspaceRoots;
@@ -3664,6 +3671,7 @@ export default function Home() {
                   agentCall={selectedAgentChat}
                   renderToolExecutionBlock={stableRenderToolExecutionBlock}
                   canSubmitAskUserResponse={stableCanSubmitAskUserResponse}
+                  pendingInteractionIds={visiblePendingInteractionIds}
                   onSubmitAskUserResponse={stableSubmitAskUserResponse}
                   onCancelAskUserRequest={stableCancelAskUserRequest}
                   onAskUserLayoutChange={stableHandleAskUserLayoutChange}
@@ -3700,6 +3708,7 @@ export default function Home() {
                   registerMessageElement={stableRegisterMessageElement}
                   renderToolExecutionBlock={stableRenderToolExecutionBlock}
                   canSubmitAskUserResponse={stableCanSubmitAskUserResponse}
+                  pendingInteractionIds={visiblePendingInteractionIds}
                   onCaptureMessageContext={stableCaptureMessageContext}
                   onCloseMessageContextMenu={stableCloseMessageContextMenu}
                   onCopyLinkHref={stableCopyLinkHref}
@@ -3717,9 +3726,6 @@ export default function Home() {
                   }
                   onToggleThinkingCollapsed={stableToggleThinkingCollapsed}
                   onSubmitAskUserResponse={stableSubmitAskUserResponse}
-                  onSubmitFileToolApprovalResponse={
-                    stableSubmitFileToolApprovalResponse
-                  }
                   onCancelAskUserRequest={stableCancelAskUserRequest}
                   onAskUserLayoutChange={stableHandleAskUserLayoutChange}
                   onAssistantVisualProgress={
@@ -3784,7 +3790,22 @@ export default function Home() {
             )}
         </div>
 
-        {!selectedAgentChat ? (
+        {visiblePendingInteractions.length > 0 ? (
+          <InteractionDock
+            interactions={visiblePendingInteractions}
+            contentWidthClassName={
+              selectedAgentChat ? "max-w-4xl" : chatWidthClassName
+            }
+            canSubmit={stableCanSubmitAskUserResponse}
+            onSubmitAskUserResponse={stableSubmitAskUserResponse}
+            onSubmitToolApprovalResponse={
+              stableSubmitFileToolApprovalResponse
+            }
+            onCancelAskUserRequest={stableCancelAskUserRequest}
+          />
+        ) : null}
+
+        {!selectedAgentChat && visiblePendingInteractions.length === 0 ? (
           <ChatComposer
             ref={chatComposerRef}
             disabled={!activeChat && !isNewChatDraft}
@@ -3879,6 +3900,7 @@ export default function Home() {
               width={rightSidebarWidth}
               renderToolExecutionBlock={stableRenderToolExecutionBlock}
               canSubmitAskUserResponse={stableCanSubmitAskUserResponse}
+              pendingInteractionIds={visiblePendingInteractionIds}
               onSubmitAskUserResponse={stableSubmitAskUserResponse}
               onCancelAskUserRequest={stableCancelAskUserRequest}
               onAskUserLayoutChange={stableHandleAskUserLayoutChange}

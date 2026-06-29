@@ -51,6 +51,10 @@ import {
   type ActiveProcessStepRef,
 } from "@/lib/ai-chat/generation-metadata";
 import { resolveModeForChat } from "@/lib/ai-chat/modes";
+import {
+  buildAssistantContinuationContext,
+  getAssistantContinuationPrompt,
+} from "@/lib/ai-chat/continuation";
 import type { ProjectInstructionsSnapshot } from "@/lib/ai-chat/project-instructions";
 import {
   buildSystemPromptWithActiveSkills,
@@ -118,6 +122,23 @@ import type {
 } from "@/lib/ai-chat/types";
 
 const MAX_TOOL_ROUNDS = 20;
+
+function waitForToolBuildingPaint() {
+  return new Promise<void>((resolve) => {
+    let settled = false;
+    let timeoutId: number | undefined;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+      resolve();
+    };
+    timeoutId = window.setTimeout(finish, 40);
+
+    if (typeof window.requestAnimationFrame !== "function") return;
+    window.requestAnimationFrame(() => window.requestAnimationFrame(finish));
+  });
+}
 
 function isNewlyLoadedSkillResult(
   toolResult: ChatToolResult,
@@ -1016,6 +1037,7 @@ export function useChatGeneration({
 
   const {
     executeToolCall,
+    pendingInteractions,
     submitAskUserResponse,
     submitFileToolApprovalResponse,
     cancelAskUserRequest,
@@ -2663,6 +2685,10 @@ export function useChatGeneration({
           },
         });
 
+        if (activeAgentToolBuildingStepId) {
+          await waitForToolBuildingPaint();
+        }
+
         // The model finished a turn; close any open thinking block before
         // tool steps are recorded so the timeline reads think -> tools.
         completeActiveAgentThinkingStep();
@@ -2935,6 +2961,8 @@ export function useChatGeneration({
                 variantId,
                 stepId: `${agentCall.id}:${childToolCall.id}`,
                 signal,
+                interactionSourceAgentCallId: agentCall.id,
+                interactionSourceLabel: agentCall.agentName,
                 activeSkillNames: currentAgentActiveSkillNames,
                 workspaceRoots: getEffectiveWorkspaceRootsForAgentCall(
                   chatId,
@@ -2997,6 +3025,8 @@ export function useChatGeneration({
                 variantId,
                 stepId: approvalStepId,
                 signal,
+                interactionSourceAgentCallId: agentCall.id,
+                interactionSourceLabel: agentCall.agentName,
                 activeSkillNames: currentAgentActiveSkillNames,
                 workspaceRoots: childWorkspaceRoots,
                 tool: toolForExecution(
@@ -3024,6 +3054,8 @@ export function useChatGeneration({
               variantId,
               stepId: agentTimelineStepId,
               signal,
+              interactionSourceAgentCallId: agentCall.id,
+              interactionSourceLabel: agentCall.agentName,
               activeSkillNames: currentAgentActiveSkillNames,
               workspaceRoots: childWorkspaceRoots,
               fileToolAutoApproval: getChatFileToolAutoApproval(chatId),
@@ -4003,6 +4035,9 @@ export function useChatGeneration({
         }
 
         flushBufferedAssistantVariant(bufferKey);
+        if (getActiveStreamProcessStep(bufferKey)?.type === "tool_building") {
+          await waitForToolBuildingPaint();
+        }
         removeToolBuildingProcessSteps(chatId, assistantMessageId, variantId);
 
         const toolCalls = attachToolCallsUiMetadata(
@@ -4666,8 +4701,8 @@ export function useChatGeneration({
       assistantMessageSource.variants[
         assistantMessageSource.activeVariantIndex
       ];
-    if (!activeVariant?.content.trim()) {
-      showError("Assistant message has no content to continue from.");
+    if (!activeVariant) {
+      showError("Could not find the assistant response to continue.");
       return;
     }
 
@@ -4676,7 +4711,11 @@ export function useChatGeneration({
       assistantMessageId,
       [],
     );
-    const contextMessages = chatForRun.messages.slice(0, assistantIndex + 1);
+    const contextMessages = buildAssistantContinuationContext(
+      chatForRun.messages,
+      assistantIndex,
+      activeVariant,
+    );
     const discardedMessages = chatForRun.messages.slice(assistantIndex + 1);
     const projectInstructionsForRun = await ensureProjectInstructionsForChat(
       chatForRun,
@@ -4689,8 +4728,7 @@ export function useChatGeneration({
       oneShotSkillNames: [],
     });
     const toolsForRun = getToolsForChat(chatForRun, [], activeSkillNamesForRun);
-    const userMessage =
-      "Continue generating from where the previous assistant message stopped. Do not repeat already generated content.";
+    const userMessage = getAssistantContinuationPrompt(activeVariant);
 
     const nextAssistantMessageId = createId();
     const variantId = createId();
@@ -4887,6 +4925,7 @@ export function useChatGeneration({
     selectAssistantVariant,
     stopChatGeneration,
     isChatGenerating,
+    pendingInteractions,
     submitAskUserResponse,
     submitFileToolApprovalResponse,
     cancelAskUserRequest,

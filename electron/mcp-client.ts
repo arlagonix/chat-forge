@@ -709,6 +709,24 @@ async function closeMcpSession(serverId: string) {
   await connection?.close().catch(() => undefined);
 }
 
+async function restartMcpSession(serverId: string) {
+  const session = mcpSessions.get(serverId);
+  if (!session) return;
+
+  const restart = session.queue
+    .catch(() => undefined)
+    .then(async () => {
+      if (mcpSessions.get(serverId) === session) {
+        await closeMcpSession(serverId);
+      }
+    });
+  session.queue = restart.then(
+    () => undefined,
+    () => undefined,
+  );
+  await restart;
+}
+
 async function getMcpSessionConnection(
   server: McpServerConfig,
   signal?: AbortSignal,
@@ -837,13 +855,13 @@ export async function refreshMcpTools(
 
     try {
       const discoveredTools = await listMcpTools(server);
-      const nextTools: Record<string, McpToolConfig> = {
-        ...(server.tools ?? {}),
-      };
+      for (const existingTool of Object.values(server.tools ?? {})) {
+        if (existingTool.exposedName) usedNames.delete(existingTool.exposedName);
+      }
+      const nextTools: Record<string, McpToolConfig> = {};
 
       for (const discoveredTool of discoveredTools) {
-        const existing = nextTools[discoveredTool.name];
-        if (existing?.exposedName) usedNames.delete(existing.exposedName);
+        const existing = server.tools?.[discoveredTool.name];
         const exposedName = uniqueMcpExposedToolName(
           existing?.exposedName ?? "",
           server.name,
@@ -878,6 +896,21 @@ export async function refreshMcpTools(
 
   const nextSettings = { ...normalized, servers: nextServers };
   return { settings: nextSettings, tools: buildLoadedMcpTools(nextSettings) };
+}
+
+export async function reloadMcpServer(
+  settings: McpSettings,
+  serverId: string,
+) {
+  const normalized = normalizeMcpSettings(settings);
+  const server = normalized.servers.find((item) => item.id === serverId);
+  if (!server) throw new Error("MCP server not found.");
+  if (!server.enabled) {
+    throw new Error("Enable the MCP server before reloading it.");
+  }
+
+  await restartMcpSession(serverId);
+  return refreshMcpTools(normalized, serverId);
 }
 
 function normalizeMcpContent(result: unknown) {

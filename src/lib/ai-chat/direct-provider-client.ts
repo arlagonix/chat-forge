@@ -2,6 +2,7 @@ import { ATTACHMENT_LIMITS } from "./attachment-limits";
 import { deepMergeRequestBody, mergeReasoningMetadata } from "./chat-utils";
 import { stripToolCallUiMetadataForProvider } from "./tool-call-metadata";
 import { getToolResultsForToolCalls } from "./tool-history";
+import { hasProviderUsableAssistantHistory } from "./continuation";
 import { defaultGenerationSettings } from "./provider-presets";
 import type {
   ApiChatMessage,
@@ -446,6 +447,7 @@ export async function buildApiMessages({
 
     const variant = getActiveAssistantVariant(message);
     if (!variant) continue;
+    if (!hasProviderUsableAssistantHistory(variant)) continue;
 
     const reasoningMetadata = variant.reasoningMetadata;
     const legacyReasoningContent =

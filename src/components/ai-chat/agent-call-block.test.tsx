@@ -23,6 +23,7 @@ const baseProps = {
   id: "agent-call-1",
   agentCall,
   canSubmitAskUserResponse: vi.fn(() => false),
+  pendingInteractionIds: [],
   onSubmitAskUserResponse: vi.fn(),
   onCancelAskUserRequest: vi.fn(),
   onOpenAgentCall: vi.fn(),
@@ -48,6 +49,28 @@ describe("AgentCallBlock", () => {
     fireEvent.click(screen.getByRole("button", { name: /general/i }));
 
     expect(onOpenAgentCall).toHaveBeenCalledWith("agent-call-1");
+  });
+
+  it("shows waiting while an agent interaction needs a response", () => {
+    render(
+      <AgentCallBlock
+        {...baseProps}
+        agentCall={{
+          ...agentCall,
+          toolCalls: [
+            {
+              id: "ask-1",
+              type: "function",
+              function: { name: "ask_user", arguments: "{}" },
+            },
+          ],
+        }}
+        pendingInteractionIds={["ask-1"]}
+      />,
+    );
+
+    expect(screen.getByText("Waiting")).toBeInTheDocument();
+    expect(screen.queryByText("Composing")).not.toBeInTheDocument();
   });
 
   it("shows a muted checkmark for completed agents", () => {

@@ -45,7 +45,6 @@ import type {
   ChatToolCall,
   ChatToolResult,
   ToolExecutionStatus,
-  UserInputStatus,
 } from "@/lib/ai-chat/types";
 import { cn } from "@/lib/utils";
 
@@ -63,22 +62,6 @@ function HighlightedMentionContent({
 function getToolStatus(toolResult?: ChatToolResult): ToolExecutionStatus {
   if (!toolResult) return "running";
   return toolResult.isError ? "failed" : "complete";
-}
-
-function getAskUserStatus({
-  agentStatus,
-  canSubmit,
-  toolResult,
-}: {
-  agentStatus: AgentCallStatus;
-  canSubmit: boolean;
-  toolResult?: ChatToolResult;
-}): UserInputStatus {
-  if (toolResult) return toolResult.isError ? "failed" : "complete";
-  if (canSubmit) return "waiting";
-  if (agentStatus === "cancelled") return "cancelled";
-  if (agentStatus === "failed") return "failed";
-  return "waiting";
 }
 
 function parseAskUserResponseFromToolResult(
@@ -179,6 +162,23 @@ function hasPendingAskUser(
 
   return (agentCall.childAgentCalls ?? []).some((child) =>
     hasPendingAskUser(child, canSubmit),
+  );
+}
+
+function hasPendingUserInteraction(
+  agentCall: ChatAgentCall,
+  pendingInteractionIds: Set<string>,
+): boolean {
+  if (
+    (agentCall.toolCalls ?? []).some((toolCall) =>
+      pendingInteractionIds.has(toolCall.id),
+    )
+  ) {
+    return true;
+  }
+
+  return (agentCall.childAgentCalls ?? []).some((child) =>
+    hasPendingUserInteraction(child, pendingInteractionIds),
   );
 }
 
@@ -317,10 +317,18 @@ function useThrottledLiveAgentCall(agentCall: ChatAgentCall | undefined) {
 
 const AgentResultFooter = memo(function AgentResultFooter({
   agentCall,
+  pendingInteractionIds,
 }: {
   agentCall: ChatAgentCall;
+  pendingInteractionIds: string[];
 }) {
   const { statusLabel } = useAgentRunRowText(agentCall);
+  const visibleStatusLabel = hasPendingUserInteraction(
+    agentCall,
+    new Set(pendingInteractionIds),
+  )
+    ? "Waiting"
+    : statusLabel;
   const isRunning =
     agentCall.status === "running" || agentCall.status === "pending";
   const generatedModelName = agentCall.model?.trim() ?? "";
@@ -347,7 +355,7 @@ const AgentResultFooter = memo(function AgentResultFooter({
                 size="1"
               />
               <span className="generating-gradient-text font-medium">
-                {statusLabel}
+                {visibleStatusLabel}
               </span>
             </span>
           ) : details.length > 0 ? (
@@ -422,6 +430,7 @@ function AgentModalHeader({ agentCall }: { agentCall: ChatAgentCall }) {
 
 type AgentInteractionProps = {
   canSubmitAskUserResponse: (toolCallId: string) => boolean;
+  pendingInteractionIds: string[];
   onSubmitAskUserResponse: (
     toolCall: ChatToolCall,
     request: ReturnType<typeof parseAskUserRequestFromToolCall>,
@@ -460,6 +469,7 @@ function AgentTranscriptFlatBody({
   agentCall,
   renderToolExecutionBlock,
   canSubmitAskUserResponse,
+  pendingInteractionIds,
   onSubmitAskUserResponse,
   onCancelAskUserRequest,
   onAskUserLayoutChange,
@@ -537,23 +547,19 @@ function AgentTranscriptFlatBody({
         if (toolCall.function.name === ASK_USER_TOOL_NAME) {
           try {
             const request = parseAskUserRequestFromToolCall(toolCall);
-            const canSubmit = canSubmitAskUserResponse(toolCall.id);
-            const status = getAskUserStatus({
-              agentStatus: agentCall.status,
-              canSubmit,
-              toolResult,
-            });
-            const manualCollapsed = collapsedInteractionIds[blockId];
-            const isCollapsed = manualCollapsed ?? status !== "waiting";
+            if (canSubmitAskUserResponse(toolCall.id)) return null;
+            const response = parseAskUserResponseFromToolResult(toolResult);
+            if (!response) throw new Error("No completed response");
+            const isCollapsed = collapsedInteractionIds[blockId] ?? true;
 
             return (
               <AskUserBlock
                 key={blockId}
                 id={blockId}
                 request={request}
-                response={parseAskUserResponseFromToolResult(toolResult)}
-                status={status}
-                canSubmit={canSubmit}
+                response={response}
+                status="complete"
+                canSubmit={false}
                 isCollapsed={isCollapsed}
                 onToggleCollapsed={() =>
                   setCollapsedInteractionIds((current) => ({
@@ -561,8 +567,8 @@ function AgentTranscriptFlatBody({
                     [blockId]: !isCollapsed,
                   }))
                 }
-                onSubmit={(response) =>
-                  onSubmitAskUserResponse(toolCall, request, response)
+                onSubmit={(nextResponse) =>
+                  onSubmitAskUserResponse(toolCall, request, nextResponse)
                 }
                 onCancel={() => onCancelAskUserRequest(toolCall.id)}
                 onLayoutChange={onAskUserLayoutChange}
@@ -606,6 +612,7 @@ function AgentTranscriptFlatBody({
           key={child.id}
           child={child}
           canSubmitAskUserResponse={canSubmitAskUserResponse}
+          pendingInteractionIds={pendingInteractionIds}
           onOpenChildAgent={onOpenChildAgent}
         />
       ))}
@@ -635,6 +642,7 @@ function AgentTranscriptStepsBody({
   agentCall,
   renderToolExecutionBlock,
   canSubmitAskUserResponse,
+  pendingInteractionIds,
   onSubmitAskUserResponse,
   onCancelAskUserRequest,
   onAskUserLayoutChange,
@@ -727,22 +735,23 @@ function AgentTranscriptStepsBody({
           key={step.id}
           child={liveChild}
           canSubmitAskUserResponse={canSubmitAskUserResponse}
+          pendingInteractionIds={pendingInteractionIds}
           onOpenChildAgent={onOpenChildAgent}
         />
       );
     }
 
     if (step.type === "user_input") {
-      const manualCollapsed = collapsedInteractionIds[step.id];
-      const isCollapsed = manualCollapsed ?? step.status !== "waiting";
+      if (!step.response) return null;
+      const isCollapsed = collapsedInteractionIds[step.id] ?? true;
       return (
         <AskUserBlock
           key={step.id}
           id={step.id}
           request={step.request}
           response={step.response}
-          status={step.status ?? "waiting"}
-          canSubmit={canSubmitAskUserResponse(step.toolCall.id)}
+          status="complete"
+          canSubmit={false}
           isCollapsed={isCollapsed}
           onToggleCollapsed={() =>
             setCollapsedInteractionIds((current) => ({
@@ -764,36 +773,37 @@ function AgentTranscriptStepsBody({
       if (isAskUser) {
         try {
           const request = parseAskUserRequestFromToolCall(step.toolCall);
-          const canSubmit = canSubmitAskUserResponse(step.toolCall.id);
-          const status = getAskUserStatus({
-            agentStatus: agentCall.status,
-            canSubmit,
-            toolResult: step.toolResult,
-          });
-          const manualCollapsed = collapsedInteractionIds[step.id];
-          const isCollapsed = manualCollapsed ?? status !== "waiting";
-          return (
-            <AskUserBlock
-              key={step.id}
-              id={step.id}
-              request={request}
-              response={parseAskUserResponseFromToolResult(step.toolResult)}
-              status={status}
-              canSubmit={canSubmit}
-              isCollapsed={isCollapsed}
-              onToggleCollapsed={() =>
-                setCollapsedInteractionIds((current) => ({
-                  ...current,
-                  [step.id]: !isCollapsed,
-                }))
-              }
-              onSubmit={(response) =>
-                onSubmitAskUserResponse(step.toolCall, request, response)
-              }
-              onCancel={() => onCancelAskUserRequest(step.toolCall.id)}
-              onLayoutChange={onAskUserLayoutChange}
-            />
-          );
+          if (canSubmitAskUserResponse(step.toolCall.id)) return null;
+          const response = parseAskUserResponseFromToolResult(step.toolResult);
+          if (response) {
+            const isCollapsed = collapsedInteractionIds[step.id] ?? true;
+            return (
+              <AskUserBlock
+                key={step.id}
+                id={step.id}
+                request={request}
+                response={response}
+                status="complete"
+                canSubmit={false}
+                isCollapsed={isCollapsed}
+                onToggleCollapsed={() =>
+                  setCollapsedInteractionIds((current) => ({
+                    ...current,
+                    [step.id]: !isCollapsed,
+                  }))
+                }
+                onSubmit={(nextResponse) =>
+                  onSubmitAskUserResponse(
+                    step.toolCall,
+                    request,
+                    nextResponse,
+                  )
+                }
+                onCancel={() => onCancelAskUserRequest(step.toolCall.id)}
+                onLayoutChange={onAskUserLayoutChange}
+              />
+            );
+          }
         } catch {
           // Fall through to a normal tool block.
         }
@@ -833,33 +843,7 @@ function AgentTranscriptStepsBody({
     }
 
     if (step.type === "approval" || step.type === "file_approval") {
-      const manualCollapsed = collapsedInteractionIds[step.id];
-      const isCollapsed = manualCollapsed ?? step.status !== "waiting";
-      // Approval prompts are actioned at the main-chat level; here we show a
-      // read-only collapsed tool block reflecting the call for context.
-      return renderToolExecutionBlock ? (
-        renderToolExecutionBlock({
-          id: step.id,
-          toolCall: step.toolCall,
-          toolResult: step.toolResult,
-          status: step.toolResult
-            ? step.toolResult.isError
-              ? "failed"
-              : "complete"
-            : "running",
-          isCollapsed,
-          returnToAgentCallId: returnToolDetailsToAgentSidebar
-            ? agentCall.id
-            : undefined,
-          onToggleCollapsed: (stepId, nextCollapsed) =>
-            setCollapsedInteractionIds((current) => ({
-              ...current,
-              [stepId]: nextCollapsed,
-            })),
-        })
-      ) : (
-        <FallbackToolCallBlock key={step.id} toolCall={step.toolCall} />
-      );
+      return null;
     }
 
     if (step.type === "tasks") {
@@ -976,16 +960,24 @@ function AgentTranscriptStepsBody({
 const ChildAgentBlock = memo(function ChildAgentBlock({
   child,
   canSubmitAskUserResponse,
+  pendingInteractionIds,
   onOpenChildAgent,
 }: {
   child: ChatAgentCall;
   onOpenChildAgent: (agentCallId: string) => void;
   canSubmitAskUserResponse: (toolCallId: string) => boolean;
+  pendingInteractionIds: string[];
 }) {
   const { statusLabel, previewLine } = useAgentRunRowText(child);
+  const isWaitingForUser = hasPendingUserInteraction(
+    child,
+    new Set(pendingInteractionIds),
+  );
   const visibleStatusLabel =
     child.status === "running" || child.status === "pending"
-      ? statusLabel
+      ? isWaitingForUser
+        ? "Waiting"
+        : statusLabel
       : undefined;
   const shouldOpenForAskUser = hasPendingAskUser(
     child,
@@ -1052,17 +1044,20 @@ function areChildAgentBlockPropsEqual(
     child: ChatAgentCall;
     onOpenChildAgent: (agentCallId: string) => void;
     canSubmitAskUserResponse: (toolCallId: string) => boolean;
+    pendingInteractionIds: string[];
   },
   next: {
     child: ChatAgentCall;
     onOpenChildAgent: (agentCallId: string) => void;
     canSubmitAskUserResponse: (toolCallId: string) => boolean;
+    pendingInteractionIds: string[];
   },
 ) {
   return (
     previous.child.id === next.child.id &&
     previous.onOpenChildAgent === next.onOpenChildAgent &&
     previous.canSubmitAskUserResponse === next.canSubmitAskUserResponse &&
+    previous.pendingInteractionIds === next.pendingInteractionIds &&
     getAgentRunRenderSignature(previous.child) ===
       getAgentRunRenderSignature(next.child)
   );
@@ -1074,6 +1069,7 @@ export const AgentTranscriptDialog = memo(function AgentTranscriptDialog({
   agentCall,
   renderToolExecutionBlock,
   canSubmitAskUserResponse,
+  pendingInteractionIds,
   onSubmitAskUserResponse,
   onCancelAskUserRequest,
   onAskUserLayoutChange,
@@ -1115,12 +1111,16 @@ export const AgentTranscriptDialog = memo(function AgentTranscriptDialog({
               agentCall={displayedAgentCall}
               renderToolExecutionBlock={renderToolExecutionBlock}
               canSubmitAskUserResponse={canSubmitAskUserResponse}
+              pendingInteractionIds={pendingInteractionIds}
               onSubmitAskUserResponse={onSubmitAskUserResponse}
               onCancelAskUserRequest={onCancelAskUserRequest}
               onAskUserLayoutChange={onAskUserLayoutChange}
               onOpenChildAgent={setExpandedChildAgentId}
             />
-            <AgentResultFooter agentCall={displayedAgentCall} />
+            <AgentResultFooter
+              agentCall={displayedAgentCall}
+              pendingInteractionIds={pendingInteractionIds}
+            />
           </div>
         </DialogContent>
       </Dialog>
@@ -1134,6 +1134,7 @@ export const AgentTranscriptDialog = memo(function AgentTranscriptDialog({
           agentCall={expandedChildAgent}
           renderToolExecutionBlock={renderToolExecutionBlock}
           canSubmitAskUserResponse={canSubmitAskUserResponse}
+          pendingInteractionIds={pendingInteractionIds}
           onSubmitAskUserResponse={onSubmitAskUserResponse}
           onCancelAskUserRequest={onCancelAskUserRequest}
           onAskUserLayoutChange={onAskUserLayoutChange}
@@ -1148,6 +1149,7 @@ export const AgentTranscriptSidebar = memo(function AgentTranscriptSidebar({
   agentCall,
   renderToolExecutionBlock,
   canSubmitAskUserResponse,
+  pendingInteractionIds,
   onSubmitAskUserResponse,
   onCancelAskUserRequest,
   onAskUserLayoutChange,
@@ -1223,12 +1225,16 @@ export const AgentTranscriptSidebar = memo(function AgentTranscriptSidebar({
           renderToolExecutionBlock={renderToolExecutionBlock}
           returnToolDetailsToAgentSidebar
           canSubmitAskUserResponse={canSubmitAskUserResponse}
+          pendingInteractionIds={pendingInteractionIds}
           onSubmitAskUserResponse={onSubmitAskUserResponse}
           onCancelAskUserRequest={onCancelAskUserRequest}
           onAskUserLayoutChange={onAskUserLayoutChange}
           onOpenChildAgent={onOpenAgentCall}
         />
-        <AgentResultFooter agentCall={displayedAgentCall} />
+        <AgentResultFooter
+          agentCall={displayedAgentCall}
+          pendingInteractionIds={pendingInteractionIds}
+        />
       </div>
     </aside>
   );
@@ -1238,6 +1244,7 @@ export const AgentTranscriptChatView = memo(function AgentTranscriptChatView({
   agentCall,
   renderToolExecutionBlock,
   canSubmitAskUserResponse,
+  pendingInteractionIds,
   onSubmitAskUserResponse,
   onCancelAskUserRequest,
   onAskUserLayoutChange,
@@ -1255,12 +1262,16 @@ export const AgentTranscriptChatView = memo(function AgentTranscriptChatView({
         agentCall={displayedAgentCall}
         renderToolExecutionBlock={renderToolExecutionBlock}
         canSubmitAskUserResponse={canSubmitAskUserResponse}
+        pendingInteractionIds={pendingInteractionIds}
         onSubmitAskUserResponse={onSubmitAskUserResponse}
         onCancelAskUserRequest={onCancelAskUserRequest}
         onAskUserLayoutChange={onAskUserLayoutChange}
         onOpenChildAgent={onOpenAgentCall}
       />
-      <AgentResultFooter agentCall={displayedAgentCall} />
+      <AgentResultFooter
+        agentCall={displayedAgentCall}
+        pendingInteractionIds={pendingInteractionIds}
+      />
       <div aria-hidden="true" className="h-[10vh] min-h-10 shrink-0" />
     </div>
   );

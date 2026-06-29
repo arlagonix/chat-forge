@@ -531,9 +531,9 @@ function getEffectiveToolStatus(
   status: ToolExecutionStatus | undefined,
   result?: ChatToolResult,
 ): ToolExecutionStatus {
-  if (status === "running" || status === "pending") return status;
   if (result?.isError || status === "failed") return "failed";
   if (result || status === "complete") return "complete";
+  if (status === "running" || status === "pending") return status;
   return "running";
 }
 

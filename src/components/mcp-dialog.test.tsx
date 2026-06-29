@@ -160,6 +160,15 @@ describe("McpDialog", () => {
     expect(screen.getByLabelText("Discovered tools info")).toBeInTheDocument();
   });
 
+  it("offers a server reload action instead of the old refresh-only action", async () => {
+    const { user } = renderMcpDialog();
+
+    await user.click(screen.getByTitle("MCP server options"));
+
+    expect(screen.getByRole("menuitem", { name: "Reload server" })).toBeEnabled();
+    expect(screen.queryByText("Refresh tools")).not.toBeInTheDocument();
+  });
+
   it("uses Create and Cancel actions for a new unchanged server", async () => {
     const { user } = renderMcpDialog();
 
