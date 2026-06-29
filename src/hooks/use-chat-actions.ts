@@ -2,8 +2,8 @@ import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 import { toast } from "sonner";
 
 import {
+  buildBranchedChat,
   buildClonedChat,
-  getBranchedChatTitle,
   renameChatWithoutActivityUpdate,
 } from "@/lib/ai-chat/chat-session-actions";
 import {
@@ -278,7 +278,12 @@ export function useChatActions({
     if (!sourceChat) return;
 
     const now = new Date().toISOString();
-    const chat = buildClonedChat(sourceChat, createEmptyChat(), now);
+    const chat = buildClonedChat(
+      sourceChat,
+      createEmptyChat(),
+      now,
+      chats.map((candidate) => candidate.title),
+    );
 
     saveCurrentChatScrollSnapshot();
     setChats((currentChats) => [chat, ...currentChats]);
@@ -407,43 +412,14 @@ export function useChatActions({
     }
 
     const now = new Date().toISOString();
-    const chat: ChatSession = {
-      ...createEmptyChat(),
-      title: getBranchedChatTitle(activeChat.title),
-      titleMode: "manual",
+    const chat = buildBranchedChat({
+      sourceChat: activeChat,
+      baseChat: createEmptyChat(),
       messages: branchedMessages,
-      modeId: activeChat.modeId,
-      enabledToolNames: activeChat.enabledToolNames
-        ? [...activeChat.enabledToolNames]
-        : undefined,
-      disabledToolNames: activeChat.disabledToolNames
-        ? [...activeChat.disabledToolNames]
-        : undefined,
-      enabledSkillNames: activeChat.enabledSkillNames
-        ? [...activeChat.enabledSkillNames]
-        : undefined,
-      disabledSkillNames: activeChat.disabledSkillNames
-        ? [...activeChat.disabledSkillNames]
-        : undefined,
-      enabledAgentNames: activeChat.enabledAgentNames
-        ? [...activeChat.enabledAgentNames]
-        : undefined,
-      disabledAgentNames: activeChat.disabledAgentNames
-        ? [...activeChat.disabledAgentNames]
-        : undefined,
-      activeSkillNames: activeChat.activeSkillNames
-        ? [...activeChat.activeSkillNames]
-        : undefined,
-      workspaceRoots: activeChat.workspaceRoots
-        ? activeChat.workspaceRoots.map((root) => ({ ...root }))
-        : undefined,
-      fileToolAutoApproval: activeChat.fileToolAutoApproval
-        ? { ...activeChat.fileToolAutoApproval }
-        : { ...fileToolAutoApprovalDefaults },
-      thinkingMode: activeChat.thinkingMode,
-      createdAt: now,
-      updatedAt: now,
-    };
+      now,
+      existingTitles: chats.map((candidate) => candidate.title),
+      fileToolAutoApprovalDefaults,
+    });
 
     saveCurrentChatScrollSnapshot();
     setChats((currentChats) => [chat, ...currentChats]);

@@ -34,6 +34,12 @@ import {
   resolveChatThinkingRequestBody,
   titleFromMessage,
 } from "@/lib/ai-chat/chat-utils";
+import {
+  estimateAssistantVariantContextTokens,
+  estimatePreparedContextUsage,
+  extractTokenBreakdown,
+  type PreparedContextUsageEstimate,
+} from "@/lib/ai-chat/context-usage";
 import type { StreamProviderChatResult } from "@/lib/ai-chat/direct-provider-client";
 import { streamProviderChat } from "@/lib/ai-chat/direct-provider-client";
 import {
@@ -438,6 +444,8 @@ export function useChatGeneration({
   const [, setStreamingAssistantByChatId] = useState<Record<string, string>>(
     {},
   );
+  const [preparedContextUsageByChatId, setPreparedContextUsageByChatId] =
+    useState<Record<string, PreparedContextUsageEstimate>>({});
   const generationRefs = useRef<Record<string, ActiveGeneration>>({});
   const streamBuffersRef = useRef<Record<string, StreamBuffer>>({});
   const streamActiveProcessStepRefs = useRef<
@@ -3319,6 +3327,12 @@ export function useChatGeneration({
     projectInstructionsForRun?: ProjectInstructionsSnapshot;
   }) {
     const controller = new AbortController();
+    setPreparedContextUsageByChatId((current) => {
+      if (!current[chatId]) return current;
+      const next = { ...current };
+      delete next[chatId];
+      return next;
+    });
     generationRefs.current[chatId] = {
       controller,
       assistantMessageId,
@@ -3854,6 +3868,7 @@ export function useChatGeneration({
     }
 
     let runWasCancelled = false;
+    let hasAuthoritativeUsage = false;
 
     try {
       runForcedSkills();
@@ -4009,6 +4024,25 @@ export function useChatGeneration({
             if (didChangeVisibleToolBuildingStep && chatId === activeChatId) {
               scheduleStickyScrollToBottom({ settleFrames: 2 });
             }
+          },
+          onRequestPrepared: ({ payload, tools: preparedTools }) => {
+            const estimate = estimatePreparedContextUsage({
+              payload,
+              tools: preparedTools,
+              assistantMessageId,
+              variantId,
+              assistantTokensAtRequestStart:
+                estimateAssistantVariantContextTokens({
+                  content: accumulatedContent,
+                  reasoning: accumulatedReasoning,
+                  toolCalls: toolCallsForContext,
+                  toolResults: toolResultsForContext,
+                }),
+            });
+            setPreparedContextUsageByChatId((current) => ({
+              ...current,
+              [chatId]: estimate,
+            }));
           },
         });
 
@@ -4195,6 +4229,8 @@ export function useChatGeneration({
       }
 
       flushBufferedAssistantVariant(bufferKey);
+      hasAuthoritativeUsage =
+        extractTokenBreakdown(lastStreamResult?.usage) !== undefined;
 
       updateAssistantVariant(chatId, assistantMessageId, variantId, (variant) =>
         markAssistantVariantDone({
@@ -4251,6 +4287,14 @@ export function useChatGeneration({
       const currentGeneration = generationRefs.current[chatId];
       if (currentGeneration?.controller === controller) {
         delete generationRefs.current[chatId];
+        if (hasAuthoritativeUsage) {
+          setPreparedContextUsageByChatId((current) => {
+            if (current[chatId]?.variantId !== variantId) return current;
+            const next = { ...current };
+            delete next[chatId];
+            return next;
+          });
+        }
         setChatGenerating(chatId, false);
         onChatGenerationFinished?.(chatId, { wasCancelled: runWasCancelled });
         setStreamingAssistantByChatId((current) => {
@@ -4925,6 +4969,7 @@ export function useChatGeneration({
     selectAssistantVariant,
     stopChatGeneration,
     isChatGenerating,
+    preparedContextUsageByChatId,
     pendingInteractions,
     submitAskUserResponse,
     submitFileToolApprovalResponse,

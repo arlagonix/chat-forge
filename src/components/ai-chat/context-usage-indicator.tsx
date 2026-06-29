@@ -118,6 +118,13 @@ function ContextUsageModalContent({ usage }: { usage: ContextUsageInfo }) {
       ? `${Math.min(100, Math.max(0, usagePercent))}%`
       : "0%";
   const breakdown = usage.lastAssistantBreakdown;
+  const prepared = usage.preparedRequestEstimate;
+  const preparedToolDefinitions = prepared
+    ? Object.values(prepared.toolDefinitionTokens).reduce(
+        (sum, value) => sum + value,
+        0,
+      )
+    : 0;
   const approximateUsage = usage.isApproximate ?? false;
   const approximateBreakdown = breakdown?.isApproximate ?? false;
   const segments = [
@@ -188,6 +195,44 @@ function ContextUsageModalContent({ usage }: { usage: ContextUsageInfo }) {
         />
         <StatCard label="Cost" value={formatMoney(usage.costUsd)} />
       </div>
+
+      {prepared ? (
+        <div className="rounded-sm bg-muted/50 px-5 py-4">
+          <div className="mb-3 text-sm text-muted-foreground">
+            Request Estimate
+          </div>
+          <div className="grid grid-cols-2 gap-x-5 gap-y-3">
+            {[
+              { label: "System", value: prepared.systemTokens },
+              { label: "User Messages", value: prepared.userMessageTokens },
+              {
+                label: "Assistant History",
+                value: prepared.assistantMessageTokens,
+              },
+              { label: "Tool History", value: prepared.toolMessageTokens },
+              { label: "Tool Definitions", value: preparedToolDefinitions },
+              { label: "Media", value: prepared.mediaTokens },
+              { label: "Protocol", value: prepared.protocolTokens },
+            ].map((item) => (
+              <div key={item.label}>
+                <div className="text-sm text-muted-foreground">{item.label}</div>
+                <div className="mt-1 tabular-nums text-foreground">
+                  {formatNumber(item.value)}
+                </div>
+              </div>
+            ))}
+          </div>
+          {preparedToolDefinitions > 0 ? (
+            <div className="mt-4 text-sm text-muted-foreground">
+              Built-in {formatNumber(prepared.toolDefinitionTokens.builtIn)}
+              {" · "}Custom {formatNumber(prepared.toolDefinitionTokens.custom)}
+              {" · "}MCP {formatNumber(prepared.toolDefinitionTokens.mcp)}
+              {" · "}Skills {formatNumber(prepared.toolDefinitionTokens.skill)}
+              {" · "}Agents {formatNumber(prepared.toolDefinitionTokens.agent)}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="rounded-sm bg-muted/50 px-5 py-4">
         <div className="mb-3 text-sm text-muted-foreground">

@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import {
   applyNewChatDraftSettings,
+  buildBranchedChat,
   buildClonedChat,
   buildNewChatDraftSettings,
   getBranchedChatTitle,
+  getClonedChatTitle,
   getFolderDefaultWorkspaceRoots,
   renameChatWithoutActivityUpdate,
 } from "./chat-session-actions";
@@ -195,7 +197,7 @@ describe("chat session actions", () => {
     const clonedChat = buildClonedChat(sourceChat, createBaseChat(), cloneDate);
 
     expect(clonedChat.id).toBe("cloned-chat");
-    expect(clonedChat.title).toBe("Source chat copy");
+    expect(clonedChat.title).toBe("Source chat (copy #1)");
     expect(clonedChat.titleMode).toBe("manual");
     expect(clonedChat.createdAt).toBe(cloneDate);
     expect(clonedChat.updatedAt).toBe(cloneDate);
@@ -255,6 +257,25 @@ describe("chat session actions", () => {
     expect(clonedChat.isPinned).toBe(true);
   });
 
+  it("uses the next copy number across existing chats", () => {
+    expect(
+      getClonedChatTitle("Source chat", [
+        "Source chat (copy #2)",
+        "Source chat (copy #1)",
+        "Unrelated chat (copy #9)",
+      ]),
+    ).toBe("Source chat (copy #3)");
+    expect(
+      getClonedChatTitle("Source chat (copy #2)", [
+        "Source chat (copy #1)",
+        "Source chat (copy #2)",
+      ]),
+    ).toBe("Source chat (copy #3)");
+    expect(getClonedChatTitle("Source chat copy")).toBe(
+      "Source chat (copy #2)",
+    );
+  });
+
   it("numbers branch titles instead of stacking branch suffixes", () => {
     expect(getBranchedChatTitle("initialize serena")).toBe(
       "initialize serena (branch #1)",
@@ -268,6 +289,99 @@ describe("chat session actions", () => {
     expect(getBranchedChatTitle("initialize serena (branch) (branch)")).toBe(
       "initialize serena (branch #3)",
     );
+  });
+
+  it("uses the next branch number across sibling chats", () => {
+    expect(
+      getBranchedChatTitle("initialize serena", [
+        "initialize serena (branch #2)",
+        "initialize serena (branch #1)",
+        "unrelated (branch #20)",
+      ]),
+    ).toBe("initialize serena (branch #3)");
+  });
+
+  it("does not stack copy and branch suffixes", () => {
+    expect(
+      getClonedChatTitle("Source chat (branch #4)", [
+        "Source chat (copy #2)",
+      ]),
+    ).toBe("Source chat (copy #3)");
+    expect(
+      getBranchedChatTitle("Source chat (copy #2)", [
+        "Source chat (branch #1)",
+      ]),
+    ).toBe("Source chat (branch #2)");
+  });
+
+  it("builds a branch in the same location with the same runtime settings", () => {
+    const sourceChat = createSourceChat({
+      folderId: "folder-1",
+      providerId: "provider-1",
+      model: "model-1",
+      modeId: "mode-1",
+      enabledToolNames: ["read"],
+      enabledSkillNames: ["docs"],
+      enabledAgentNames: ["reviewer"],
+      workspaceRoots: [
+        {
+          id: "workspace-1",
+          name: "Project A",
+          path: "/work/project-a",
+          createdAt: oldDate,
+        },
+      ],
+      fileToolAutoApproval: { read: true, write: false },
+      thinkingMode: "low",
+    });
+    const branchMessages = [
+      {
+        id: "message-1",
+        role: "user" as const,
+        content: "Branch here",
+        createdAt: oldDate,
+      },
+    ];
+
+    const branch = buildBranchedChat({
+      sourceChat,
+      baseChat: createBaseChat(),
+      messages: branchMessages,
+      now: cloneDate,
+      existingTitles: [sourceChat.title],
+      fileToolAutoApprovalDefaults: { bash: false, edit: false, write: false },
+    });
+
+    expect(branch.title).toBe("Source chat (branch #1)");
+    expect(branch.folderId).toBe("folder-1");
+    expect(branch.isPinned).toBe(false);
+    expect(branch.providerId).toBe("provider-1");
+    expect(branch.model).toBe("model-1");
+    expect(branch.modeId).toBe("mode-1");
+    expect(branch.enabledToolNames).toEqual(["read"]);
+    expect(branch.enabledSkillNames).toEqual(["docs"]);
+    expect(branch.enabledAgentNames).toEqual(["reviewer"]);
+    expect(branch.workspaceRoots).toEqual(sourceChat.workspaceRoots);
+    expect(branch.workspaceRoots).not.toBe(sourceChat.workspaceRoots);
+    expect(branch.fileToolAutoApproval).toEqual(
+      sourceChat.fileToolAutoApproval,
+    );
+    expect(branch.thinkingMode).toBe("low");
+    expect(branch.messages).toBe(branchMessages);
+  });
+
+  it("keeps a root branch pinned with its source chat", () => {
+    const branch = buildBranchedChat({
+      sourceChat: createSourceChat({ folderId: undefined, isPinned: true }),
+      baseChat: createBaseChat(),
+      messages: [],
+      now: cloneDate,
+      existingTitles: [],
+      fileToolAutoApprovalDefaults: { bash: false, edit: false, write: false },
+    });
+
+    expect(branch.folderId).toBeUndefined();
+    expect(branch.isPinned).toBe(true);
   });
 
   it("renames a chat without changing its activity dates", () => {

@@ -2,7 +2,33 @@ import type {
   ChatAssistantVariant,
   ChatMessage,
   ChatTokenUsage,
+  LoadedToolInfo,
 } from "@/lib/ai-chat/types";
+
+const APPROXIMATE_CHARS_PER_TOKEN = 4;
+const APPROXIMATE_IMAGE_TOKENS = 800;
+
+export type ContextUsageToolDefinitionBreakdown = {
+  builtIn: number;
+  custom: number;
+  mcp: number;
+  skill: number;
+  agent: number;
+};
+
+export type PreparedContextUsageEstimate = {
+  inputTokens: number;
+  systemTokens: number;
+  userMessageTokens: number;
+  assistantMessageTokens: number;
+  toolMessageTokens: number;
+  mediaTokens: number;
+  protocolTokens: number;
+  toolDefinitionTokens: ContextUsageToolDefinitionBreakdown;
+  assistantMessageId: string;
+  variantId: string;
+  assistantTokensAtRequestStart: number;
+};
 
 export type ContextUsageLimitSource =
   | "manual"
@@ -41,6 +67,7 @@ export type ContextUsageDetails = {
   isApproximate?: boolean;
   distribution: ContextUsageDistribution;
   distributionTotal: number;
+  preparedRequestEstimate?: PreparedContextUsageEstimate;
 };
 
 function toNonNegativeNumber(value: unknown): number | undefined {
@@ -145,17 +172,175 @@ function estimateTextLength(value: unknown): number {
 }
 
 function estimateTokensFromText(value: unknown): number {
-  return Math.ceil(estimateTextLength(value) / 4);
+  return Math.ceil(estimateTextLength(value) / APPROXIMATE_CHARS_PER_TOKEN);
 }
 
-function estimateVariantAssistantTokens(variant: ChatAssistantVariant): number {
+function estimateSerializedTokens(value: unknown): number {
+  try {
+    return Math.max(
+      0,
+      Math.round(JSON.stringify(value).length / APPROXIMATE_CHARS_PER_TOKEN),
+    );
+  } catch {
+    return estimateTokensFromText(value);
+  }
+}
+
+function countAndStripImageData(value: unknown): {
+  value: unknown;
+  imageCount: number;
+} {
+  if (Array.isArray(value)) {
+    let imageCount = 0;
+    const next = value.map((item) => {
+      const sanitized = countAndStripImageData(item);
+      imageCount += sanitized.imageCount;
+      return sanitized.value;
+    });
+    return { value: next, imageCount };
+  }
+
+  if (!value || typeof value !== "object") {
+    return { value, imageCount: 0 };
+  }
+
+  const source = value as Record<string, unknown>;
+  const isImagePart = source.type === "image_url";
+  let imageCount = isImagePart ? 1 : 0;
+  const next = Object.fromEntries(
+    Object.entries(source).map(([key, item]) => {
+      if (
+        (key === "url" || key === "dataUrl") &&
+        typeof item === "string" &&
+        item.startsWith("data:image/")
+      ) {
+        return [key, ""];
+      }
+
+      const sanitized = countAndStripImageData(item);
+      imageCount += sanitized.imageCount;
+      return [key, sanitized.value];
+    }),
+  );
+  return { value: next, imageCount };
+}
+
+function createEmptyToolDefinitionBreakdown(): ContextUsageToolDefinitionBreakdown {
+  return { builtIn: 0, custom: 0, mcp: 0, skill: 0, agent: 0 };
+}
+
+function readPayloadToolName(value: unknown) {
+  if (!value || typeof value !== "object") return "";
+  const fn = (value as Record<string, unknown>).function;
+  if (!fn || typeof fn !== "object") return "";
+  const name = (fn as Record<string, unknown>).name;
+  return typeof name === "string" ? name : "";
+}
+
+function getToolDefinitionCategory(tool: LoadedToolInfo | undefined) {
+  if (tool?.name === "skill") return "skill" as const;
+  if (tool?.name === "call_agent") return "agent" as const;
+  if (tool?.source === "mcp") return "mcp" as const;
+  if (tool?.source === "custom") return "custom" as const;
+  return "builtIn" as const;
+}
+
+export function estimatePreparedContextUsage({
+  payload,
+  tools,
+  assistantMessageId,
+  variantId,
+  assistantTokensAtRequestStart,
+}: {
+  payload: Record<string, unknown>;
+  tools: LoadedToolInfo[];
+  assistantMessageId: string;
+  variantId: string;
+  assistantTokensAtRequestStart: number;
+}): PreparedContextUsageEstimate {
+  const rawMessages = Array.isArray(payload.messages) ? payload.messages : [];
+  const rawToolDefinitions = Array.isArray(payload.tools) ? payload.tools : [];
+  const sanitizedMessages = countAndStripImageData(rawMessages);
+  const toolDefinitionTokens = createEmptyToolDefinitionBreakdown();
+  const toolsByName = new Map(tools.map((tool) => [tool.name, tool] as const));
+  let systemTokens = 0;
+  let userMessageTokens = 0;
+  let assistantMessageTokens = 0;
+  let toolMessageTokens = 0;
+  let uncategorizedMessageTokens = 0;
+
+  for (const message of sanitizedMessages.value as unknown[]) {
+    const tokens = estimateSerializedTokens(message);
+    const role =
+      message && typeof message === "object"
+        ? (message as Record<string, unknown>).role
+        : undefined;
+    if (role === "system") systemTokens += tokens;
+    else if (role === "user") userMessageTokens += tokens;
+    else if (role === "assistant") assistantMessageTokens += tokens;
+    else if (role === "tool") toolMessageTokens += tokens;
+    else uncategorizedMessageTokens += tokens;
+  }
+
+  for (const definition of rawToolDefinitions) {
+    const name = readPayloadToolName(definition);
+    const category = getToolDefinitionCategory(toolsByName.get(name));
+    toolDefinitionTokens[category] += estimateSerializedTokens(definition);
+  }
+
+  const mediaTokens =
+    sanitizedMessages.imageCount * APPROXIMATE_IMAGE_TOKENS;
+  const categorizedTokens =
+    systemTokens +
+    userMessageTokens +
+    assistantMessageTokens +
+    toolMessageTokens +
+    uncategorizedMessageTokens +
+    mediaTokens +
+    sumDefined(Object.values(toolDefinitionTokens));
+  const serializedContextTokens =
+    estimateSerializedTokens({
+      messages: sanitizedMessages.value,
+      ...(rawToolDefinitions.length ? { tools: rawToolDefinitions } : {}),
+    }) + mediaTokens;
+  const inputTokens = Math.max(categorizedTokens, serializedContextTokens);
+
+  return {
+    inputTokens,
+    systemTokens,
+    userMessageTokens,
+    assistantMessageTokens,
+    toolMessageTokens,
+    mediaTokens,
+    protocolTokens: Math.max(
+      0,
+      inputTokens - (categorizedTokens - uncategorizedMessageTokens),
+    ),
+    toolDefinitionTokens,
+    assistantMessageId,
+    variantId,
+    assistantTokensAtRequestStart: Math.max(
+      0,
+      assistantTokensAtRequestStart,
+    ),
+  };
+}
+
+type AssistantContextTokenSource = Pick<
+  ChatAssistantVariant,
+  "content" | "reasoning" | "toolCalls" | "toolResults"
+>;
+
+function estimateVariantAssistantTokens(
+  variant: AssistantContextTokenSource,
+): number {
   return (
     estimateTokensFromText(variant.content) +
     estimateTokensFromText(variant.reasoning)
   );
 }
 
-function estimateVariantToolTokens(variant: ChatAssistantVariant): number {
+function estimateVariantToolTokens(variant: AssistantContextTokenSource): number {
   const toolCallTokens = (variant.toolCalls ?? []).reduce<number>(
     (sum, call) =>
       sum +
@@ -175,6 +360,14 @@ function estimateVariantToolTokens(variant: ChatAssistantVariant): number {
   return toolCallTokens + toolResultTokens;
 }
 
+export function estimateAssistantVariantContextTokens(
+  variant: AssistantContextTokenSource,
+) {
+  return (
+    estimateVariantAssistantTokens(variant) + estimateVariantToolTokens(variant)
+  );
+}
+
 function estimateMessageTokens(message: ChatMessage): number {
   if (message.role === "user") {
     return (
@@ -192,7 +385,45 @@ function estimateMessageTokens(message: ChatMessage): number {
   const variant = getActiveVariant(message);
   if (!variant) return 0;
 
-  return estimateVariantAssistantTokens(variant) + estimateVariantToolTokens(variant);
+  return estimateAssistantVariantContextTokens(variant);
+}
+
+function getPreparedRequestLiveTokens(
+  messages: ChatMessage[],
+  estimate: PreparedContextUsageEstimate,
+) {
+  const message = messages.find(
+    (candidate) =>
+      candidate.role === "assistant" &&
+      candidate.id === estimate.assistantMessageId,
+  );
+  if (!message || message.role !== "assistant") return 0;
+  const variant = message.variants.find(
+    (candidate) => candidate.id === estimate.variantId,
+  );
+  if (!variant) return 0;
+
+  return Math.max(
+    0,
+    estimateAssistantVariantContextTokens(variant) -
+      estimate.assistantTokensAtRequestStart,
+  );
+}
+
+function hasPreparedRequestExactUsage(
+  messages: ChatMessage[],
+  estimate: PreparedContextUsageEstimate,
+) {
+  const message = messages.find(
+    (candidate) =>
+      candidate.role === "assistant" &&
+      candidate.id === estimate.assistantMessageId,
+  );
+  if (!message || message.role !== "assistant") return false;
+  const variant = message.variants.find(
+    (candidate) => candidate.id === estimate.variantId,
+  );
+  return Boolean(extractTokenBreakdown(variant?.metrics?.tokenUsage));
 }
 
 function estimateLastAssistantBreakdown(
@@ -269,9 +500,10 @@ function computeDistribution({
   systemPrompt: string;
   inputTokens?: number;
 }): { distribution: ContextUsageDistribution; total: number } {
-  let user = estimateTokensFromText(systemPrompt);
+  let user = 0;
   let assistant = 0;
   let tool = 0;
+  let other = estimateTokensFromText(systemPrompt);
 
   for (const message of messages) {
     if (message.role === "user") {
@@ -292,10 +524,11 @@ function computeDistribution({
     tool += estimateVariantToolTokens(variant);
   }
 
-  const knownTotal = user + assistant + tool;
-  const other =
+  const knownTotal = user + assistant + tool + other;
+  other +=
     inputTokens !== undefined ? Math.max(0, inputTokens - knownTotal) : 0;
-  const total = inputTokens !== undefined ? Math.max(inputTokens, knownTotal) : knownTotal;
+  const total =
+    inputTokens !== undefined ? Math.max(inputTokens, knownTotal) : knownTotal;
 
   return {
     distribution: {
@@ -308,19 +541,46 @@ function computeDistribution({
   };
 }
 
+function computePreparedRequestDistribution(
+  estimate: PreparedContextUsageEstimate,
+  liveAssistantTokens: number,
+) {
+  const toolDefinitions = sumDefined(
+    Object.values(estimate.toolDefinitionTokens),
+  );
+  const distribution = {
+    user: estimate.userMessageTokens,
+    assistant: estimate.assistantMessageTokens + liveAssistantTokens,
+    tool: estimate.toolMessageTokens + toolDefinitions,
+    other:
+      estimate.systemTokens + estimate.mediaTokens + estimate.protocolTokens,
+  };
+  return {
+    distribution,
+    total: sumDefined(Object.values(distribution)),
+  };
+}
+
 export function buildContextUsageDetails({
   messages,
   contextLimit,
   limitSource,
   attachmentTokens = 0,
   systemPrompt = "",
+  preparedRequestEstimate,
 }: {
   messages: ChatMessage[];
   contextLimit?: number;
   limitSource?: ContextUsageLimitSource;
   attachmentTokens?: number;
   systemPrompt?: string;
+  preparedRequestEstimate?: PreparedContextUsageEstimate;
 }): ContextUsageDetails {
+  const activePreparedRequestEstimate =
+    preparedRequestEstimate &&
+    !hasPreparedRequestExactUsage(messages, preparedRequestEstimate)
+      ? preparedRequestEstimate
+      : undefined;
   const latestExactAssistantBreakdown = getLatestAssistantBreakdown(messages);
   const exactBreakdown = latestExactAssistantBreakdown?.breakdown;
   const safeAttachmentTokens = Math.max(0, attachmentTokens);
@@ -330,12 +590,17 @@ export function buildContextUsageDetails({
     exactBreakdown,
     exactBreakdownIndex: latestExactAssistantBreakdown?.index,
   });
-  const estimatedUsedTokens =
-    contextEstimate.tokens > 0
+  const liveAssistantTokens = activePreparedRequestEstimate
+    ? getPreparedRequestLiveTokens(messages, activePreparedRequestEstimate)
+    : 0;
+  const estimatedUsedTokens = activePreparedRequestEstimate
+    ? activePreparedRequestEstimate.inputTokens + liveAssistantTokens
+    : contextEstimate.tokens > 0
       ? contextEstimate.tokens + safeAttachmentTokens
       : safeAttachmentTokens || undefined;
-  const usedTokens =
-    exactBreakdown !== undefined && !contextEstimate.isApproximate
+  const usedTokens = activePreparedRequestEstimate
+    ? estimatedUsedTokens
+    : exactBreakdown !== undefined && !contextEstimate.isApproximate
       ? exactBreakdown.total + safeAttachmentTokens
       : estimatedUsedTokens;
   const hasLimit =
@@ -343,15 +608,25 @@ export function buildContextUsageDetails({
   const usagePercent =
     hasLimit && usedTokens !== undefined ? (usedTokens / contextLimit) * 100 : undefined;
   const inputTokens = exactBreakdown?.input;
-  const distribution = computeDistribution({
-    messages,
-    systemPrompt,
-    inputTokens,
-  });
-  const lastAssistantBreakdown = estimateLastAssistantBreakdown(messages);
-  const isApproximate =
-    contextEstimate.isApproximate ||
-    Boolean(lastAssistantBreakdown?.isApproximate);
+  const distribution = activePreparedRequestEstimate
+    ? computePreparedRequestDistribution(
+        activePreparedRequestEstimate,
+        liveAssistantTokens,
+      )
+    : computeDistribution({ messages, systemPrompt, inputTokens });
+  const lastAssistantBreakdown = activePreparedRequestEstimate
+    ? liveAssistantTokens > 0
+      ? {
+          output: liveAssistantTokens,
+          total: liveAssistantTokens,
+          isApproximate: true,
+        }
+      : undefined
+    : estimateLastAssistantBreakdown(messages);
+  const isApproximate = activePreparedRequestEstimate
+    ? true
+    : contextEstimate.isApproximate ||
+      Boolean(lastAssistantBreakdown?.isApproximate);
 
   return {
     usedTokens,
@@ -369,5 +644,6 @@ export function buildContextUsageDetails({
     isApproximate,
     distribution: distribution.distribution,
     distributionTotal: distribution.total,
+    preparedRequestEstimate: activePreparedRequestEstimate,
   };
 }

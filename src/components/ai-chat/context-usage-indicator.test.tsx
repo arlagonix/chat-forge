@@ -118,4 +118,71 @@ describe("ContextUsageIndicator", () => {
       "35k",
     );
   });
+
+  it("keeps small nonzero percentages formatted as 0.0%", () => {
+    render(
+      <ContextUsageIndicator
+        usage={{
+          usedTokens: 40,
+          limitTokens: 200_000,
+          usagePercent: 0.02,
+          messagesCount: 0,
+          userMessagesCount: 0,
+          assistantMessagesCount: 0,
+          costUsd: 0,
+          distribution: { user: 0, assistant: 0, tool: 0, other: 40 },
+          distributionTotal: 40,
+        }}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Context usage" })).toHaveTextContent(
+      "0.0%",
+    );
+  });
+
+  it("shows finalized request categories while generation is active", () => {
+    render(
+      <ContextUsageSidebar
+        onClose={vi.fn()}
+        usage={{
+          usedTokens: 160,
+          limitTokens: 1_000,
+          usagePercent: 16,
+          messagesCount: 2,
+          userMessagesCount: 1,
+          assistantMessagesCount: 1,
+          costUsd: 0,
+          distribution: { user: 20, assistant: 30, tool: 60, other: 50 },
+          distributionTotal: 160,
+          preparedRequestEstimate: {
+            inputTokens: 150,
+            systemTokens: 40,
+            userMessageTokens: 20,
+            assistantMessageTokens: 20,
+            toolMessageTokens: 10,
+            mediaTokens: 5,
+            protocolTokens: 5,
+            toolDefinitionTokens: {
+              builtIn: 10,
+              custom: 5,
+              mcp: 15,
+              skill: 10,
+              agent: 10,
+            },
+            assistantMessageId: "assistant-1",
+            variantId: "variant-1",
+            assistantTokensAtRequestStart: 0,
+          },
+        }}
+      />,
+    );
+
+    expect(screen.getByText("Request Estimate")).toBeInTheDocument();
+    expect(screen.getByText("System")).toBeInTheDocument();
+    expect(screen.getByText("Tool Definitions")).toBeInTheDocument();
+    expect(screen.getByText(/MCP 15/)).toBeInTheDocument();
+    expect(screen.getByText(/Skills 10/)).toBeInTheDocument();
+    expect(screen.getByText(/Agents 10/)).toBeInTheDocument();
+  });
 });

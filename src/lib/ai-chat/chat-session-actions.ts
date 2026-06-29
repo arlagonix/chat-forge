@@ -111,83 +111,143 @@ export function cloneChatMessages(messages: ChatMessage[]) {
   return JSON.parse(JSON.stringify(messages)) as ChatMessage[];
 }
 
-export function getClonedChatTitle(title: string) {
-  const baseTitle = normalizeManualChatTitle(title) || DEFAULT_CHAT_TITLE;
-  return `${baseTitle} copy`;
-}
+type DerivedChatTitleKind = "copy" | "branch";
 
-export function getBranchedChatTitle(title: string) {
+function parseDerivedChatTitle(title: string) {
   let baseTitle = normalizeManualChatTitle(title) || DEFAULT_CHAT_TITLE;
-  let branchNumber = 1;
+  const numbers: Record<DerivedChatTitleKind, number> = {
+    copy: 0,
+    branch: 0,
+  };
 
   for (;;) {
-    const suffixMatch = baseTitle.match(/\s+\(branch(?: #(\d+))?\)$/i);
+    const numberedMatch = baseTitle.match(
+      /\s+\((copy|branch)(?: #(\d+))?\)$/i,
+    );
+    const legacyCopyMatch = numberedMatch
+      ? undefined
+      : baseTitle.match(/\s+copy$/i);
+    const suffixMatch = numberedMatch ?? legacyCopyMatch;
     if (!suffixMatch) break;
 
-    const parsedNumber = suffixMatch[1]
-      ? Number.parseInt(suffixMatch[1], 10)
-      : undefined;
-    const nextBranchNumber =
-      typeof parsedNumber === "number" && Number.isFinite(parsedNumber)
-        ? parsedNumber + 1
-        : branchNumber + 1;
-    branchNumber = Math.max(
-      branchNumber,
-      nextBranchNumber,
-    );
+    const kind = numberedMatch
+      ? (numberedMatch[1].toLowerCase() as DerivedChatTitleKind)
+      : "copy";
+    const parsedNumber = numberedMatch?.[2]
+      ? Number.parseInt(numberedMatch[2], 10)
+      : numbers[kind] + 1;
+    numbers[kind] = Math.max(numbers[kind], parsedNumber);
     const suffixStart =
       suffixMatch.index ?? baseTitle.length - suffixMatch[0].length;
-    baseTitle = normalizeManualChatTitle(
-      baseTitle.slice(0, suffixStart),
-    ) || DEFAULT_CHAT_TITLE;
+    baseTitle =
+      normalizeManualChatTitle(baseTitle.slice(0, suffixStart)) ||
+      DEFAULT_CHAT_TITLE;
   }
 
-  return `${baseTitle} (branch #${branchNumber})`;
+  return { baseTitle, numbers };
+}
+
+function getDerivedChatTitle(
+  title: string,
+  existingTitles: Iterable<string>,
+  kind: DerivedChatTitleKind,
+) {
+  const source = parseDerivedChatTitle(title);
+  let highestNumber = source.numbers[kind];
+  const normalizedBaseTitle = source.baseTitle.toLocaleLowerCase();
+
+  for (const existingTitle of existingTitles) {
+    const existing = parseDerivedChatTitle(existingTitle);
+    if (existing.baseTitle.toLocaleLowerCase() !== normalizedBaseTitle) continue;
+    highestNumber = Math.max(highestNumber, existing.numbers[kind]);
+  }
+
+  return `${source.baseTitle} (${kind} #${highestNumber + 1})`;
+}
+
+export function getClonedChatTitle(
+  title: string,
+  existingTitles: Iterable<string> = [],
+) {
+  return getDerivedChatTitle(title, existingTitles, "copy");
+}
+
+export function getBranchedChatTitle(
+  title: string,
+  existingTitles: Iterable<string> = [],
+) {
+  return getDerivedChatTitle(title, existingTitles, "branch");
+}
+
+function cloneChatConfiguration(
+  sourceChat: ChatSession,
+  fileToolAutoApprovalFallback?: ChatFileToolAutoApproval,
+) {
+  return {
+    providerId: sourceChat.providerId,
+    model: sourceChat.model,
+    modeId: sourceChat.modeId,
+    enabledToolNames: cloneStringArray(sourceChat.enabledToolNames),
+    disabledToolNames: cloneStringArray(sourceChat.disabledToolNames),
+    enabledSkillNames: cloneStringArray(sourceChat.enabledSkillNames),
+    disabledSkillNames: cloneStringArray(sourceChat.disabledSkillNames),
+    enabledAgentNames: cloneStringArray(sourceChat.enabledAgentNames),
+    disabledAgentNames: cloneStringArray(sourceChat.disabledAgentNames),
+    activeSkillNames: cloneStringArray(sourceChat.activeSkillNames),
+    workspaceRoots: sourceChat.workspaceRoots
+      ? cloneWorkspaceRoots(sourceChat.workspaceRoots)
+      : undefined,
+    fileToolAutoApproval: sourceChat.fileToolAutoApproval
+      ? { ...sourceChat.fileToolAutoApproval }
+      : fileToolAutoApprovalFallback
+        ? { ...fileToolAutoApprovalFallback }
+        : undefined,
+    thinkingMode: sourceChat.thinkingMode,
+  };
 }
 
 export function buildClonedChat(
   sourceChat: ChatSession,
   baseChat: ChatSession,
   now: string,
+  existingTitles: Iterable<string> = [],
 ): ChatSession {
   return {
     ...baseChat,
-    title: getClonedChatTitle(sourceChat.title),
+    ...cloneChatConfiguration(sourceChat),
+    title: getClonedChatTitle(sourceChat.title, existingTitles),
     titleMode: "manual",
     isPinned: sourceChat.folderId ? false : sourceChat.isPinned,
     folderId: sourceChat.folderId,
     messages: cloneChatMessages(sourceChat.messages),
-    providerId: sourceChat.providerId,
-    model: sourceChat.model,
-    modeId: sourceChat.modeId,
-    enabledToolNames: sourceChat.enabledToolNames
-      ? [...sourceChat.enabledToolNames]
-      : undefined,
-    disabledToolNames: sourceChat.disabledToolNames
-      ? [...sourceChat.disabledToolNames]
-      : undefined,
-    enabledSkillNames: sourceChat.enabledSkillNames
-      ? [...sourceChat.enabledSkillNames]
-      : undefined,
-    disabledSkillNames: sourceChat.disabledSkillNames
-      ? [...sourceChat.disabledSkillNames]
-      : undefined,
-    enabledAgentNames: sourceChat.enabledAgentNames
-      ? [...sourceChat.enabledAgentNames]
-      : undefined,
-    disabledAgentNames: sourceChat.disabledAgentNames
-      ? [...sourceChat.disabledAgentNames]
-      : undefined,
-    activeSkillNames: sourceChat.activeSkillNames
-      ? [...sourceChat.activeSkillNames]
-      : undefined,
-    workspaceRoots: sourceChat.workspaceRoots
-      ? cloneWorkspaceRoots(sourceChat.workspaceRoots)
-      : undefined,
-    fileToolAutoApproval: sourceChat.fileToolAutoApproval
-      ? { ...sourceChat.fileToolAutoApproval }
-      : undefined,
-    thinkingMode: sourceChat.thinkingMode,
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+export function buildBranchedChat({
+  sourceChat,
+  baseChat,
+  messages,
+  now,
+  existingTitles,
+  fileToolAutoApprovalDefaults,
+}: {
+  sourceChat: ChatSession;
+  baseChat: ChatSession;
+  messages: ChatMessage[];
+  now: string;
+  existingTitles: Iterable<string>;
+  fileToolAutoApprovalDefaults: ChatFileToolAutoApproval;
+}): ChatSession {
+  return {
+    ...baseChat,
+    ...cloneChatConfiguration(sourceChat, fileToolAutoApprovalDefaults),
+    title: getBranchedChatTitle(sourceChat.title, existingTitles),
+    titleMode: "manual",
+    isPinned: sourceChat.folderId ? false : sourceChat.isPinned,
+    folderId: sourceChat.folderId,
+    messages,
     createdAt: now,
     updatedAt: now,
   };

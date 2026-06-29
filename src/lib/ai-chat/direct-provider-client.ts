@@ -937,6 +937,11 @@ export type StreamProviderChatResult = {
   toolCalls?: ChatToolCall[];
 };
 
+export type PreparedProviderChatRequest = {
+  payload: Record<string, unknown>;
+  tools: LoadedToolInfo[];
+};
+
 export async function streamProviderChat({
   provider,
   systemPrompt,
@@ -950,6 +955,7 @@ export async function streamProviderChat({
   onContentDelta,
   onReasoningDelta,
   onToolCallDelta,
+  onRequestPrepared,
 }: {
   provider: ProviderConfig;
   systemPrompt: string;
@@ -963,6 +969,7 @@ export async function streamProviderChat({
   onContentDelta: (delta: string) => void;
   onReasoningDelta?: (delta: string) => void;
   onToolCallDelta?: (toolCalls: ChatToolCall[]) => void;
+  onRequestPrepared?: (request: PreparedProviderChatRequest) => void;
 }): Promise<StreamProviderChatResult> {
   if (!provider.baseUrl.trim()) {
     throw new Error("Provider base URL is required.");
@@ -1000,21 +1007,24 @@ export async function streamProviderChat({
     onReasoningDelta: emitReasoningDelta,
   });
 
+  const payload = await buildPayload({
+    provider,
+    systemPrompt,
+    messages,
+    userMessage,
+    userAttachments,
+    stream: true,
+    tools,
+    settingsOverride,
+    thinkingRequestBody,
+  });
+  onRequestPrepared?.({ payload, tools: tools ?? [] });
+
   const stream = assertElectronBridge().streamChat({
     baseUrl: provider.baseUrl,
     apiKey: provider.apiKey,
     headers: provider.headers,
-    payload: await buildPayload({
-      provider,
-      systemPrompt,
-      messages,
-      userMessage,
-      userAttachments,
-      stream: true,
-      tools,
-      settingsOverride,
-      thinkingRequestBody,
-    }),
+    payload,
   });
 
   const abortHandler = () => {

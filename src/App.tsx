@@ -931,48 +931,6 @@ export default function Home() {
   const isSending = activeChat
     ? generatingChatIds.includes(activeChat.id)
     : false;
-  const latestContextUsage = useMemo(() => {
-    const context = getEffectiveModelContext(
-      activeChatProvider,
-      activeChatModel,
-    );
-    const attachmentTokens = estimateAttachmentsTokens(
-      activeComposerAttachments,
-    );
-
-    const details = buildContextUsageDetails({
-      messages,
-      contextLimit: context.length,
-      limitSource: context.source,
-      attachmentTokens,
-      systemPrompt,
-    });
-
-    return details.usedTokens && details.usedTokens > 0 ? details : undefined;
-  }, [
-    activeChatModel,
-    activeChatProvider,
-    activeComposerAttachments,
-    messages,
-    systemPrompt,
-  ]);
-  const selectedAgentContextUsage = useMemo(() => {
-    if (!selectedAgentChat) return undefined;
-
-    const context = getEffectiveModelContext(
-      activeChatProvider,
-      selectedAgentChat.model || activeChatModel,
-    );
-    const details = buildContextUsageDetails({
-      messages: buildAgentContextMessages(selectedAgentChat),
-      contextLimit: context.length,
-      limitSource: context.source,
-      systemPrompt:
-        selectedAgentChat.description ?? selectedAgentChat.agentName,
-    });
-
-    return details.usedTokens && details.usedTokens > 0 ? details : undefined;
-  }, [activeChatModel, activeChatProvider, selectedAgentChat]);
   const visibleProviderGroups = useMemo(() => {
     const search = sidebarModelSearchValue.trim().toLowerCase();
 
@@ -2291,6 +2249,7 @@ export default function Home() {
     selectAssistantVariant,
     stopChatGeneration,
     isChatGenerating,
+    preparedContextUsageByChatId,
     pendingInteractions,
     submitAskUserResponse,
     submitFileToolApprovalResponse,
@@ -2456,6 +2415,55 @@ export default function Home() {
     ensureProjectInstructionsForChat,
     showError,
   });
+
+  const latestContextUsage = useMemo(() => {
+    const context = getEffectiveModelContext(
+      activeChatProvider,
+      activeChatModel,
+    );
+    const attachmentTokens = estimateAttachmentsTokens(
+      activeComposerAttachments,
+    );
+    const preparedRequestEstimate = activeChat?.id
+      ? preparedContextUsageByChatId[activeChat.id]
+      : undefined;
+
+    const details = buildContextUsageDetails({
+      messages,
+      contextLimit: context.length,
+      limitSource: context.source,
+      attachmentTokens,
+      systemPrompt,
+      preparedRequestEstimate,
+    });
+
+    return details.usedTokens && details.usedTokens > 0 ? details : undefined;
+  }, [
+    activeChat?.id,
+    activeChatModel,
+    activeChatProvider,
+    activeComposerAttachments,
+    messages,
+    preparedContextUsageByChatId,
+    systemPrompt,
+  ]);
+  const selectedAgentContextUsage = useMemo(() => {
+    if (!selectedAgentChat) return undefined;
+
+    const context = getEffectiveModelContext(
+      activeChatProvider,
+      selectedAgentChat.model || activeChatModel,
+    );
+    const details = buildContextUsageDetails({
+      messages: buildAgentContextMessages(selectedAgentChat),
+      contextLimit: context.length,
+      limitSource: context.source,
+      systemPrompt:
+        selectedAgentChat.description ?? selectedAgentChat.agentName,
+    });
+
+    return details.usedTokens && details.usedTokens > 0 ? details : undefined;
+  }, [activeChatModel, activeChatProvider, selectedAgentChat]);
 
   // Once the chat created on first send is committed to state (so `activeChat`
   // reflects it), dispatch the queued message.
