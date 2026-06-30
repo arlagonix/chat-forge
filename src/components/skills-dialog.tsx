@@ -861,11 +861,7 @@ export const SkillsDialog = memo(function SkillsDialog({
         createSkillTemplate(`${selectedSkill.name}-copy`);
       setDraftMode("new");
       setSelectedSkillKey(null);
-      setCreationLocation(
-        selectedSkill.sourceKind === "workspace" && canUseWorkspaceSkills
-          ? "workspace"
-          : "global",
-      );
+      setCreationLocation("global");
       setDraftContent(clonedContent);
       setSavedDraftContent("");
     });
@@ -1161,46 +1157,6 @@ export const SkillsDialog = memo(function SkillsDialog({
                           description={effectiveDraftDescription}
                           nameValidationError={nameValidationError}
                         />
-
-                        {draftMode === "new" ? (
-                          <div className="grid gap-2">
-                            <Label>Create in</Label>
-                            <Select
-                              value={creationLocation}
-                              onValueChange={(value) =>
-                                setCreationLocation(value as CreationLocation)
-                              }
-                            >
-                              <SelectTrigger>
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="global">Global</SelectItem>
-                                <SelectItem
-                                  value="workspace"
-                                  disabled={!canUseWorkspaceSkills}
-                                >
-                                  Workspace
-                                </SelectItem>
-                              </SelectContent>
-                            </Select>
-                          </div>
-                        ) : null}
-
-                        {draftMode === "new" &&
-                        creationLocation === "workspace" ? (
-                          <div className="grid gap-2">
-                            <Label>Workspace</Label>
-                            <Input
-                              value={
-                                workspaceRoot?.name ||
-                                workspaceRoot?.path ||
-                                "No workspace selected"
-                              }
-                              disabled
-                            />
-                          </div>
-                        ) : null}
 
                         <SkillLocationField
                           location={effectiveDraftLocation}

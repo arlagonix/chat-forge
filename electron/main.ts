@@ -312,8 +312,14 @@ type AgentsSettings = {
 
 type ChatWidth = "720" | "768" | "896" | "1024" | "full";
 
+type TitleGenerationModelPreference = {
+  providerId: string;
+  model: string;
+};
+
 type AppSettings = {
   chatTitleGenerationMode: "local" | "ai";
+  titleGenerationModel?: TitleGenerationModelPreference;
   fontFamily: "sans" | "mono";
   chatFolders: ChatFolder[];
   thinkingAutoCollapse?: boolean;
@@ -442,6 +448,7 @@ const DEFAULT_AGENTS_SETTINGS: AgentsSettings = {
 };
 const DEFAULT_APP_SETTINGS: AppSettings = {
   chatTitleGenerationMode: "local",
+  titleGenerationModel: undefined,
   fontFamily: "sans",
   chatFolders: [],
   thinkingAutoCollapse: false,
@@ -835,9 +842,20 @@ function normalizeChatFolders(value: unknown): ChatFolder[] {
 function normalizeAppSettings(value: unknown): AppSettings {
   if (!isPlainObject(value)) return DEFAULT_APP_SETTINGS;
 
+  const titleGenerationModel = isPlainObject(value.titleGenerationModel)
+    ? {
+        providerId: safeString(value.titleGenerationModel.providerId).trim(),
+        model: safeString(value.titleGenerationModel.model).trim(),
+      }
+    : undefined;
+
   return {
     chatTitleGenerationMode:
       value.chatTitleGenerationMode === "ai" ? "ai" : "local",
+    titleGenerationModel:
+      titleGenerationModel?.providerId && titleGenerationModel.model
+        ? titleGenerationModel
+        : undefined,
     fontFamily: value.fontFamily === "mono" ? "mono" : "sans",
     chatFolders: normalizeChatFolders(value.chatFolders),
     thinkingAutoCollapse:

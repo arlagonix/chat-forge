@@ -51,6 +51,7 @@ const MODES_STATE_KEY = "modes-state";
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
   chatTitleGenerationMode: "local",
+  titleGenerationModel: undefined,
   fontFamily: "sans",
   chatFolders: [],
   thinkingAutoCollapse: false,
@@ -66,6 +67,21 @@ function normalizeChatWidth(value: unknown): ChatWidth {
     value === "full"
     ? value
     : "896";
+}
+
+function normalizeTitleGenerationModel(
+  value: unknown,
+): AppSettings["titleGenerationModel"] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+
+  const record = value as Record<string, unknown>;
+  const providerId =
+    typeof record.providerId === "string" ? record.providerId.trim() : "";
+  const model = typeof record.model === "string" ? record.model.trim() : "";
+
+  return providerId && model ? { providerId, model } : undefined;
 }
 
 export const DEFAULT_MCP_SETTINGS: McpSettings = {
@@ -541,6 +557,9 @@ export function normalizeAppSettings(
   return {
     chatTitleGenerationMode:
       value?.chatTitleGenerationMode === "ai" ? "ai" : "local",
+    titleGenerationModel: normalizeTitleGenerationModel(
+      value?.titleGenerationModel,
+    ),
     fontFamily: value?.fontFamily === "mono" ? "mono" : "sans",
     chatFolders: normalizeChatFolders(value?.chatFolders),
     thinkingAutoCollapse: value?.thinkingAutoCollapse ?? true,

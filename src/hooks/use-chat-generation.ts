@@ -88,7 +88,10 @@ import {
   type StreamBuffer,
   type StreamBufferEvent,
 } from "@/lib/ai-chat/stream-buffer";
-import { generateTitleFromFirstExchange } from "@/lib/ai-chat/title-generation";
+import {
+  generateTitleFromFirstExchange,
+  resolveTitleGenerationProvider,
+} from "@/lib/ai-chat/title-generation";
 import { attachToolCallsUiMetadata } from "@/lib/ai-chat/tool-call-metadata";
 import {
   areToolBuildingVisibleMetadataEqual,
@@ -119,6 +122,7 @@ import type {
   ProviderConfig,
   SkillsSettings,
   TerminalStreamEvent,
+  TitleGenerationModelPreference,
   ToolApprovalRequest,
   ToolApprovalResponse,
   ToolCommandResult,
@@ -350,6 +354,7 @@ export function useChatGeneration({
   agentsSettings,
   modesState,
   chatTitleGenerationMode,
+  titleGenerationModel,
   loadedTools,
   availableToolsByName,
   loadedSkills,
@@ -386,6 +391,7 @@ export function useChatGeneration({
   agentsSettings: AgentsSettings;
   modesState: ModesState;
   chatTitleGenerationMode: ChatTitleGenerationMode;
+  titleGenerationModel?: TitleGenerationModelPreference;
   loadedTools: LoadedToolInfo[];
   availableToolsByName: Map<string, LoadedToolInfo>;
   loadedSkills: LoadedSkillInfo[];
@@ -1509,8 +1515,13 @@ export function useChatGeneration({
 
     void (async () => {
       try {
+        const titleProvider = resolveTitleGenerationProvider({
+          preference: titleGenerationModel,
+          providers,
+          fallbackProvider: providerForRun,
+        });
         const title = await generateTitleFromFirstExchange({
-          provider: providerForRun,
+          provider: titleProvider,
           userMessage,
           assistantMessage,
         });
@@ -1629,6 +1640,31 @@ export function useChatGeneration({
     })();
 
     return toolsWithAgentTool;
+  }
+
+  function canUseLoadSkillTool(chat: ChatSession) {
+    const mode = getModeForChat(chat);
+    if ((chat.disabledToolNames ?? []).includes(LOAD_SKILL_TOOL_NAME)) {
+      return false;
+    }
+    return (
+      getEffectiveToolPermission({
+        toolName: LOAD_SKILL_TOOL_NAME,
+        toolsSettings,
+        mode,
+        modeCapabilityContext,
+      }) !== "deny"
+    );
+  }
+
+  function validateManualSkillLoadForChat(
+    chat: ChatSession,
+    skillNames: string[],
+  ) {
+    if (skillNames.length === 0) return true;
+    if (canUseLoadSkillTool(chat)) return true;
+    showError("Skill loading is disabled for this chat or mode.");
+    return false;
   }
 
   function getActiveSkillNamesForRun(
@@ -4512,6 +4548,9 @@ export function useChatGeneration({
       userMessageId,
       attachments,
     );
+    if (!validateManualSkillLoadForChat(chatForRun, oneShotSkillNames)) {
+      return false;
+    }
 
     const projectInstructionsForRun = await ensureProjectInstructionsForChat(
       chatForRun,
@@ -4651,6 +4690,7 @@ export function useChatGeneration({
       userMessageSource.id,
       userAttachments,
     );
+    if (!validateManualSkillLoadForChat(chatForRun, oneShotSkillNames)) return;
 
     const contextMessages = chatForRun.messages.slice(0, userIndex);
     const retainedMessages = chatForRun.messages.slice(0, userIndex + 1);
@@ -4871,6 +4911,9 @@ export function useChatGeneration({
       currentMessage.id,
       finalAttachments,
     );
+    if (!validateManualSkillLoadForChat(chatForRun, oneShotSkillNames)) {
+      return false;
+    }
 
     const contextMessages = chatForRun.messages.slice(0, userIndex);
     const projectInstructionsForRun = await ensureProjectInstructionsForChat(

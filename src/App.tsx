@@ -171,7 +171,10 @@ import {
   saveSystemPrompt,
   saveToolsSettings,
 } from "@/lib/ai-chat/storage";
-import { generateTitleFromChatContext } from "@/lib/ai-chat/title-generation";
+import {
+  generateTitleFromChatContext,
+  resolveTitleGenerationProvider,
+} from "@/lib/ai-chat/title-generation";
 import type {
   AgentsSettings,
   AppSettings,
@@ -195,6 +198,7 @@ import type {
   ProvidersState,
   SkillsSettings,
   TerminalStreamEvent,
+  TitleGenerationModelPreference,
   ToolCommandResult,
   ToolExecutionStatus,
   ToolsSettings,
@@ -215,10 +219,36 @@ const CHAT_WIDTH_CLASS_NAMES: Record<ChatWidth, string> = {
 const APP_NAME = "Molten Forge";
 const APP_VERSION_LABEL = `v${__APP_VERSION__}`;
 const APP_TITLE = `${APP_NAME} ${APP_VERSION_LABEL}`;
+const TITLE_GENERATION_CHAT_DEFAULT_VALUE = "chat-default";
+const TITLE_GENERATION_CHAT_DEFAULT_OPTION = {
+  value: TITLE_GENERATION_CHAT_DEFAULT_VALUE,
+  label: "Chat default",
+};
 
 const SIDEBAR_COLLAPSED_STORAGE_KEY = "molten-forge-sidebar-collapsed";
 const LEFT_SIDEBAR_WIDTH_STORAGE_KEY = "molten-forge-left-sidebar-width";
 const RIGHT_SIDEBAR_WIDTH_STORAGE_KEY = "molten-forge-right-sidebar-width";
+
+function encodeTitleGenerationModelValue(
+  preference: TitleGenerationModelPreference,
+) {
+  return JSON.stringify(preference);
+}
+
+function decodeTitleGenerationModelValue(
+  value: string,
+): TitleGenerationModelPreference | undefined {
+  if (value === TITLE_GENERATION_CHAT_DEFAULT_VALUE) return undefined;
+
+  try {
+    const parsed = JSON.parse(value) as Partial<TitleGenerationModelPreference>;
+    const providerId = parsed.providerId?.trim() ?? "";
+    const model = parsed.model?.trim() ?? "";
+    return providerId && model ? { providerId, model } : undefined;
+  } catch {
+    return undefined;
+  }
+}
 const COMPOSER_DRAFTS_STORAGE_KEY = "molten-forge-composer-drafts";
 // Draft-state key for the unsaved "New chat" composer. A real chat is only
 // created (and persisted) once the user sends the first message.
@@ -484,6 +514,7 @@ export default function Home() {
   );
   const [appSettings, setAppSettings] = useState<AppSettings>({
     chatTitleGenerationMode: "local",
+    titleGenerationModel: undefined,
     fontFamily: "sans",
     chatFolders: [],
     thinkingAutoCollapse: false,
@@ -893,6 +924,39 @@ export default function Home() {
   const hasMessages = messages.length > 0;
   const activeChatProvider = activeProvider;
   const activeChatModel = getProviderFallbackModel(activeChatProvider);
+  const titleGenerationDefaultModelOption = TITLE_GENERATION_CHAT_DEFAULT_OPTION;
+  const titleGenerationModelGroups = useMemo(
+    () =>
+      providers
+        .map((provider) => ({
+          id: provider.id,
+          heading: providerDisplayName(provider),
+          options: getEnabledProviderModels(provider).map((model) => ({
+            value: encodeTitleGenerationModelValue({
+              providerId: provider.id,
+              model,
+            }),
+            label: model,
+          })),
+        }))
+        .filter((group) => group.options.length > 0),
+    [providers],
+  );
+  const titleGenerationModelOptions = useMemo(
+    () => [
+      titleGenerationDefaultModelOption,
+      ...titleGenerationModelGroups.flatMap((group) => group.options),
+    ],
+    [titleGenerationDefaultModelOption, titleGenerationModelGroups],
+  );
+  const titleGenerationModelValue = appSettings.titleGenerationModel
+    ? encodeTitleGenerationModelValue(appSettings.titleGenerationModel)
+    : TITLE_GENERATION_CHAT_DEFAULT_VALUE;
+  const resolvedTitleGenerationModelValue = titleGenerationModelOptions.some(
+    (option) => option.value === titleGenerationModelValue,
+  )
+    ? titleGenerationModelValue
+    : TITLE_GENERATION_CHAT_DEFAULT_VALUE;
   const agentSubchats = useMemo(
     () => collectAgentRunsFromMessages(messages),
     [messages],
@@ -1171,12 +1235,11 @@ export default function Home() {
 
   const skillMentionOptions = useMemo(() => {
     return availableSkills
-      .filter((skill) => effectiveSkillPermissions.get(skill.name) !== "deny")
       .map((skill) => ({
         name: skill.name,
         description: skill.description,
       }));
-  }, [availableSkills, effectiveSkillPermissions]);
+  }, [availableSkills]);
 
   const availableAgents = useMemo(() => {
     const byName = new Map<string, LoadedAgentInfo>();
@@ -2267,6 +2330,7 @@ export default function Home() {
     agentsSettings,
     modesState,
     chatTitleGenerationMode: appSettings.chatTitleGenerationMode,
+    titleGenerationModel: appSettings.titleGenerationModel,
     loadedTools: executableTools,
     availableToolsByName,
     loadedSkills,
@@ -3149,10 +3213,15 @@ export default function Home() {
       return;
     }
 
-    const providerForRun = resolveProviderForChat({
+    const chatProviderForRun = resolveProviderForChat({
       chat,
       providers,
       activeProvider,
+    });
+    const providerForRun = resolveTitleGenerationProvider({
+      preference: appSettings.titleGenerationModel,
+      providers,
+      fallbackProvider: chatProviderForRun,
     });
     const validation = validateProviderForGeneration(providerForRun);
 
@@ -3970,6 +4039,9 @@ export default function Home() {
         open={settingsOpen}
         onOpenChange={setSettingsOpen}
         chatTitleGenerationMode={appSettings.chatTitleGenerationMode}
+        titleGenerationModelValue={resolvedTitleGenerationModelValue}
+        titleGenerationDefaultModelOption={titleGenerationDefaultModelOption}
+        titleGenerationModelGroups={titleGenerationModelGroups}
         appFontFamily={appSettings.fontFamily}
         thinkingAutoCollapse={appSettings.thinkingAutoCollapse ?? true}
         renderMarkdownWhileStreaming={
@@ -3982,6 +4054,12 @@ export default function Home() {
           setAppSettings((currentSettings) => ({
             ...currentSettings,
             chatTitleGenerationMode: checked ? "ai" : "local",
+          }))
+        }
+        onTitleGenerationModelChange={(value) =>
+          setAppSettings((currentSettings) => ({
+            ...currentSettings,
+            titleGenerationModel: decodeTitleGenerationModelValue(value),
           }))
         }
         onSetTheme={setTheme}

@@ -29,7 +29,9 @@ import { GroupHeading } from "@/components/ui/group-heading";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -95,6 +97,7 @@ function SettingsSelectRow({
   value,
   onValueChange,
   options,
+  triggerClassName = "h-8 w-[7.5rem] shrink-0",
 }: {
   icon: ReactNode;
   title: string;
@@ -102,6 +105,7 @@ function SettingsSelectRow({
   value: string;
   onValueChange: (value: string) => void;
   options: { value: string; label: string }[];
+  triggerClassName?: string;
 }) {
   return (
     <div className="flex items-center justify-between gap-4 rounded-sm border p-3">
@@ -115,7 +119,7 @@ function SettingsSelectRow({
         </div>
       </div>
       <Select value={value} onValueChange={onValueChange}>
-        <SelectTrigger className="h-8 w-[7.5rem] shrink-0" aria-label={title}>
+        <SelectTrigger className={triggerClassName} aria-label={title}>
           <SelectValue />
         </SelectTrigger>
         <SelectContent align="end">
@@ -123,6 +127,64 @@ function SettingsSelectRow({
             <SelectItem key={option.value} value={option.value}>
               {option.label}
             </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+}
+
+function SettingsGroupedSelectRow({
+  icon,
+  title,
+  description,
+  value,
+  onValueChange,
+  defaultOption,
+  groups,
+  triggerClassName = "h-8 w-[7.5rem] shrink-0",
+}: {
+  icon: ReactNode;
+  title: string;
+  description: string;
+  value: string;
+  onValueChange: (value: string) => void;
+  defaultOption: { value: string; label: string };
+  groups: {
+    id: string;
+    heading: string;
+    options: { value: string; label: string }[];
+  }[];
+  triggerClassName?: string;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-4 rounded-sm border p-3">
+      <div className="flex min-w-0 items-start gap-3">
+        <div className="mt-[5px] text-muted-foreground">{icon}</div>
+        <div className="min-w-0">
+          <div className="text-base font-medium leading-6">{title}</div>
+          <div className="text-sm leading-5 text-muted-foreground">
+            {description}
+          </div>
+        </div>
+      </div>
+      <Select value={value} onValueChange={onValueChange}>
+        <SelectTrigger className={triggerClassName} aria-label={title}>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent align="end" className="min-w-[20rem]">
+          <SelectItem value={defaultOption.value}>
+            {defaultOption.label}
+          </SelectItem>
+          {groups.map((group) => (
+            <SelectGroup key={group.id}>
+              <SelectLabel>{group.heading}</SelectLabel>
+              {group.options.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectGroup>
           ))}
         </SelectContent>
       </Select>
@@ -165,6 +227,13 @@ type SettingsDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   chatTitleGenerationMode: ChatTitleGenerationMode;
+  titleGenerationModelValue: string;
+  titleGenerationDefaultModelOption: { value: string; label: string };
+  titleGenerationModelGroups: {
+    id: string;
+    heading: string;
+    options: { value: string; label: string }[];
+  }[];
   appFontFamily: AppFontFamily;
   thinkingAutoCollapse: boolean;
   renderMarkdownWhileStreaming: boolean;
@@ -172,6 +241,7 @@ type SettingsDialogProps = {
   theme: ThemePreference;
   resolvedTheme: "light" | "dark";
   onToggleAiTitleGeneration: (checked: boolean) => void;
+  onTitleGenerationModelChange: (value: string) => void;
   onSetTheme: (theme: ThemePreference) => void;
   onSetAppFontFamily: (fontFamily: AppFontFamily) => void;
   onThinkingAutoCollapseChange: (checked: boolean) => void;
@@ -190,6 +260,9 @@ export const SettingsDialog = memo(function SettingsDialog({
   open,
   onOpenChange,
   chatTitleGenerationMode,
+  titleGenerationModelValue,
+  titleGenerationDefaultModelOption,
+  titleGenerationModelGroups,
   appFontFamily,
   thinkingAutoCollapse,
   renderMarkdownWhileStreaming,
@@ -197,6 +270,7 @@ export const SettingsDialog = memo(function SettingsDialog({
   theme,
   resolvedTheme,
   onToggleAiTitleGeneration,
+  onTitleGenerationModelChange,
   onSetTheme,
   onSetAppFontFamily,
   onThinkingAutoCollapseChange,
@@ -339,6 +413,16 @@ export const SettingsDialog = memo(function SettingsDialog({
                   description="Automatically generate chat titles with the selected model."
                   checked={chatTitleGenerationMode === "ai"}
                   onCheckedChange={onToggleAiTitleGeneration}
+                />
+                <SettingsGroupedSelectRow
+                  icon={<Cpu className="size-4" />}
+                  title="Title model"
+                  description="Choose the model used for automatic and manual title generation."
+                  value={titleGenerationModelValue}
+                  onValueChange={onTitleGenerationModelChange}
+                  defaultOption={titleGenerationDefaultModelOption}
+                  groups={titleGenerationModelGroups}
+                  triggerClassName="h-8 w-[14rem] shrink-0"
                 />
               </div>
             </section>

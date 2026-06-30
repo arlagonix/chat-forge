@@ -49,6 +49,7 @@ import {
   getBuiltInModeDefaults,
   normalizeModePermissionMap,
   normalizeModesState,
+  updateBuiltInModeWithReset,
 } from "@/lib/ai-chat/modes";
 import {
   getEffectiveGlobalAgentPermission,
@@ -523,6 +524,10 @@ export const ModesDialog = memo(function ModesDialog({
   );
   const enabledModesCount = modes.filter((mode) => mode.enabled).length;
   const hasChanges = hasDraftChanges(modeDraft, savedDraft, isCreatingMode);
+  const modeCapabilityContext = useMemo(
+    () => ({ availableTools, availableSkills, availableAgents }),
+    [availableAgents, availableSkills, availableTools],
+  );
 
   const toolItems = useMemo(
     () =>
@@ -620,9 +625,21 @@ export const ModesDialog = memo(function ModesDialog({
         : kind === "skill"
           ? "skillPermissions"
           : "agentPermissions";
+    const resetSource = modeDraft?.builtIn
+      ? modeToDraft(
+          updateBuiltInModeWithReset(
+            {
+              ...getBuiltInModeDefaults(modeDraft.builtIn),
+              enabled: selectedMode?.enabled ?? modeDraft.enabled,
+            },
+            modeCapabilityContext,
+          ),
+        )
+      : isCreatingMode
+        ? createBlankModeDraft()
+        : savedDraft;
     updateModeDraft({
-      usesDefaultCapabilities: false,
-      [key]: {},
+      [key]: resetSource?.[key] ?? {},
     } as Partial<ModeDraft>);
   }
 
@@ -674,15 +691,6 @@ export const ModesDialog = memo(function ModesDialog({
 
   function resetModeDraft() {
     if (!modeDraft) return;
-    if (modeDraft.builtIn) {
-      setModeDraft(
-        modeToDraft({
-          ...getBuiltInModeDefaults(modeDraft.builtIn),
-          enabled: selectedMode?.enabled ?? modeDraft.enabled,
-        }),
-      );
-      return;
-    }
     if (isCreatingMode) setModeDraft(createBlankModeDraft());
     else if (savedDraft) setModeDraft(savedDraft);
   }

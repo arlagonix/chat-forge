@@ -1,6 +1,9 @@
 import {
   cleanGeneratedChatTitle,
   getAssistantContent,
+  isModelEnabled,
+  isProviderEnabled,
+  normalizeProviderForState,
   titleFromMessage,
 } from "./chat-utils";
 import { streamProviderChat } from "./direct-provider-client";
@@ -8,6 +11,7 @@ import type {
   ChatMessage,
   ProviderConfig,
   ProviderGenerationSettings,
+  TitleGenerationModelPreference,
 } from "./types";
 
 const TITLE_GENERATION_SYSTEM_PROMPT = `You generate concise chat titles.
@@ -20,6 +24,14 @@ const TITLE_GENERATION_SETTINGS: ProviderGenerationSettings = {
   reasoningMode: "off",
   reasoningEffort: "low",
   requestTimeoutMs: 60_000,
+};
+
+const TITLE_GENERATION_THINKING_REQUEST_BODY = {
+  reasoning_effort: "none",
+  chat_template_kwargs: {
+    enable_thinking: false,
+  },
+  enable_thinking: false,
 };
 
 const TITLE_GENERATION_TIMEOUT_MS = 60_000;
@@ -150,6 +162,34 @@ function cleanTitleOrFallback(content: string, fallbackTitle?: string) {
   );
 }
 
+export function resolveTitleGenerationProvider({
+  preference,
+  providers,
+  fallbackProvider,
+}: {
+  preference?: TitleGenerationModelPreference;
+  providers: ProviderConfig[];
+  fallbackProvider: ProviderConfig;
+}) {
+  if (preference?.providerId && preference.model) {
+    const provider = providers.find(
+      (candidate) => candidate.id === preference.providerId,
+    );
+    if (
+      provider &&
+      isProviderEnabled(provider) &&
+      isModelEnabled(provider, preference.model)
+    ) {
+      return normalizeProviderForState({
+        ...provider,
+        model: preference.model,
+      });
+    }
+  }
+
+  return fallbackProvider;
+}
+
 async function requestGeneratedTitle({
   provider,
   userMessage,
@@ -174,6 +214,7 @@ async function requestGeneratedTitle({
       signal: controller.signal,
       tools: [],
       settingsOverride: TITLE_GENERATION_SETTINGS,
+      thinkingRequestBody: TITLE_GENERATION_THINKING_REQUEST_BODY,
       onContentDelta: (delta) => {
         chunks.push(delta);
         if (chunks.join("").length >= TITLE_GENERATION_OUTPUT_CHAR_LIMIT) {

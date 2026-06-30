@@ -288,23 +288,25 @@ export const PendingAskUserPanel = memo(function PendingAskUserPanel({
     const type = getAskUserQuestionType(activeQuestion);
     if (type === "text") {
       return (
-        <Textarea
-          autoFocus
-          value={answers[activeQuestion.id] ?? ""}
-          maxLength={MAX_CUSTOM_ANSWER_LENGTH}
-          disabled={!canSubmit}
-          onChange={(event) =>
-            setAnswers((current) => ({
-              ...current,
-              [activeQuestion.id]: event.target.value.slice(
-                0,
-                MAX_CUSTOM_ANSWER_LENGTH,
-              ),
-            }))
-          }
-          onKeyDown={handleTextKeyDown}
-          className="min-h-24 resize-y bg-background shadow-none"
-        />
+        <div className="p-0.5">
+          <Textarea
+            autoFocus
+            value={answers[activeQuestion.id] ?? ""}
+            maxLength={MAX_CUSTOM_ANSWER_LENGTH}
+            disabled={!canSubmit}
+            onChange={(event) =>
+              setAnswers((current) => ({
+                ...current,
+                [activeQuestion.id]: event.target.value.slice(
+                  0,
+                  MAX_CUSTOM_ANSWER_LENGTH,
+                ),
+              }))
+            }
+            onKeyDown={handleTextKeyDown}
+            className="min-h-24 resize-y bg-background shadow-none"
+          />
+        </div>
       );
     }
 
@@ -372,25 +374,27 @@ export const PendingAskUserPanel = memo(function PendingAskUserPanel({
               </span>
             </label>
             {customSelected ? (
-              <Textarea
-                autoFocus
-                value={customAnswers[activeQuestion.id] ?? ""}
-                maxLength={MAX_CUSTOM_ANSWER_LENGTH}
-                disabled={!canSubmit}
-                placeholder="Type your answer"
-                onFocus={() => selectCustomAnswer(activeQuestion)}
-                onChange={(event) =>
-                  setCustomAnswers((current) => ({
-                    ...current,
-                    [activeQuestion.id]: event.target.value.slice(
-                      0,
-                      MAX_CUSTOM_ANSWER_LENGTH,
-                    ),
-                  }))
-                }
-                onKeyDown={handleTextKeyDown}
-                className="min-h-20 resize-y bg-background shadow-none"
-              />
+              <div className="p-0.5">
+                <Textarea
+                  autoFocus
+                  value={customAnswers[activeQuestion.id] ?? ""}
+                  maxLength={MAX_CUSTOM_ANSWER_LENGTH}
+                  disabled={!canSubmit}
+                  placeholder="Type your answer"
+                  onFocus={() => selectCustomAnswer(activeQuestion)}
+                  onChange={(event) =>
+                    setCustomAnswers((current) => ({
+                      ...current,
+                      [activeQuestion.id]: event.target.value.slice(
+                        0,
+                        MAX_CUSTOM_ANSWER_LENGTH,
+                      ),
+                    }))
+                  }
+                  onKeyDown={handleTextKeyDown}
+                  className="min-h-20 resize-y bg-background shadow-none"
+                />
+              </div>
             ) : null}
           </div>
         </div>

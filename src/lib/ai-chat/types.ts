@@ -528,8 +528,14 @@ export type ChatFolder = {
 
 export type ChatWidth = "720" | "768" | "896" | "1024" | "full";
 
+export type TitleGenerationModelPreference = {
+  providerId: string;
+  model: string;
+};
+
 export type AppSettings = {
   chatTitleGenerationMode: ChatTitleGenerationMode;
+  titleGenerationModel?: TitleGenerationModelPreference;
   fontFamily: AppFontFamily;
   chatFolders: ChatFolder[];
   thinkingAutoCollapse?: boolean;
