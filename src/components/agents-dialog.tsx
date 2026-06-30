@@ -9,10 +9,12 @@ import {
   Maximize2,
   MoreHorizontal,
   Plus,
+  Search,
   Sparkles,
   Trash2,
   Upload,
   Wrench,
+  X,
 } from "lucide-react";
 import type { Dispatch, SetStateAction } from "react";
 import { memo, useEffect, useMemo, useState } from "react";
@@ -58,6 +60,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { UnsavedChangesDialog } from "@/components/unsaved-changes-dialog";
 import {
   BUILTIN_AGENT_NAMES,
   createBuiltInAgents,
@@ -366,7 +369,13 @@ export const AgentsDialog = memo(function AgentsDialog({
   const [availableSkillSearch, setAvailableSkillSearch] = useState("");
   const [toolSearch, setToolSearch] = useState("");
   const [agentSearch, setAgentSearch] = useState("");
+  const [agentListSearchQuery, setAgentListSearchQuery] = useState("");
   const [instructionsEditorOpen, setInstructionsEditorOpen] = useState(false);
+  const [unsavedChangesDialogOpen, setUnsavedChangesDialogOpen] =
+    useState(false);
+  const [pendingAction, setPendingAction] = useState<(() => void) | null>(
+    null,
+  );
 
   const builtInAgents = useMemo(
     () => createBuiltInAgents(agentsSettings.builtInAgentMaxNestingDepths),
@@ -379,23 +388,30 @@ export const AgentsDialog = memo(function AgentsDialog({
     ],
     [builtInAgents, loadedAgents],
   );
-  const groupedDisplayedAgents = useMemo(
-    () =>
-      [
-        {
-          title: "Built-in",
-          agents: displayedAgents.filter((agent) =>
-            isBuiltInAgentName(agent.name),
-          ),
-        },
-        {
-          title: "Custom",
-          agents: displayedAgents.filter(
-            (agent) => !isBuiltInAgentName(agent.name),
-          ),
-        },
-      ].filter((group) => group.agents.length > 0),
-    [displayedAgents],
+  const groupedDisplayedAgents = useMemo(() => {
+    const query = agentListSearchQuery.trim().toLowerCase();
+    const filterAgent = (agent: LoadedAgentInfo) => {
+      if (!query) return true;
+      return `${agent.name} ${agent.description}`.toLowerCase().includes(query);
+    };
+
+    return [
+      {
+        title: "Built-in",
+        agents: displayedAgents.filter(
+          (agent) => isBuiltInAgentName(agent.name) && filterAgent(agent),
+        ),
+      },
+      {
+        title: "Custom",
+        agents: displayedAgents.filter(
+          (agent) => !isBuiltInAgentName(agent.name) && filterAgent(agent),
+        ),
+      },
+    ].filter((group) => group.agents.length > 0);
+  }, [agentListSearchQuery, displayedAgents]);
+  const hasFilteredAgents = groupedDisplayedAgents.some(
+    (group) => group.agents.length > 0,
   );
   const selectedAgent = useMemo(
     () =>
@@ -456,35 +472,49 @@ export const AgentsDialog = memo(function AgentsDialog({
 
   function updateMaxNestingDepth(value: string) {
     updateAgentDraft({ maxNestingDepth: value });
-
-    if (!selectedAgentIsBuiltIn || !selectedAgent) return;
-
-    const rawDepth = Number(value);
-    if (!Number.isFinite(rawDepth)) return;
-
-    const maxNestingDepth = Math.min(Math.max(Math.round(rawDepth), 1), 8);
-    onAgentsSettingsChange((current) => ({
-      ...current,
-      builtInAgentMaxNestingDepths: {
-        ...(current.builtInAgentMaxNestingDepths ?? {}),
-        [selectedAgent.name]: maxNestingDepth,
-      },
-    }));
   }
 
+  const savedAgentDraft = useMemo(
+    () => (selectedAgent ? agentToDraft(selectedAgent) : null),
+    [selectedAgent],
+  );
+  const isCreatingAgent = Boolean(agentDraft && !selectedAgent);
+
   const hasAgentDraftChanges = useMemo(() => {
-    if (!agentDraft || selectedAgentIsBuiltIn) return false;
-    const originalDraft = selectedAgent
-      ? agentToDraft(selectedAgent)
-      : { ...createBlankAgentDraft(), id: agentDraft.id };
-    return !areAgentDraftsEqual(agentDraft, originalDraft);
-  }, [selectedAgent, selectedAgentIsBuiltIn, agentDraft]);
+    if (!agentDraft) return false;
+    if (!savedAgentDraft) {
+      const blankDraft = { ...createBlankAgentDraft(), id: agentDraft.id };
+      return !areAgentDraftsEqual(agentDraft, blankDraft);
+    }
+    return !areAgentDraftsEqual(agentDraft, savedAgentDraft);
+  }, [savedAgentDraft, agentDraft]);
 
   async function saveCurrentAgentDraft() {
     if (!agentDraft) return;
     setIsSavingAgent(true);
 
     try {
+      if (selectedAgentIsBuiltIn && selectedAgent) {
+        const rawDepth = Number(agentDraft.maxNestingDepth);
+        const maxNestingDepth = Number.isFinite(rawDepth)
+          ? Math.min(Math.max(Math.round(rawDepth), 1), 8)
+          : DEFAULT_AGENT_MAX_NESTING_DEPTH;
+
+        onAgentsSettingsChange((current) => ({
+          ...current,
+          builtInAgentMaxNestingDepths: {
+            ...(current.builtInAgentMaxNestingDepths ?? {}),
+            [selectedAgent.name]: maxNestingDepth,
+          },
+        }));
+        setAgentDraft({
+          ...agentDraft,
+          maxNestingDepth: String(maxNestingDepth),
+        });
+        showSuccess("Agent saved");
+        return;
+      }
+
       const agent = draftToAgent(agentDraft);
       validateAgentDraft(agent);
       const savedAgent = await saveAgent(agent);
@@ -495,7 +525,7 @@ export const AgentsDialog = memo(function AgentsDialog({
       });
       setSelectedAgentName(savedAgent.name);
       setAgentDraft(agentToDraft(savedAgent));
-      showSuccess("Agent saved");
+      showSuccess(isCreatingAgent ? "Agent created" : "Agent saved");
     } catch (error) {
       showError("Failed to save agent", labelForError(error));
     } finally {
@@ -504,12 +534,12 @@ export const AgentsDialog = memo(function AgentsDialog({
   }
 
   async function deleteCurrentAgent() {
-    if (!agentDraft) return;
+    if (!selectedAgent || selectedAgentIsBuiltIn) return;
 
     try {
-      await deleteStoredAgent(agentDraft.id);
+      await deleteStoredAgent(selectedAgent.id);
       onLoadedAgentsChange((current) =>
-        current.filter((agent) => agent.id !== agentDraft.id),
+        current.filter((agent) => agent.id !== selectedAgent.id),
       );
       setAgentDraft(null);
       setSelectedAgentName(null);
@@ -559,11 +589,9 @@ export const AgentsDialog = memo(function AgentsDialog({
     }
   }
 
-  async function exportCurrentAgent() {
-    if (!agentDraft) return;
-
+  async function exportAgentDraft(draft: AgentDraft) {
     try {
-      const agent = draftToAgent(agentDraft);
+      const agent = draftToAgent(draft);
       validateAgentDraft(agent);
       const result = await exportAgent(agent);
       if (result.cancelled) return;
@@ -581,16 +609,15 @@ export const AgentsDialog = memo(function AgentsDialog({
     }
   }
 
-  function cloneCurrentAgent() {
-    if (!agentDraft) return;
-
+  function cloneAgentDraft(sourceDraft: AgentDraft) {
     const draft = {
-      ...agentDraft,
+      ...sourceDraft,
       id: createId(),
-      name: createUniqueAgentCloneName(agentDraft.name, loadedAgents),
+      name: createUniqueAgentCloneName(sourceDraft.name, loadedAgents),
     };
     setSelectedAgentName(null);
     setAgentDraft(draft);
+    setInstructionsEditorOpen(false);
   }
 
   function toggleAvailableSkill(skillName: string) {
@@ -664,55 +691,272 @@ export const AgentsDialog = memo(function AgentsDialog({
     }));
   }
 
+  function requestWithUnsavedCheck(action: () => void) {
+    if (hasAgentDraftChanges) {
+      setPendingAction(() => action);
+      setUnsavedChangesDialogOpen(true);
+      return;
+    }
+    action();
+  }
+
+  function discardCurrentAgentDraftChanges() {
+    if (!agentDraft) return;
+    if (savedAgentDraft) {
+      setAgentDraft(savedAgentDraft);
+      setInstructionsEditorOpen(false);
+      return;
+    }
+
+    const fallbackAgent = displayedAgents[0] ?? null;
+    setSelectedAgentName(fallbackAgent?.name ?? null);
+    setAgentDraft(fallbackAgent ? agentToDraft(fallbackAgent) : null);
+    setInstructionsEditorOpen(false);
+  }
+
+  function confirmDiscardUnsavedChanges() {
+    const action = pendingAction;
+    setPendingAction(null);
+    setUnsavedChangesDialogOpen(false);
+    discardCurrentAgentDraftChanges();
+    if (action) action();
+  }
+
+  function requestClose(nextOpen: boolean) {
+    if (nextOpen) {
+      onOpenChange(true);
+      return;
+    }
+    requestWithUnsavedCheck(() => onOpenChange(false));
+  }
+
+  function createNewAgentDraft() {
+    const draft = createBlankAgentDraft();
+    setSelectedAgentName(null);
+    setAgentDraft(draft);
+    setInstructionsEditorOpen(false);
+  }
+
+  function requestCreateAgent() {
+    requestWithUnsavedCheck(createNewAgentDraft);
+  }
+
+  function cancelNewAgentDraft() {
+    const fallbackAgent = displayedAgents[0] ?? null;
+    setSelectedAgentName(fallbackAgent?.name ?? null);
+    setAgentDraft(fallbackAgent ? agentToDraft(fallbackAgent) : null);
+    setInstructionsEditorOpen(false);
+  }
+
+  function requestCancelNewAgentDraft() {
+    requestWithUnsavedCheck(cancelNewAgentDraft);
+  }
+
+  function resetAgentDraft() {
+    if (!agentDraft) return;
+    if (savedAgentDraft) setAgentDraft(savedAgentDraft);
+    else setAgentDraft(createBlankAgentDraft());
+  }
+
+  function selectAgent(agent: LoadedAgentInfo) {
+    setSelectedAgentName(agent.name);
+    setAgentDraft(agentToDraft(agent));
+    setInstructionsEditorOpen(false);
+  }
+
+  function requestSelectAgent(agent: LoadedAgentInfo) {
+    if (!isCreatingAgent && selectedAgent?.id === agent.id) return;
+    requestWithUnsavedCheck(() => selectAgent(agent));
+  }
+
+  function requestCloneCurrentAgent() {
+    const sourceDraft = hasAgentDraftChanges && savedAgentDraft
+      ? savedAgentDraft
+      : agentDraft;
+    if (!sourceDraft) return;
+    requestWithUnsavedCheck(() => cloneAgentDraft(sourceDraft));
+  }
+
+  function requestDeleteCurrentAgent() {
+    requestWithUnsavedCheck(() => void deleteCurrentAgent());
+  }
+
+  function requestExportCurrentAgent() {
+    const sourceDraft = hasAgentDraftChanges && savedAgentDraft
+      ? savedAgentDraft
+      : agentDraft;
+    if (!sourceDraft) return;
+    requestWithUnsavedCheck(() => void exportAgentDraft(sourceDraft));
+  }
+
+  function requestImportAgentFiles() {
+    requestWithUnsavedCheck(() => void importAgentFiles());
+  }
+
   return (
     <>
-      <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="flex h-[min(1000px,calc(100dvh-2rem))] max-h-none flex-col gap-0 overflow-hidden p-0 sm:max-w-6xl">
-          <DialogHeader className="shrink-0 border-b px-5 py-4 pr-12">
+      <Dialog open={open} onOpenChange={requestClose}>
+        <DialogContent
+          className="flex h-[min(1000px,calc(100dvh-2rem))] max-h-none flex-col gap-0 overflow-hidden p-0 outline-none focus:outline-none focus-visible:ring-0 sm:max-w-6xl"
+          onOpenAutoFocus={(event) => event.preventDefault()}
+          onInteractOutside={(event) => {
+            const target = event.target as HTMLElement | null;
+            if (target?.closest?.("[data-sonner-toaster]")) {
+              event.preventDefault();
+            }
+          }}
+        >
+          <DialogHeader className="shrink-0 border-b p-4 pr-12">
             <DialogTitle>Agents</DialogTitle>
-            <DialogDescription>
-              Define callable agents with their own instructions, context mode,
-              optional model override, and explicit tool/agent permissions.
-            </DialogDescription>
           </DialogHeader>
 
           <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden md:grid-cols-[400px_minmax(0,1fr)]">
-            <aside className="min-h-0 overflow-y-auto border-b bg-card/70 p-3 md:border-b-0 md:border-r">
-              <div className="mb-3 flex items-start justify-between gap-3 rounded-sm border bg-background px-3 py-2 text-base">
-                <span className="min-w-0">
-                  <span className="block font-medium">Agents</span>
-                  <span className="block text-sm leading-5 text-muted-foreground">
-                    Master permission for the whole agents feature. Modes can
-                    override it.
-                  </span>
-                </span>
-                <MasterPermissionSelect
-                  value={agentsMasterPermission}
-                  onChange={(permission) =>
-                    onAgentsSettingsChange((current) => ({
-                      ...current,
-                      enabled: permission !== "deny",
-                      agentsPermission: permission,
-                      permissionModelVersion: 2,
-                    }))
-                  }
-                />
+            <aside className="flex min-h-0 flex-col border-b bg-card/70 md:border-b-0 md:border-r">
+              <div className="shrink-0 border-b bg-card/90 p-2">
+                <div className="relative">
+                  <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    value={agentListSearchQuery}
+                    onChange={(event) =>
+                      setAgentListSearchQuery(event.target.value)
+                    }
+                    placeholder="Search agents"
+                    aria-label="Search agents by name or description"
+                    autoFocus={false}
+                    className="h-9 pl-8 pr-8"
+                  />
+                  {agentListSearchQuery ? (
+                    <button
+                      type="button"
+                      className="absolute right-2 top-1/2 inline-flex size-5 -translate-y-1/2 items-center justify-center text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      onClick={() => setAgentListSearchQuery("")}
+                      title="Clear search"
+                    >
+                      <X className="size-3.5" />
+                    </button>
+                  ) : null}
+                </div>
               </div>
 
-              <div className="mb-3 flex gap-2">
+              <div className="min-h-0 flex-1 overflow-y-auto p-2 pr-0 chat-message-scrollbar">
+                <div className="mb-3 mr-2 flex items-start justify-between gap-3 rounded-sm border bg-background px-3 py-2 text-base">
+                  <span className="min-w-0">
+                    <span className="block font-medium">Agents</span>
+                    <span className="block text-sm leading-5 text-muted-foreground">
+                      Master permission for the whole agents feature. Modes can
+                      override it.
+                    </span>
+                  </span>
+                  <MasterPermissionSelect
+                    value={agentsMasterPermission}
+                    onChange={(permission) =>
+                      onAgentsSettingsChange((current) => ({
+                        ...current,
+                        enabled: permission !== "deny",
+                        agentsPermission: permission,
+                        permissionModelVersion: 2,
+                      }))
+                    }
+                  />
+                </div>
+
+                <div className="grid gap-1.5">
+                  {hasFilteredAgents ? (
+                    groupedDisplayedAgents.map((group) => (
+                      <div key={group.title}>
+                        <GroupHeading className="mb-1 mt-0 px-2 pb-1 pt-2">
+                          {group.title}
+                        </GroupHeading>
+                        {group.agents.map((agent) => {
+                          const selected =
+                            selectedAgent?.id === agent.id && !isCreatingAgent;
+                          return (
+                            <div
+                              key={agent.id}
+                              role="button"
+                              tabIndex={0}
+                              className={cn(
+                                "group flex min-w-0 cursor-pointer items-start gap-2 rounded-sm border px-2 py-2 outline-none",
+                                selected
+                                  ? "border-primary/30 bg-accent text-accent-foreground"
+                                  : "border-transparent hover:border-border hover:bg-muted/60",
+                              )}
+                              onClick={() => requestSelectAgent(agent)}
+                              onKeyDown={(event) => {
+                                if (event.key === "Enter" || event.key === " ") {
+                                  event.preventDefault();
+                                  requestSelectAgent(agent);
+                                }
+                              }}
+                            >
+                              <Bot className="mt-1 size-4 shrink-0 text-muted-foreground" />
+                              <div className="min-w-0 flex-1">
+                                <div className="truncate text-base leading-6">
+                                  {agent.name}
+                                </div>
+                                <div className="line-clamp-2 text-sm leading-5 text-muted-foreground">
+                                  {agent.description || "No description."}
+                                </div>
+                              </div>
+                              <PermissionSelect
+                                value={getDisplayedAgentPermission(
+                                  agentsSettings,
+                                  agent.name,
+                                )}
+                                disabled={childPermissionsLocked}
+                                onChange={(next) =>
+                                  setAgentPermission(agent.name, next)
+                                }
+                              />
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ))
+                  ) : (
+                    <div className="mr-2 rounded-sm border border-dashed px-3 py-4 text-center text-base text-muted-foreground">
+                      {displayedAgents.length > 0
+                        ? "No agents match the search."
+                        : "No agents configured."}
+                    </div>
+                  )}
+                </div>
+
+                {agentLoadErrors.length > 0 && (
+                  <div className="mr-2 mt-4 grid gap-2">
+                    <GroupHeading className="mt-0">
+                      Agent file issues
+                    </GroupHeading>
+                    {agentLoadErrors.map((error) => (
+                      <div
+                        key={`${error.source}:${error.message}`}
+                        className="rounded-sm border border-destructive/40 bg-destructive/5 px-2 py-1.5 text-sm leading-5"
+                      >
+                        <div
+                          className="truncate font-medium text-destructive"
+                          title={error.source}
+                        >
+                          {error.source}
+                        </div>
+                        <div className="text-muted-foreground">
+                          {error.message}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="flex shrink-0 gap-2 border-t bg-card/90 p-2">
                 <Button
                   type="button"
                   variant="secondary"
                   size="sm"
-                  className="flex-1"
-                  onClick={() => {
-                    const draft = createBlankAgentDraft();
-                    setSelectedAgentName(null);
-                    setAgentDraft(draft);
-                  }}
+                  className="h-[36px] flex-1"
+                  onClick={requestCreateAgent}
                 >
                   <Plus className="size-4" />
-                  Add agent
+                  Create agent
                 </Button>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
@@ -720,6 +964,7 @@ export const AgentsDialog = memo(function AgentsDialog({
                       type="button"
                       variant="secondary"
                       size="sm"
+                      className="h-[36px]"
                       title="Agent actions"
                     >
                       <MoreHorizontal className="size-4" />
@@ -728,7 +973,7 @@ export const AgentsDialog = memo(function AgentsDialog({
                   <DropdownMenuContent align="end" className="w-60">
                     <DropdownMenuItem
                       disabled={isLoadingAgents}
-                      onSelect={() => void importAgentFiles()}
+                      onSelect={requestImportAgentFiles}
                     >
                       <Download className="size-4" />
                       Import agents...
@@ -746,140 +991,62 @@ export const AgentsDialog = memo(function AgentsDialog({
                   </DropdownMenuContent>
                 </DropdownMenu>
               </div>
-
-              <div className="grid gap-3">
-                {groupedDisplayedAgents.map((group) => (
-                  <div key={group.title} className="grid gap-1.5">
-                    <GroupHeading className="mt-0">{group.title}</GroupHeading>
-                    {group.agents.map((agent) => (
-                      <div
-                        key={agent.id}
-                        role="button"
-                        tabIndex={0}
-                        className={cn(
-                          "group flex min-w-0 cursor-pointer items-start gap-2 rounded-sm border px-2 py-2 outline-none",
-                          selectedAgent?.id === agent.id
-                            ? "border-primary/30 bg-accent text-accent-foreground"
-                            : "border-transparent hover:border-border hover:bg-muted/60",
-                        )}
-                        onClick={() => setSelectedAgentName(agent.name)}
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter" || event.key === " ") {
-                            event.preventDefault();
-                            setSelectedAgentName(agent.name);
-                          }
-                        }}
-                      >
-                        <Bot className="mt-1 size-4 shrink-0 text-muted-foreground" />
-                        <div className="min-w-0 flex-1">
-                          <div className="truncate text-base leading-6">
-                            {agent.name}
-                          </div>
-                          <div className="line-clamp-2 text-sm leading-5 text-muted-foreground">
-                            {agent.description}
-                          </div>
-                        </div>
-                        <PermissionSelect
-                          value={getDisplayedAgentPermission(
-                            agentsSettings,
-                            agent.name,
-                          )}
-                          disabled={childPermissionsLocked}
-                          onChange={(next) =>
-                            setAgentPermission(agent.name, next)
-                          }
-                        />
-                      </div>
-                    ))}
-                  </div>
-                ))}
-
-                {displayedAgents.length === 0 && (
-                  <div className="rounded-sm border border-dashed px-3 py-4 text-center text-base text-muted-foreground">
-                    No agents configured.
-                  </div>
-                )}
-              </div>
-
-              {agentLoadErrors.length > 0 && (
-                <div className="mt-4 grid gap-2">
-                  <GroupHeading className="mt-0">
-                    Agent file issues
-                  </GroupHeading>
-                  {agentLoadErrors.map((error) => (
-                    <div
-                      key={`${error.source}:${error.message}`}
-                      className="rounded-sm border border-destructive/40 bg-destructive/5 px-2 py-1.5 text-sm leading-5"
-                    >
-                      <div
-                        className="truncate font-medium text-destructive"
-                        title={error.source}
-                      >
-                        {error.source}
-                      </div>
-                      <div className="text-muted-foreground">
-                        {error.message}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
             </aside>
 
-            <div className="min-h-0 flex flex-col overflow-hidden">
+            <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
               {agentDraft ? (
                 <>
-                  <div className="z-20 flex min-h-[4.25rem] shrink-0 items-center border-b bg-background px-5 py-3">
+                  <div className="z-20 flex shrink-0 items-center border-b bg-background px-4 py-[10px]">
                     <div className="flex w-full items-center justify-between gap-4">
                       <Label className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
                         {selectedAgentIsBuiltIn
                           ? "Built-in agent"
-                          : selectedAgent
-                            ? "Edit agent"
-                            : "New agent"}
+                          : isCreatingAgent
+                            ? "New agent"
+                            : "Edit agent"}
                       </Label>
-                      {selectedAgent &&
-                        agentDraft &&
-                        !selectedAgentIsBuiltIn && (
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                title="Agent options"
-                              >
-                                <MoreHorizontal className="size-4" />
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end" className="w-44">
-                              <DropdownMenuItem
-                                onSelect={() => cloneCurrentAgent()}
-                              >
-                                <Copy className="size-4" />
-                                Clone
-                              </DropdownMenuItem>
-                              <DropdownMenuItem
-                                onSelect={() => void exportCurrentAgent()}
-                              >
-                                <Upload className="size-4" />
-                                Export
-                              </DropdownMenuItem>
-                              <DropdownMenuSeparator />
-                              <DropdownMenuItem
-                                className="text-destructive focus:text-destructive"
-                                onSelect={() => void deleteCurrentAgent()}
-                              >
-                                <Trash2 className="size-4" />
-                                Delete
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        )}
+                      {!isCreatingAgent && selectedAgent ? (
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              title="Agent options"
+                            >
+                              <MoreHorizontal className="size-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-44">
+                            <DropdownMenuItem onSelect={requestCloneCurrentAgent}>
+                              <Copy className="size-4" />
+                              Clone
+                            </DropdownMenuItem>
+                            {!selectedAgentIsBuiltIn ? (
+                              <>
+                                <DropdownMenuItem
+                                  onSelect={requestExportCurrentAgent}
+                                >
+                                  <Upload className="size-4" />
+                                  Export
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                  className="text-destructive focus:text-destructive"
+                                  onSelect={requestDeleteCurrentAgent}
+                                >
+                                  <Trash2 className="size-4" />
+                                  Delete
+                                </DropdownMenuItem>
+                              </>
+                            ) : null}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      ) : null}
                     </div>
                   </div>
 
-                  <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4">
+                  <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 chat-message-scrollbar">
                     <div className="grid gap-5 pb-1">
                       <div className="grid gap-2">
                         <Label htmlFor="agent-name">Name</Label>
@@ -1576,36 +1743,41 @@ export const AgentsDialog = memo(function AgentsDialog({
                     </div>
                   </div>
 
-                  <DialogFooter className="shrink-0 border-t bg-background px-5 py-4">
-                    {selectedAgentIsBuiltIn ? (
-                      <div className="w-full text-sm leading-5 text-muted-foreground">
-                        Built-in agents are read-only. They are always available
-                        when agents are enabled and mirror the current chat's
-                        effective tools and skills.
-                      </div>
-                    ) : (
-                      <>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          onClick={() => {
-                            if (selectedAgent)
-                              setAgentDraft(agentToDraft(selectedAgent));
-                            else setAgentDraft(createBlankAgentDraft());
-                          }}
-                          disabled={!hasAgentDraftChanges || isSavingAgent}
-                        >
-                          Reset
-                        </Button>
-                        <Button
-                          type="button"
-                          onClick={() => void saveCurrentAgentDraft()}
-                          disabled={!hasAgentDraftChanges || isSavingAgent}
-                        >
-                          {isSavingAgent ? "Saving..." : "Save"}
-                        </Button>
-                      </>
-                    )}
+                  <DialogFooter className="shrink-0 items-center border-t bg-background px-4 py-2 sm:justify-between">
+                    <div
+                      className="text-sm text-muted-foreground"
+                      aria-live="polite"
+                    >
+                      {hasAgentDraftChanges ? "Unsaved changes" : null}
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={
+                          isCreatingAgent
+                            ? requestCancelNewAgentDraft
+                            : resetAgentDraft
+                        }
+                        disabled={
+                          !isCreatingAgent &&
+                          (!hasAgentDraftChanges || isSavingAgent)
+                        }
+                      >
+                        {isCreatingAgent ? "Cancel" : "Reset"}
+                      </Button>
+                      <Button
+                        type="button"
+                        onClick={() => void saveCurrentAgentDraft()}
+                        disabled={!hasAgentDraftChanges || isSavingAgent}
+                      >
+                        {isSavingAgent
+                          ? "Saving..."
+                          : isCreatingAgent
+                            ? "Create"
+                            : "Save"}
+                      </Button>
+                    </div>
                   </DialogFooter>
                 </>
               ) : (
@@ -1622,7 +1794,7 @@ export const AgentsDialog = memo(function AgentsDialog({
                   </div>
                 </div>
               )}
-            </div>
+            </main>
           </div>
         </DialogContent>
       </Dialog>
@@ -1632,7 +1804,10 @@ export const AgentsDialog = memo(function AgentsDialog({
           open={instructionsEditorOpen}
           onOpenChange={setInstructionsEditorOpen}
         >
-          <DialogContent className="flex h-[min(1000px,calc(100dvh-2rem))] max-h-none flex-col gap-4 p-5 sm:max-w-6xl">
+          <DialogContent
+            className="flex h-[min(1000px,calc(100dvh-2rem))] max-h-none flex-col gap-4 p-5 outline-none focus:outline-none focus-visible:ring-0 sm:max-w-6xl"
+            onOpenAutoFocus={(event) => event.preventDefault()}
+          >
             <DialogHeader className="pr-8">
               <DialogTitle>Edit instructions</DialogTitle>
               <DialogDescription>
@@ -1661,6 +1836,15 @@ export const AgentsDialog = memo(function AgentsDialog({
           </DialogContent>
         </Dialog>
       ) : null}
+
+      <UnsavedChangesDialog
+        open={unsavedChangesDialogOpen}
+        onCancel={() => {
+          setPendingAction(null);
+          setUnsavedChangesDialogOpen(false);
+        }}
+        onDiscard={confirmDiscardUnsavedChanges}
+      />
     </>
   );
 });
