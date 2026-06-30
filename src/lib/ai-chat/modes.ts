@@ -160,9 +160,9 @@ export function getBuiltInModeDefaults(builtIn: ModeBuiltInId): LoadedModeInfo {
       allowedToolNames: [],
       allowedSkillNames: [],
       allowedAgentNames: [],
-      toolPermissions: {},
-      skillPermissions: {},
-      agentPermissions: {},
+      toolPermissions: { [FEATURE_PERMISSION_KEY]: "deny" },
+      skillPermissions: { [FEATURE_PERMISSION_KEY]: "deny" },
+      agentPermissions: { [FEATURE_PERMISSION_KEY]: "deny" },
       permissionModelVersion: 2,
     };
   }
@@ -178,9 +178,9 @@ export function getBuiltInModeDefaults(builtIn: ModeBuiltInId): LoadedModeInfo {
     allowedToolNames: [],
     allowedSkillNames: [],
     allowedAgentNames: [],
-    toolPermissions: {},
-    skillPermissions: {},
-    agentPermissions: {},
+    toolPermissions: { [FEATURE_PERMISSION_KEY]: "global" },
+    skillPermissions: { [FEATURE_PERMISSION_KEY]: "global" },
+    agentPermissions: { [FEATURE_PERMISSION_KEY]: "global" },
     permissionModelVersion: 2,
   };
 }
@@ -236,14 +236,16 @@ export function getModePermissionMaps(
   mode: LoadedModeInfo | undefined,
   context: ModeCapabilityContext,
 ): { toolPermissions: ModePermissionMap; skillPermissions: ModePermissionMap; agentPermissions: ModePermissionMap } {
+  void context;
   if (!mode) return { toolPermissions: {}, skillPermissions: {}, agentPermissions: {}, };
 
   if (mode.builtIn && mode.usesDefaultCapabilities !== false) {
-    if (mode.builtIn === "default") return { toolPermissions: {}, skillPermissions: {}, agentPermissions: {}, };
+    const masterPermission: ModeFeaturePermission =
+      mode.builtIn === "default" ? "global" : "deny";
     return {
-      toolPermissions: namesToPermissionMap(context.availableTools.map((tool) => tool.name), "deny"),
-      skillPermissions: namesToPermissionMap(context.availableSkills.map((skill) => skill.name), "deny"),
-      agentPermissions: namesToPermissionMap(context.availableAgents.map((agent) => agent.name), "deny"),
+      toolPermissions: { [FEATURE_PERMISSION_KEY]: masterPermission },
+      skillPermissions: { [FEATURE_PERMISSION_KEY]: masterPermission },
+      agentPermissions: { [FEATURE_PERMISSION_KEY]: masterPermission },
     };
   }
 
@@ -314,6 +316,16 @@ function normalizeModeDefinition(candidate: unknown): LoadedModeInfo | undefined
   const legacyAgentNames = normalizeNameList(source.allowedAgentNames);
 
   const permissionModelVersion = source.permissionModelVersion === 2 ? 2 : undefined;
+  const usesDefaultCapabilities =
+    typeof source.usesDefaultCapabilities === "boolean"
+      ? source.usesDefaultCapabilities
+      : builtIn
+        ? true
+        : false;
+  const builtInDefaultPermissions =
+    builtIn && usesDefaultCapabilities !== false
+      ? getBuiltInModeDefaults(builtIn)
+      : undefined;
   const normalizeStoredModePermissions = (rawPermissions: unknown, legacyNames: string[]) => {
     const normalized = normalizeModePermissionMap(rawPermissions);
     if (permissionModelVersion !== 2) delete normalized[FEATURE_PERMISSION_KEY];
@@ -326,12 +338,7 @@ function normalizeModeDefinition(candidate: unknown): LoadedModeInfo | undefined
   return {
     id,
     ...(builtIn ? { builtIn } : {}),
-    usesDefaultCapabilities:
-      typeof source.usesDefaultCapabilities === "boolean"
-        ? source.usesDefaultCapabilities
-        : builtIn
-          ? true
-          : false,
+    usesDefaultCapabilities,
     name: normalizeModeName(source.name, fallback?.name ?? "Mode"),
     enabled: typeof source.enabled === "boolean" ? source.enabled : true,
     description: typeof source.description === "string" ? source.description : fallback?.description ?? "",
@@ -339,9 +346,15 @@ function normalizeModeDefinition(candidate: unknown): LoadedModeInfo | undefined
     allowedToolNames: legacyToolNames,
     allowedSkillNames: legacySkillNames,
     allowedAgentNames: legacyAgentNames,
-    toolPermissions: normalizeStoredModePermissions(source.toolPermissions, legacyToolNames),
-    skillPermissions: normalizeStoredModePermissions(source.skillPermissions, legacySkillNames),
-    agentPermissions: normalizeStoredModePermissions(source.agentPermissions, legacyAgentNames),
+    toolPermissions:
+      builtInDefaultPermissions?.toolPermissions ??
+      normalizeStoredModePermissions(source.toolPermissions, legacyToolNames),
+    skillPermissions:
+      builtInDefaultPermissions?.skillPermissions ??
+      normalizeStoredModePermissions(source.skillPermissions, legacySkillNames),
+    agentPermissions:
+      builtInDefaultPermissions?.agentPermissions ??
+      normalizeStoredModePermissions(source.agentPermissions, legacyAgentNames),
     permissionModelVersion: 2,
   };
 }
@@ -404,16 +417,10 @@ export function getModeInstructionsBlock(mode: LoadedModeInfo | undefined) {
 export function updateBuiltInModeWithReset(mode: LoadedModeInfo, context: ModeCapabilityContext): LoadedModeInfo {
   if (!mode.builtIn) return mode;
   const defaults = getBuiltInModeDefaults(mode.builtIn);
-  const capabilities = getBuiltInModeDefaultCapabilities(mode.builtIn, context);
+  void context;
   return {
     ...defaults,
     enabled: mode.enabled,
-    allowedToolNames: capabilities.toolNames,
-    allowedSkillNames: capabilities.skillNames,
-    allowedAgentNames: capabilities.agentNames,
-    toolPermissions: namesToPermissionMap(capabilities.toolNames, "allow"),
-    skillPermissions: namesToPermissionMap(capabilities.skillNames, "allow"),
-    agentPermissions: namesToPermissionMap(capabilities.agentNames, "allow"),
     permissionModelVersion: 2,
   };
 }

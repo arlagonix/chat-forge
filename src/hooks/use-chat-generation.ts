@@ -2148,6 +2148,7 @@ export function useChatGeneration({
   function createAgentSystemPrompt(
     agent: LoadedAgentInfo,
     activeSkillNamesForAgent: string[],
+    availableSkillsForAgentPrompt: LoadedSkillInfo[],
     projectInstructions?: ProjectInstructionsSnapshot,
   ) {
     const basePrompt = isBuiltInAgentName(agent.name)
@@ -2185,9 +2186,56 @@ export function useChatGeneration({
     return buildSystemPromptWithActiveSkills({
       systemPrompt: basePrompt,
       activeSkillNames: activeSkillNamesForAgent,
-      availableSkillsByName,
+      availableSkillsByName: new Map(
+        availableSkillsForAgentPrompt.map((skill) => [skill.name, skill] as const),
+      ),
       effectiveWorkspaceRoots: agentWorkspaceRoots,
       projectInstructions,
+    });
+  }
+
+  function getCustomAgentAvailableSkills(agent: LoadedAgentInfo) {
+    const availableSkillNames = new Set(agent.availableSkillNames ?? []);
+    return [...availableSkillNames]
+      .map((skillName) => availableSkillsByName.get(skillName))
+      .filter((skill): skill is LoadedSkillInfo => Boolean(skill));
+  }
+
+  function getAgentPromptSkills({
+    agent,
+    chat,
+    toolsForRun,
+  }: {
+    agent: LoadedAgentInfo;
+    chat: ChatSession | undefined;
+    toolsForRun: LoadedToolInfo[];
+  }) {
+    const hasSkillTool = toolsForRun.some(
+      (tool) => tool.name === LOAD_SKILL_TOOL_NAME,
+    );
+    if (!hasSkillTool) return [];
+
+    if (!isBuiltInAgentName(agent.name)) {
+      return getCustomAgentAvailableSkills(agent);
+    }
+
+    const chatForSkills =
+      chat ??
+      activeChat ?? {
+        id: "",
+        title: "",
+        messages: [],
+        createdAt: "",
+        updatedAt: "",
+      };
+
+    return getEnabledSkillsForChat({
+      chat: chatForSkills,
+      globalEnabledSkills,
+      availableSkillsByName,
+      mode: getModeForChat(chatForSkills),
+      modeCapabilityContext,
+      skillsSettings,
     });
   }
 
@@ -2226,6 +2274,15 @@ export function useChatGeneration({
     const allowedToolNames = new Set<string>(agent.allowedToolNames ?? []);
     const tools = [...allowedToolNames]
       .map((toolName) => inheritedToolsByName.get(toolName))
+      .map((tool) => {
+        if (!tool || tool.name !== LOAD_SKILL_TOOL_NAME) return tool;
+        const skillTool = createLoadSkillTool(
+          getCustomAgentAvailableSkills(agent),
+        );
+        return skillTool
+          ? { ...skillTool, requiresApproval: tool.requiresApproval }
+          : undefined;
+      })
       .filter((tool): tool is LoadedToolInfo => {
         if (!tool) return false;
         return tool.name !== CALL_AGENT_TOOL_NAME;
@@ -2345,7 +2402,7 @@ export function useChatGeneration({
     const provider = resolveProviderForAgent(agent, parentProvider);
     const initialAgentActiveSkillNames: string[] = isBuiltInAgentName(agent.name)
       ? [...new Set<string>(inheritedActiveSkillNames)]
-      : [...new Set<string>(agent.loadedSkillNames ?? [])];
+      : [...new Set<string>(agent.availableSkillNames ?? [])];
     const agentWorkspaceRoots = getEffectiveWorkspaceRootsForChat(
       getCurrentChatSnapshot(chatId),
       initialAgentActiveSkillNames,
@@ -2410,6 +2467,21 @@ export function useChatGeneration({
       modeCapabilityContext,
       agentsSettings,
     });
+    const initialInheritedToolsForRun = mergeToolsByName(
+      inheritedToolsForRun,
+      getToolsForChat(chatForAgentCall, [], currentAgentActiveSkillNames),
+    );
+    const initialAgentToolsForRun = getAgentTools({
+      agent,
+      depth,
+      inheritedToolsForRun: initialInheritedToolsForRun,
+      chatEnabledAgents,
+    });
+    const initialAgentPromptSkills = getAgentPromptSkills({
+      agent,
+      chat: chatForAgentCall,
+      toolsForRun: initialAgentToolsForRun,
+    });
 
     const transcriptMessages = [
       {
@@ -2418,6 +2490,7 @@ export function useChatGeneration({
         content: createAgentSystemPrompt(
           agent,
           currentAgentActiveSkillNames,
+          initialAgentPromptSkills,
           projectInstructionsForRun,
         ),
         createdAt: startedAt,
@@ -2617,11 +2690,18 @@ export function useChatGeneration({
           chatEnabledAgents,
         });
 
+        const currentAgentPromptSkills = getAgentPromptSkills({
+          agent,
+          chat: chatSnapshot ?? chatForAgentCall,
+          toolsForRun: currentAgentToolsForRun,
+        });
+
         const result = await streamProviderChat({
           provider,
           systemPrompt: createAgentSystemPrompt(
             agent,
             currentAgentActiveSkillNames,
+            currentAgentPromptSkills,
             projectInstructionsForRun,
           ),
           messages: currentMessages,

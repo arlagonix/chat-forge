@@ -987,7 +987,7 @@ export const ModesDialog = memo(function ModesDialog({
                       type="button"
                       variant="outline"
                       onClick={resetModeDraft}
-                      disabled={!modeDraft.builtIn && !hasChanges}
+                      disabled={!hasChanges}
                     >
                       Reset
                     </Button>

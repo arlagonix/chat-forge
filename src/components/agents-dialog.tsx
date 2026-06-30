@@ -105,7 +105,7 @@ type AgentDraft = {
   providerId: string;
   model: string;
   maxNestingDepth: string;
-  loadedSkillNames: string[];
+  availableSkillNames: string[];
   allowedToolNames: string[];
   allowedAgentNames: string[];
 };
@@ -220,13 +220,14 @@ function createBlankAgentDraft(): AgentDraft {
     providerId: "",
     model: "",
     maxNestingDepth: String(DEFAULT_AGENT_MAX_NESTING_DEPTH),
-    loadedSkillNames: [],
+    availableSkillNames: [],
     allowedToolNames: [],
     allowedAgentNames: [],
   };
 }
 
 function agentToDraft(agent: LoadedAgentInfo): AgentDraft {
+  const source = agent as LoadedAgentInfo & { loadedSkillNames?: string[] };
   return {
     id: agent.id,
     name: agent.name,
@@ -239,7 +240,8 @@ function agentToDraft(agent: LoadedAgentInfo): AgentDraft {
     maxNestingDepth: String(
       agent.maxNestingDepth ?? DEFAULT_AGENT_MAX_NESTING_DEPTH,
     ),
-    loadedSkillNames: agent.loadedSkillNames ?? [],
+    availableSkillNames:
+      source.availableSkillNames ?? source.loadedSkillNames ?? [],
     allowedToolNames: agent.allowedToolNames ?? [],
     allowedAgentNames: agent.allowedAgentNames ?? [],
   };
@@ -264,7 +266,7 @@ function draftToAgent(draft: AgentDraft): LoadedAgentInfo {
     maxNestingDepth: Number.isFinite(rawMaxNestingDepth)
       ? Math.min(Math.max(Math.round(rawMaxNestingDepth), 1), 8)
       : DEFAULT_AGENT_MAX_NESTING_DEPTH,
-    loadedSkillNames: normalizeNameList(draft.loadedSkillNames),
+    availableSkillNames: normalizeNameList(draft.availableSkillNames),
     allowedToolNames: normalizeNameList(draft.allowedToolNames),
     allowedAgentNames: normalizeNameList(draft.allowedAgentNames),
   };
@@ -302,8 +304,8 @@ function areAgentDraftsEqual(left: AgentDraft, right: AgentDraft) {
     left.providerId === right.providerId &&
     left.model === right.model &&
     left.maxNestingDepth === right.maxNestingDepth &&
-    JSON.stringify([...left.loadedSkillNames].sort()) ===
-      JSON.stringify([...right.loadedSkillNames].sort()) &&
+    JSON.stringify([...left.availableSkillNames].sort()) ===
+      JSON.stringify([...right.availableSkillNames].sort()) &&
     JSON.stringify([...left.allowedToolNames].sort()) ===
       JSON.stringify([...right.allowedToolNames].sort()) &&
     JSON.stringify([...left.allowedAgentNames].sort()) ===
@@ -361,7 +363,7 @@ export const AgentsDialog = memo(function AgentsDialog({
   const [agentDraft, setAgentDraft] = useState<AgentDraft | null>(null);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [modelSearch, setModelSearch] = useState("");
-  const [loadedSkillSearch, setLoadedSkillSearch] = useState("");
+  const [availableSkillSearch, setAvailableSkillSearch] = useState("");
   const [toolSearch, setToolSearch] = useState("");
   const [agentSearch, setAgentSearch] = useState("");
   const [instructionsEditorOpen, setInstructionsEditorOpen] = useState(false);
@@ -591,12 +593,12 @@ export const AgentsDialog = memo(function AgentsDialog({
     setAgentDraft(draft);
   }
 
-  function toggleLoadedSkill(skillName: string) {
+  function toggleAvailableSkill(skillName: string) {
     if (!agentDraft) return;
-    const selectedNames = new Set<string>(agentDraft.loadedSkillNames);
+    const selectedNames = new Set<string>(agentDraft.availableSkillNames);
     if (selectedNames.has(skillName)) selectedNames.delete(skillName);
     else selectedNames.add(skillName);
-    updateAgentDraft({ loadedSkillNames: [...selectedNames] });
+    updateAgentDraft({ availableSkillNames: [...selectedNames] });
   }
 
   function toggleAllowedTool(toolName: string) {
@@ -615,15 +617,15 @@ export const AgentsDialog = memo(function AgentsDialog({
     updateAgentDraft({ allowedAgentNames: [...selectedNames] });
   }
 
-  const loadedSkillSearchText = loadedSkillSearch.trim().toLowerCase();
-  const visibleLoadedSkills = loadedSkillSearchText
+  const availableSkillSearchText = availableSkillSearch.trim().toLowerCase();
+  const visibleAvailableSkills = availableSkillSearchText
     ? availableSkills.filter((skill) =>
         `${skill.name} ${skill.description}`
           .toLowerCase()
-          .includes(loadedSkillSearchText),
+          .includes(availableSkillSearchText),
       )
     : availableSkills;
-  const loadedSkillsByName = useMemo(
+  const availableSkillsByName = useMemo(
     () => new Map(availableSkills.map((skill) => [skill.name, skill] as const)),
     [availableSkills],
   );
@@ -1125,10 +1127,17 @@ export const AgentsDialog = memo(function AgentsDialog({
                       ) : (
                         <>
                           <div className="grid gap-2">
-                            <Label>Loaded skills</Label>
+                            <div className="grid gap-1">
+                              <Label>Available skills</Label>
+                              <p className="text-sm leading-5 text-muted-foreground">
+                                These skills are shown to the agent and can be
+                                loaded with the skill tool. They are not
+                                preloaded into context.
+                              </p>
+                            </div>
                             <Popover
                               onOpenChange={(nextOpen) => {
-                                if (!nextOpen) setLoadedSkillSearch("");
+                                if (!nextOpen) setAvailableSkillSearch("");
                               }}
                             >
                               <PopoverTrigger asChild>
@@ -1142,14 +1151,14 @@ export const AgentsDialog = memo(function AgentsDialog({
                                   <span
                                     className={cn(
                                       "min-w-0 truncate",
-                                      agentDraft.loadedSkillNames.length ===
+                                      agentDraft.availableSkillNames.length ===
                                         0 && "text-muted-foreground",
                                     )}
                                   >
-                                    {agentDraft.loadedSkillNames.length > 0
-                                      ? `${agentDraft.loadedSkillNames.length} loaded skill${agentDraft.loadedSkillNames.length === 1 ? "" : "s"}`
+                                    {agentDraft.availableSkillNames.length > 0
+                                      ? `${agentDraft.availableSkillNames.length} available skill${agentDraft.availableSkillNames.length === 1 ? "" : "s"}`
                                       : availableSkills.length > 0
-                                        ? "Select loaded skills"
+                                        ? "Select available skills"
                                         : "No skills are available"}
                                   </span>
                                   <ChevronDown className="ml-2 size-4 shrink-0 opacity-50" />
@@ -1162,9 +1171,9 @@ export const AgentsDialog = memo(function AgentsDialog({
                                 <div className="grid max-h-[min(24rem,var(--radix-popover-content-available-height))] min-h-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden">
                                   <div className="border-b p-2">
                                     <Input
-                                      value={loadedSkillSearch}
+                                      value={availableSkillSearch}
                                       onChange={(event) =>
-                                        setLoadedSkillSearch(event.target.value)
+                                        setAvailableSkillSearch(event.target.value)
                                       }
                                       placeholder="Search skills..."
                                       className="h-9"
@@ -1176,10 +1185,10 @@ export const AgentsDialog = memo(function AgentsDialog({
                                       event.stopPropagation()
                                     }
                                   >
-                                    {visibleLoadedSkills.length > 0 ? (
-                                      visibleLoadedSkills.map((skill) => {
+                                    {visibleAvailableSkills.length > 0 ? (
+                                      visibleAvailableSkills.map((skill) => {
                                         const checked =
-                                          agentDraft.loadedSkillNames.includes(
+                                          agentDraft.availableSkillNames.includes(
                                             skill.name,
                                           );
                                         return (
@@ -1189,7 +1198,7 @@ export const AgentsDialog = memo(function AgentsDialog({
                                             tabIndex={0}
                                             className="flex w-full min-w-0 cursor-pointer items-start gap-2 px-2 py-2 text-left hover:bg-accent hover:text-accent-foreground focus-visible:outline-none"
                                             onClick={() =>
-                                              toggleLoadedSkill(skill.name)
+                                              toggleAvailableSkill(skill.name)
                                             }
                                             onKeyDown={(event) => {
                                               if (
@@ -1197,7 +1206,7 @@ export const AgentsDialog = memo(function AgentsDialog({
                                                 event.key === " "
                                               ) {
                                                 event.preventDefault();
-                                                toggleLoadedSkill(skill.name);
+                                                toggleAvailableSkill(skill.name);
                                               }
                                             }}
                                             title={skill.description}
@@ -1230,12 +1239,12 @@ export const AgentsDialog = memo(function AgentsDialog({
                               </PopoverContent>
                             </Popover>
 
-                            {agentDraft.loadedSkillNames.length > 0 && (
+                            {agentDraft.availableSkillNames.length > 0 && (
                               <div className="grid max-h-56 gap-1 overflow-y-auto rounded-sm border bg-muted/10 p-2">
-                                {agentDraft.loadedSkillNames.map(
+                                {agentDraft.availableSkillNames.map(
                                   (skillName) => {
                                     const skill =
-                                      loadedSkillsByName.get(skillName);
+                                      availableSkillsByName.get(skillName);
                                     return (
                                       <div
                                         key={skillName}
@@ -1245,7 +1254,7 @@ export const AgentsDialog = memo(function AgentsDialog({
                                         <Checkbox
                                           checked
                                           onCheckedChange={() =>
-                                            toggleLoadedSkill(skillName)
+                                            toggleAvailableSkill(skillName)
                                           }
                                           className="mt-1 shrink-0"
                                         />

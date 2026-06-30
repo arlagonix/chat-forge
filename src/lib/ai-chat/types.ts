@@ -745,7 +745,8 @@ export type AgentDefinition = {
   providerId?: string;
   model?: string;
   maxNestingDepth: number;
-  loadedSkillNames: string[];
+  /** Skills this agent may discover and load with the skill tool. Not preloaded into context. */
+  availableSkillNames: string[];
   allowedToolNames: string[];
   allowedAgentNames: string[];
 };

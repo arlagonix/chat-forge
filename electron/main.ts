@@ -264,7 +264,7 @@ type AgentDefinition = {
   providerId?: string;
   model?: string;
   maxNestingDepth: number;
-  loadedSkillNames: string[];
+  availableSkillNames: string[];
   allowedToolNames: string[];
   allowedAgentNames: string[];
 };
@@ -1084,7 +1084,11 @@ function normalizeAgentDefinition(candidate: unknown): AgentDefinition {
     maxNestingDepth: Number.isFinite(rawMaxNestingDepth)
       ? Math.min(Math.max(Math.round(rawMaxNestingDepth), 1), 8)
       : 2,
-    loadedSkillNames: safeStringArray(source.loadedSkillNames)
+    availableSkillNames: safeStringArray(
+      Array.isArray(source.availableSkillNames)
+        ? source.availableSkillNames
+        : source.loadedSkillNames,
+    )
       .map((item) => item.trim())
       .filter(Boolean),
     allowedToolNames: safeStringArray(source.allowedToolNames)
