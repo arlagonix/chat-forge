@@ -617,26 +617,6 @@ function normalizeBuiltInTimeoutText(value: string, fallback: number) {
   return String(Math.min(Math.round(numeric), 10 * 60_000));
 }
 
-function getStaticBuiltInDescription(toolName: string) {
-  if (toolName === BUILTIN_ASK_USER_TOOL_NAME)
-    return BUILTIN_ASK_USER_TOOL_DESCRIPTION;
-  if (toolName === BUILTIN_LOAD_SKILL_TOOL_NAME)
-    return BUILTIN_LOAD_SKILL_TOOL_DESCRIPTION;
-  if (toolName === BUILTIN_CALL_AGENT_TOOL_NAME)
-    return BUILTIN_CALL_AGENT_TOOL_DESCRIPTION;
-  if (toolName === BUILTIN_WEB_FETCH_TOOL_NAME)
-    return BUILTIN_WEB_FETCH_TOOL_DESCRIPTION;
-  const taskTool = BUILTIN_TASK_TOOL_META.find(
-    (tool) => tool.name === toolName,
-  );
-  if (taskTool) return taskTool.description;
-  const fileTool = BUILTIN_FILE_TOOL_META.find(
-    (tool) => tool.name === toolName,
-  );
-  if (fileTool) return fileTool.description;
-  return "Built-in tool.";
-}
-
 function getSavedBuiltInToolDraft(
   settings: ToolsSettings,
   toolName: string,
@@ -1409,41 +1389,23 @@ export const ToolsDialog = memo(function ToolsDialog({
     }));
   }
 
-  function renderBuiltInToolEditableSettings({
-    name,
-    defaultDescription,
-  }: {
-    name: string;
-    defaultDescription: string;
-  }) {
+  function renderBuiltInToolTimeoutField(name: string) {
+    if (!supportsBuiltInTimeout(name)) return null;
+
     const draft =
       builtInToolDrafts[name] ?? getSavedBuiltInToolDraft(toolsSettings, name);
 
     return (
-      <div className="grid gap-4 rounded-sm border bg-muted/10 p-3">
-        <div className="grid gap-2">
-          <Label>Model-facing description</Label>
-          <p className="text-sm leading-5 text-muted-foreground">
-            Built-in tools always use their default model-facing descriptions.
-          </p>
-          <div className="whitespace-pre-wrap rounded-sm border bg-background p-3 text-sm leading-5 text-muted-foreground">
-            {defaultDescription}
-          </div>
-        </div>
-
-        {supportsBuiltInTimeout(name) ? (
-          <div className="grid gap-2 w-full">
-            <Label htmlFor={`builtin-${name}-timeout`}>Timeout ms</Label>
-            <Input
-              id={`builtin-${name}-timeout`}
-              value={draft.timeoutMs}
-              onChange={(event) =>
-                updateBuiltInToolDraft(name, { timeoutMs: event.target.value })
-              }
-              inputMode="numeric"
-            />
-          </div>
-        ) : null}
+      <div className="grid gap-2">
+        <Label htmlFor={`builtin-${name}-timeout`}>Timeout ms</Label>
+        <Input
+          id={`builtin-${name}-timeout`}
+          value={draft.timeoutMs}
+          onChange={(event) =>
+            updateBuiltInToolDraft(name, { timeoutMs: event.target.value })
+          }
+          inputMode="numeric"
+        />
       </div>
     );
   }
@@ -2134,7 +2096,7 @@ export const ToolsDialog = memo(function ToolsDialog({
           <main className="min-h-0 flex flex-col overflow-hidden">
             {isAskUserToolSelected ? (
               <>
-                <div className="z-20 flex shrink-0 items-center border-b bg-background px-4 py-[10px]">
+                <div className="z-20 flex min-h-[49px] shrink-0 items-center border-b bg-background px-4 py-[10px]">
                   <div className="flex w-full items-center justify-between gap-4">
                     <Label className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
                       Built-in tool
@@ -2160,15 +2122,6 @@ export const ToolsDialog = memo(function ToolsDialog({
                         )}
                       </p>
                     </div>
-
-                    {selectedBuiltInToolName
-                      ? renderBuiltInToolEditableSettings({
-                          name: selectedBuiltInToolName,
-                          defaultDescription: getStaticBuiltInDescription(
-                            selectedBuiltInToolName,
-                          ),
-                        })
-                      : null}
 
                     <div className="grid gap-2">
                       <Label>Behavior</Label>
@@ -2201,12 +2154,17 @@ export const ToolsDialog = memo(function ToolsDialog({
                         ),
                       )}
                     </div>
+
+                    {selectedBuiltInToolName
+                      ? renderBuiltInToolTimeoutField(selectedBuiltInToolName)
+                      : null}
+
                   </div>
                 </div>
               </>
             ) : isTaskToolsSelected ? (
               <>
-                <div className="z-20 flex shrink-0 items-center border-b bg-background px-4 py-[10px]">
+                <div className="z-20 flex min-h-[49px] shrink-0 items-center border-b bg-background px-4 py-[10px]">
                   <div className="flex w-full items-center justify-between gap-4">
                     <Label className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
                       Built-in tool
@@ -2234,15 +2192,6 @@ export const ToolsDialog = memo(function ToolsDialog({
                           : BUILTIN_TASK_TOOLS_DESCRIPTION}
                       </p>
                     </div>
-
-                    {selectedBuiltInToolName
-                      ? renderBuiltInToolEditableSettings({
-                          name: selectedBuiltInToolName,
-                          defaultDescription: getStaticBuiltInDescription(
-                            selectedBuiltInToolName,
-                          ),
-                        })
-                      : null}
 
                     <div className="grid gap-2">
                       <Label>Behavior</Label>
@@ -2276,12 +2225,17 @@ export const ToolsDialog = memo(function ToolsDialog({
                         ),
                       )}
                     </div>
+
+                    {selectedBuiltInToolName
+                      ? renderBuiltInToolTimeoutField(selectedBuiltInToolName)
+                      : null}
+
                   </div>
                 </div>
               </>
             ) : isLoadSkillToolSelected ? (
               <>
-                <div className="z-20 flex shrink-0 items-center border-b bg-background px-4 py-[10px]">
+                <div className="z-20 flex min-h-[49px] shrink-0 items-center border-b bg-background px-4 py-[10px]">
                   <div className="flex w-full items-center justify-between gap-4">
                     <Label className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
                       Built-in tool
@@ -2308,15 +2262,6 @@ export const ToolsDialog = memo(function ToolsDialog({
                       </p>
                     </div>
 
-                    {selectedBuiltInToolName
-                      ? renderBuiltInToolEditableSettings({
-                          name: selectedBuiltInToolName,
-                          defaultDescription: getStaticBuiltInDescription(
-                            selectedBuiltInToolName,
-                          ),
-                        })
-                      : null}
-
                     <div className="grid gap-2">
                       <Label>Behavior</Label>
                       <div className="grid gap-2 text-base leading-6 text-muted-foreground">
@@ -2342,12 +2287,17 @@ export const ToolsDialog = memo(function ToolsDialog({
                         ),
                       )}
                     </div>
+
+                    {selectedBuiltInToolName
+                      ? renderBuiltInToolTimeoutField(selectedBuiltInToolName)
+                      : null}
+
                   </div>
                 </div>
               </>
             ) : isCallAgentToolSelected ? (
               <>
-                <div className="z-20 flex shrink-0 items-center border-b bg-background px-4 py-[10px]">
+                <div className="z-20 flex min-h-[49px] shrink-0 items-center border-b bg-background px-4 py-[10px]">
                   <div className="flex w-full items-center justify-between gap-4">
                     <Label className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
                       Built-in tool
@@ -2373,15 +2323,6 @@ export const ToolsDialog = memo(function ToolsDialog({
                         )}
                       </p>
                     </div>
-
-                    {selectedBuiltInToolName
-                      ? renderBuiltInToolEditableSettings({
-                          name: selectedBuiltInToolName,
-                          defaultDescription: getStaticBuiltInDescription(
-                            selectedBuiltInToolName,
-                          ),
-                        })
-                      : null}
 
                     <div className="grid gap-2">
                       <Label>Behavior</Label>
@@ -2409,12 +2350,17 @@ export const ToolsDialog = memo(function ToolsDialog({
                         ),
                       )}
                     </div>
+
+                    {selectedBuiltInToolName
+                      ? renderBuiltInToolTimeoutField(selectedBuiltInToolName)
+                      : null}
+
                   </div>
                 </div>
               </>
             ) : isWebFetchToolSelected ? (
               <>
-                <div className="z-20 flex shrink-0 items-center border-b bg-background px-4 py-[10px]">
+                <div className="z-20 flex min-h-[49px] shrink-0 items-center border-b bg-background px-4 py-[10px]">
                   <div className="flex w-full items-center justify-between gap-4">
                     <Label className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
                       Built-in tool
@@ -2440,15 +2386,6 @@ export const ToolsDialog = memo(function ToolsDialog({
                         )}
                       </p>
                     </div>
-
-                    {selectedBuiltInToolName
-                      ? renderBuiltInToolEditableSettings({
-                          name: selectedBuiltInToolName,
-                          defaultDescription: getStaticBuiltInDescription(
-                            selectedBuiltInToolName,
-                          ),
-                        })
-                      : null}
 
                     <div className="grid gap-2">
                       <Label>Behavior</Label>
@@ -2478,12 +2415,17 @@ export const ToolsDialog = memo(function ToolsDialog({
                         ),
                       )}
                     </div>
+
+                    {selectedBuiltInToolName
+                      ? renderBuiltInToolTimeoutField(selectedBuiltInToolName)
+                      : null}
+
                   </div>
                 </div>
               </>
             ) : selectedFileToolInfo ? (
               <>
-                <div className="z-20 flex shrink-0 items-center border-b bg-background px-4 py-[10px]">
+                <div className="z-20 flex min-h-[49px] shrink-0 items-center border-b bg-background px-4 py-[10px]">
                   <div className="flex w-full items-center justify-between gap-4">
                     <Label className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
                       Built-in tool
@@ -2515,15 +2457,6 @@ export const ToolsDialog = memo(function ToolsDialog({
                       </p>
                     </div>
 
-                    {selectedBuiltInToolName
-                      ? renderBuiltInToolEditableSettings({
-                          name: selectedBuiltInToolName,
-                          defaultDescription: getStaticBuiltInDescription(
-                            selectedBuiltInToolName,
-                          ),
-                        })
-                      : null}
-
                     <div className="grid gap-2">
                       <Label>Behavior</Label>
                       <div className="grid gap-2 text-base leading-6 text-muted-foreground">
@@ -2549,12 +2482,17 @@ export const ToolsDialog = memo(function ToolsDialog({
                         ),
                       )}
                     </div>
+
+                    {selectedBuiltInToolName
+                      ? renderBuiltInToolTimeoutField(selectedBuiltInToolName)
+                      : null}
+
                   </div>
                 </div>
               </>
             ) : toolDraft ? (
               <>
-                <div className="z-20 flex shrink-0 items-center border-b bg-background px-4 py-[10px]">
+                <div className="z-20 flex min-h-[49px] shrink-0 items-center border-b bg-background px-4 py-[10px]">
                   <div className="flex w-full items-center justify-between gap-4">
                     <Label className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
                       {selectedTool ? "Edit tool" : "New tool"}
@@ -2891,72 +2829,66 @@ export const ToolsDialog = memo(function ToolsDialog({
                 </div>
               </div>
             )}
+            {(toolDraft || selectedBuiltInToolName) ? (
+          <DialogFooter className="shrink-0 items-center border-t bg-background px-4 py-2 sm:justify-between">
+            <div className="text-sm text-muted-foreground" aria-live="polite">
+              {hasUnsavedToolChanges ? "Unsaved changes" : null}
+            </div>
+            <div className="flex gap-2">
+              {toolDraft ? (
+                <>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={
+                      isCreatingTool
+                        ? requestCancelNewToolDraft
+                        : resetCurrentToolDraft
+                    }
+                    disabled={
+                      !isCreatingTool && (!hasToolDraftChanges || isSavingTool)
+                    }
+                  >
+                    {isCreatingTool ? "Cancel" : "Reset"}
+                  </Button>
+                  <Button
+                    type="button"
+                    onClick={saveCurrentToolDraft}
+                    disabled={!hasToolDraftChanges || isSavingTool}
+                  >
+                    {isSavingTool
+                      ? "Saving..."
+                      : isCreatingTool
+                        ? "Create"
+                        : "Save"}
+                  </Button>
+                </>
+              ) : selectedBuiltInToolName ? (
+                <>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => resetBuiltInToolDraft(selectedBuiltInToolName)}
+                    disabled={!hasBuiltInToolDraftChanges}
+                  >
+                    Reset
+                  </Button>
+                  <Button
+                    type="button"
+                    onClick={() => saveBuiltInToolDraft(selectedBuiltInToolName)}
+                    disabled={!hasBuiltInToolDraftChanges}
+                  >
+                    Save
+                  </Button>
+                </>
+              ) : null}
+            </div>
+          </DialogFooter>
+            ) : null}
           </main>
         </div>
 
-        <DialogFooter className="shrink-0 items-center border-t bg-background px-4 py-2 sm:justify-between">
-          <div className="text-sm text-muted-foreground" aria-live="polite">
-            {hasUnsavedToolChanges ? "Unsaved changes" : null}
-          </div>
-          <div className="flex gap-2">
-            {toolDraft ? (
-              <>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={
-                    isCreatingTool
-                      ? requestCancelNewToolDraft
-                      : resetCurrentToolDraft
-                  }
-                  disabled={
-                    !isCreatingTool && (!hasToolDraftChanges || isSavingTool)
-                  }
-                >
-                  {isCreatingTool ? "Cancel" : "Reset"}
-                </Button>
-                <Button
-                  type="button"
-                  onClick={saveCurrentToolDraft}
-                  disabled={!hasToolDraftChanges || isSavingTool}
-                >
-                  {isSavingTool
-                    ? "Saving..."
-                    : isCreatingTool
-                      ? "Create"
-                      : "Save"}
-                </Button>
-              </>
-            ) : selectedBuiltInToolName &&
-              supportsBuiltInTimeout(selectedBuiltInToolName) ? (
-              <>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => resetBuiltInToolDraft(selectedBuiltInToolName)}
-                  disabled={!hasBuiltInToolDraftChanges}
-                >
-                  Reset
-                </Button>
-                <Button
-                  type="button"
-                  onClick={() => saveBuiltInToolDraft(selectedBuiltInToolName)}
-                  disabled={!hasBuiltInToolDraftChanges}
-                >
-                  Save
-                </Button>
-              </>
-            ) : (
-              <Button
-                type="button"
-                variant="secondary"
-                onClick={() => requestClose(false)}
-              >
-                Close
-              </Button>
-            )}
-          </div>
-        </DialogFooter>
+
         </DialogContent>
       </Dialog>
 
