@@ -12,6 +12,7 @@ import {
   MessageSquareText,
   MoreHorizontal,
   Plus,
+  Search,
   Terminal,
   Trash2,
   Upload,
@@ -26,7 +27,6 @@ import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -51,6 +51,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
+import { UnsavedChangesDialog } from "@/components/unsaved-changes-dialog";
 import { createId, labelForError } from "@/lib/ai-chat/chat-utils";
 import { getEffectiveGlobalToolPermission } from "@/lib/ai-chat/request-builder";
 import {
@@ -590,8 +591,6 @@ type ToolTestState = {
 };
 
 type BuiltInToolDraft = {
-  descriptionMode: "default" | "custom";
-  customDescription: string;
   timeoutMs: string;
 };
 
@@ -645,8 +644,6 @@ function getSavedBuiltInToolDraft(
   const saved = settings.builtInToolSettings?.[toolName];
   const fallbackTimeout = BUILTIN_TOOL_TIMEOUT_FALLBACKS_MS[toolName] ?? 0;
   return {
-    descriptionMode: saved?.descriptionMode === "custom" ? "custom" : "default",
-    customDescription: saved?.customDescription ?? "",
     timeoutMs: String(saved?.timeoutMs ?? fallbackTimeout),
   };
 }
@@ -655,11 +652,7 @@ function areBuiltInToolDraftsEqual(
   left: BuiltInToolDraft,
   right: BuiltInToolDraft,
 ) {
-  return (
-    left.descriptionMode === right.descriptionMode &&
-    left.customDescription === right.customDescription &&
-    left.timeoutMs === right.timeoutMs
-  );
+  return left.timeoutMs === right.timeoutMs;
 }
 
 type ToolsDialogProps = {
@@ -1149,7 +1142,6 @@ export const ToolsDialog = memo(function ToolsDialog({
   onOpenChange,
   toolsSettings,
   onToolsSettingsChange,
-  availableTools,
   loadedTools,
   onLoadedToolsChange,
   callAgentEnabled,
@@ -1169,6 +1161,12 @@ export const ToolsDialog = memo(function ToolsDialog({
   const [builtInToolDrafts, setBuiltInToolDrafts] = useState<
     Record<string, BuiltInToolDraft>
   >({});
+  const [toolSearchQuery, setToolSearchQuery] = useState("");
+  const [unsavedChangesDialogOpen, setUnsavedChangesDialogOpen] =
+    useState(false);
+  const [pendingAction, setPendingAction] = useState<(() => void) | null>(
+    null,
+  );
 
   const isAskUserToolSelected = selectedToolName === BUILTIN_ASK_USER_TOOL_NAME;
   const selectedTaskToolInfo = BUILTIN_TASK_TOOL_META.find(
@@ -1196,39 +1194,69 @@ export const ToolsDialog = memo(function ToolsDialog({
       ] as string[],
     [],
   );
+  const builtInToolItems = useMemo(
+    () => [
+      {
+        id: BUILTIN_ASK_USER_TOOL_ID,
+        name: BUILTIN_ASK_USER_TOOL_NAME,
+        description: BUILTIN_ASK_USER_TOOL_DESCRIPTION,
+        icon: MessageSquareText,
+      },
+      ...BUILTIN_TASK_TOOL_META.map((tool) => ({
+        id: tool.id,
+        name: tool.name,
+        description: tool.description,
+        icon: ListTodo,
+      })),
+      {
+        id: BUILTIN_LOAD_SKILL_TOOL_ID,
+        name: BUILTIN_LOAD_SKILL_TOOL_NAME,
+        description: BUILTIN_LOAD_SKILL_TOOL_DESCRIPTION,
+        icon: BookOpen,
+      },
+      {
+        id: BUILTIN_CALL_AGENT_TOOL_ID,
+        name: BUILTIN_CALL_AGENT_TOOL_NAME,
+        description: BUILTIN_CALL_AGENT_TOOL_DESCRIPTION,
+        icon: Bot,
+      },
+      {
+        id: BUILTIN_WEB_FETCH_TOOL_ID,
+        name: BUILTIN_WEB_FETCH_TOOL_NAME,
+        description: BUILTIN_WEB_FETCH_TOOL_DESCRIPTION,
+        icon: Globe,
+      },
+      ...BUILTIN_FILE_TOOL_META.map((tool) => ({
+        id: tool.id,
+        name: tool.name,
+        description: tool.description,
+        icon: tool.icon,
+      })),
+    ],
+    [],
+  );
+  const toolListSearchText = toolSearchQuery.trim().toLowerCase();
+  const matchesToolListSearch = (name: string, description: string) => {
+    if (!toolListSearchText) return true;
+    return `${name} ${description}`.toLowerCase().includes(toolListSearchText);
+  };
+  const filteredBuiltInToolItems = builtInToolItems.filter((tool) =>
+    matchesToolListSearch(tool.name, tool.description),
+  );
+  const filteredLoadedTools = loadedTools.filter((tool) =>
+    matchesToolListSearch(tool.name, tool.description || "Custom command tool."),
+  );
+  const hasFilteredTools =
+    filteredBuiltInToolItems.length > 0 || filteredLoadedTools.length > 0;
   const selectedBuiltInToolName =
     selectedToolName && builtInToolNames.includes(selectedToolName)
       ? selectedToolName
       : null;
-  const availableToolsByName = useMemo(
-    () => new Map(availableTools.map((tool) => [tool.name, tool] as const)),
-    [availableTools],
-  );
   const selectedTool = useMemo(
     () => loadedTools.find((tool) => tool.name === selectedToolName) ?? null,
     [loadedTools, selectedToolName],
   );
   const totalToolsCount = loadedTools.length + builtInToolNames.length;
-  const enabledToolsCount = useMemo(() => {
-    const builtInNames = [
-      BUILTIN_ASK_USER_TOOL_NAME,
-      ...BUILTIN_TASK_TOOL_NAMES,
-      BUILTIN_LOAD_SKILL_TOOL_NAME,
-      BUILTIN_CALL_AGENT_TOOL_NAME,
-      BUILTIN_WEB_FETCH_TOOL_NAME,
-      ...BUILTIN_FILE_TOOL_NAMES,
-    ];
-    return (
-      loadedTools.filter(
-        (tool) =>
-          getDisplayedToolPermission(toolsSettings, tool.name) !== "deny",
-      ).length +
-      builtInNames.filter(
-        (toolName) =>
-          getDisplayedToolPermission(toolsSettings, toolName) !== "deny",
-      ).length
-    );
-  }, [loadedTools, toolsSettings]);
   const currentToolTestState = toolDraft
     ? toolTestStatesByToolId[toolDraft.id]
     : undefined;
@@ -1246,13 +1274,16 @@ export const ToolsDialog = memo(function ToolsDialog({
   const childPermissionsLocked = toolsMasterPermission !== "custom";
   useEffect(() => {
     if (!selectedBuiltInToolName) return;
-    setBuiltInToolDrafts((current) => ({
-      ...current,
-      [selectedBuiltInToolName]: getSavedBuiltInToolDraft(
-        toolsSettings,
-        selectedBuiltInToolName,
-      ),
-    }));
+    setBuiltInToolDrafts((current) => {
+      if (current[selectedBuiltInToolName]) return current;
+      return {
+        ...current,
+        [selectedBuiltInToolName]: getSavedBuiltInToolDraft(
+          toolsSettings,
+          selectedBuiltInToolName,
+        ),
+      };
+    });
   }, [selectedBuiltInToolName, toolsSettings]);
 
   useEffect(() => {
@@ -1331,24 +1362,13 @@ export const ToolsDialog = memo(function ToolsDialog({
     }));
   }
 
-  function getDefaultBuiltInDescription(toolName: string, fallback: string) {
-    const saved = toolsSettings.builtInToolSettings?.[toolName];
-    const currentTool = availableToolsByName.get(toolName);
-    if (saved?.descriptionMode === "custom") return fallback;
-    return currentTool?.description ?? fallback;
-  }
-
-  function getDraftModelDescription(toolName: string, fallback: string) {
-    const draft =
-      builtInToolDrafts[toolName] ??
-      getSavedBuiltInToolDraft(toolsSettings, toolName);
-    const customDescription = draft.customDescription.trim();
-    return draft.descriptionMode === "custom" && customDescription
-      ? customDescription
-      : getDefaultBuiltInDescription(toolName, fallback);
+  function getDraftModelDescription(_toolName: string, fallback: string) {
+    return fallback;
   }
 
   function saveBuiltInToolDraft(toolName: string) {
+    if (!supportsBuiltInTimeout(toolName)) return;
+
     const fallbackTimeout = BUILTIN_TOOL_TIMEOUT_FALLBACKS_MS[toolName] ?? 0;
     const draft =
       builtInToolDrafts[toolName] ??
@@ -1362,8 +1382,7 @@ export const ToolsDialog = memo(function ToolsDialog({
       builtInToolSettings: {
         ...(current.builtInToolSettings ?? {}),
         [toolName]: {
-          descriptionMode: draft.descriptionMode,
-          customDescription: draft.customDescription,
+          ...(current.builtInToolSettings?.[toolName] ?? {}),
           ...(normalizedTimeout !== undefined
             ? { timeoutMs: normalizedTimeout }
             : {}),
@@ -1384,24 +1403,10 @@ export const ToolsDialog = memo(function ToolsDialog({
   }
 
   function resetBuiltInToolDraft(toolName: string) {
-    onToolsSettingsChange((current) => {
-      const { [toolName]: _removed, ...rest } =
-        current.builtInToolSettings ?? {};
-      void _removed;
-      return {
-        ...current,
-        builtInToolSettings: rest,
-      };
-    });
-
     setBuiltInToolDrafts((current) => ({
       ...current,
-      [toolName]: getSavedBuiltInToolDraft(
-        { ...toolsSettings, builtInToolSettings: {} },
-        toolName,
-      ),
+      [toolName]: getSavedBuiltInToolDraft(toolsSettings, toolName),
     }));
-    showSuccess("Built-in tool settings reset", toolName);
   }
 
   function renderBuiltInToolEditableSettings({
@@ -1413,63 +1418,17 @@ export const ToolsDialog = memo(function ToolsDialog({
   }) {
     const draft =
       builtInToolDrafts[name] ?? getSavedBuiltInToolDraft(toolsSettings, name);
-    const savedDraft = getSavedBuiltInToolDraft(toolsSettings, name);
-    const hasChanges = !areBuiltInToolDraftsEqual(draft, savedDraft);
-    const modelDescription = getDraftModelDescription(name, defaultDescription);
 
     return (
       <div className="grid gap-4 rounded-sm border bg-muted/10 p-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <Label>Model-facing description</Label>
-            <p className="text-sm leading-5 text-muted-foreground">
-              This is the exact description the model receives for this built-in
-              tool.
-            </p>
-          </div>
-          <div className="whitespace-pre-wrap rounded-sm border bg-background p-3 text-sm leading-5 text-muted-foreground">
-            {modelDescription}
-          </div>
-        </div>
-
-        <div className="grid gap-2 content-start">
-          <Label htmlFor={`builtin-${name}-description-mode`}>
-            Description
-          </Label>
-          <Select
-            value={draft.descriptionMode}
-            onValueChange={(value) =>
-              updateBuiltInToolDraft(name, {
-                descriptionMode: value === "custom" ? "custom" : "default",
-              })
-            }
-          >
-            <SelectTrigger id={`builtin-${name}-description-mode`}>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="default">Default</SelectItem>
-              <SelectItem value="custom">Custom</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-
         <div className="grid gap-2">
-          <Label htmlFor={`builtin-${name}-custom-description`}>
-            Custom description
-          </Label>
-          <Textarea
-            id={`builtin-${name}-custom-description`}
-            value={draft.customDescription}
-            onChange={(event) =>
-              updateBuiltInToolDraft(name, {
-                customDescription: event.target.value,
-              })
-            }
-            disabled={draft.descriptionMode !== "custom"}
-            placeholder="Override the description sent to the model."
-            className="min-h-32 resize-y"
-          />
+          <Label>Model-facing description</Label>
+          <p className="text-sm leading-5 text-muted-foreground">
+            Built-in tools always use their default model-facing descriptions.
+          </p>
+          <div className="whitespace-pre-wrap rounded-sm border bg-background p-3 text-sm leading-5 text-muted-foreground">
+            {defaultDescription}
+          </div>
         </div>
 
         {supportsBuiltInTimeout(name) ? (
@@ -1485,24 +1444,6 @@ export const ToolsDialog = memo(function ToolsDialog({
             />
           </div>
         ) : null}
-        <div className="flex items-center gap-2 justify-end">
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
-            onClick={() => resetBuiltInToolDraft(name)}
-          >
-            Reset
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            disabled={!hasChanges}
-            onClick={() => saveBuiltInToolDraft(name)}
-          >
-            Save
-          </Button>
-        </div>
       </div>
     );
   }
@@ -1533,6 +1474,25 @@ export const ToolsDialog = memo(function ToolsDialog({
     selectedTool,
     toolDraft,
   ]);
+  const savedBuiltInToolDraft = selectedBuiltInToolName
+    ? getSavedBuiltInToolDraft(toolsSettings, selectedBuiltInToolName)
+    : null;
+  const currentBuiltInToolDraft = selectedBuiltInToolName
+    ? (builtInToolDrafts[selectedBuiltInToolName] ?? savedBuiltInToolDraft)
+    : null;
+  const hasBuiltInToolDraftChanges = Boolean(
+    selectedBuiltInToolName &&
+      supportsBuiltInTimeout(selectedBuiltInToolName) &&
+      currentBuiltInToolDraft &&
+      savedBuiltInToolDraft &&
+      !areBuiltInToolDraftsEqual(
+        currentBuiltInToolDraft,
+        savedBuiltInToolDraft,
+      ),
+  );
+  const hasUnsavedToolChanges =
+    hasToolDraftChanges || hasBuiltInToolDraftChanges;
+  const isCreatingTool = Boolean(toolDraft && !selectedTool);
 
   async function saveCurrentToolDraft() {
     if (!toolDraft) return;
@@ -1620,14 +1580,13 @@ export const ToolsDialog = memo(function ToolsDialog({
     }
   }
 
-  async function cloneCurrentTool() {
-    if (!toolDraft) return;
+  async function cloneToolDraft(sourceDraft: ToolDraft) {
 
     try {
       const clonedDraft = {
-        ...toolDraft,
+        ...sourceDraft,
         id: createId(),
-        name: createUniqueToolCloneName(toolDraft.name, loadedTools),
+        name: createUniqueToolCloneName(sourceDraft.name, loadedTools),
       };
       const clonedTool = draftToTool(clonedDraft);
       validateToolDraft(clonedTool);
@@ -1666,6 +1625,105 @@ export const ToolsDialog = memo(function ToolsDialog({
     } catch (error) {
       showError("Failed to open tools folder", labelForError(error));
     }
+  }
+
+  function requestWithUnsavedCheck(action: () => void) {
+    if (hasUnsavedToolChanges) {
+      setPendingAction(() => action);
+      setUnsavedChangesDialogOpen(true);
+      return;
+    }
+    action();
+  }
+
+  function discardCurrentToolDraftChanges() {
+    if (selectedBuiltInToolName) {
+      resetBuiltInToolDraft(selectedBuiltInToolName);
+      return;
+    }
+
+    if (toolDraft && selectedTool) {
+      setToolDraft(toolToDraft(selectedTool));
+      return;
+    }
+
+    if (toolDraft && !selectedTool) {
+      setSelectedToolName(BUILTIN_ASK_USER_TOOL_NAME);
+      setToolDraft(null);
+    }
+  }
+
+  function confirmDiscardUnsavedChanges() {
+    const action = pendingAction;
+    setPendingAction(null);
+    setUnsavedChangesDialogOpen(false);
+    discardCurrentToolDraftChanges();
+    if (action) action();
+  }
+
+  function requestClose(nextOpen: boolean) {
+    if (nextOpen) {
+      onOpenChange(true);
+      return;
+    }
+    requestWithUnsavedCheck(() => onOpenChange(false));
+  }
+
+  function createNewToolDraft() {
+    const draft = createBlankToolDraft();
+    setSelectedToolName(null);
+    setToolDraft(draft);
+  }
+
+  function requestCreateTool() {
+    requestWithUnsavedCheck(createNewToolDraft);
+  }
+
+  function cancelNewToolDraft() {
+    setSelectedToolName(BUILTIN_ASK_USER_TOOL_NAME);
+    setToolDraft(null);
+  }
+
+  function requestCancelNewToolDraft() {
+    requestWithUnsavedCheck(cancelNewToolDraft);
+  }
+
+  function resetCurrentToolDraft() {
+    if (!toolDraft) return;
+    if (selectedTool) setToolDraft(toolToDraft(selectedTool));
+    else setToolDraft(createBlankToolDraft());
+  }
+
+  function selectToolName(name: string) {
+    setSelectedToolName(name);
+    if (builtInToolNames.includes(name)) {
+      setToolDraft(null);
+      return;
+    }
+
+    const tool = loadedTools.find((item) => item.name === name);
+    setToolDraft(tool ? toolToDraft(tool) : null);
+  }
+
+  function requestSelectToolName(name: string) {
+    if (!isCreatingTool && selectedToolName === name) return;
+    requestWithUnsavedCheck(() => selectToolName(name));
+  }
+
+  function requestCloneCurrentTool() {
+    const sourceDraft = hasToolDraftChanges && selectedTool
+      ? toolToDraft(selectedTool)
+      : toolDraft;
+    if (!sourceDraft) return;
+    requestWithUnsavedCheck(() => void cloneToolDraft(sourceDraft));
+  }
+
+  function requestDeleteCurrentTool() {
+    requestWithUnsavedCheck(() => void deleteCurrentTool());
+  }
+
+  function requestImportToolFiles() {
+    requestWithUnsavedCheck(() => void importToolFiles());
   }
 
   function updateCurrentToolTestArgsText(argsText: string) {
@@ -1765,11 +1823,11 @@ export const ToolsDialog = memo(function ToolsDialog({
             ? "border-primary/30 bg-accent text-accent-foreground"
             : "border-transparent hover:border-border hover:bg-muted/60",
         )}
-        onClick={() => setSelectedToolName(name)}
+        onClick={() => requestSelectToolName(name)}
         onKeyDown={(event) => {
           if (event.key === "Enter" || event.key === " ") {
             event.preventDefault();
-            setSelectedToolName(name);
+            requestSelectToolName(name);
           }
         }}
       >
@@ -1864,231 +1922,219 @@ export const ToolsDialog = memo(function ToolsDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex h-[min(1000px,calc(100dvh-2rem))] max-h-none flex-col gap-0 overflow-hidden p-0 sm:max-w-6xl">
-        <DialogHeader className="shrink-0 border-b px-5 py-4 pr-12">
-          <DialogTitle>Tools</DialogTitle>
-          <DialogDescription>
-            Define custom tools, choose which ones are available to the model,
-            and test them before use.
-          </DialogDescription>
-        </DialogHeader>
+    <>
+      <Dialog open={open} onOpenChange={requestClose}>
+        <DialogContent
+          className="flex h-[min(1000px,calc(100dvh-2rem))] max-h-none flex-col gap-0 overflow-hidden p-0 outline-none focus:outline-none focus-visible:ring-0 sm:max-w-6xl"
+          onOpenAutoFocus={(event) => event.preventDefault()}
+          onInteractOutside={(event) => {
+            const target = event.target as HTMLElement | null;
+            if (target?.closest?.("[data-sonner-toaster]")) {
+              event.preventDefault();
+            }
+          }}
+        >
+          <DialogHeader className="shrink-0 border-b p-4 pr-12">
+            <DialogTitle>Tools</DialogTitle>
+          </DialogHeader>
 
-        <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden md:grid-cols-[400px_minmax(0,1fr)]">
-          <aside className="min-h-0 overflow-y-auto border-b bg-card/70 p-3 md:border-b-0 md:border-r">
-            <div className="mb-3 flex items-start justify-between gap-3 rounded-sm border bg-background px-3 py-2 text-base">
-              <span className="min-w-0">
-                <span className="block font-medium">Tools</span>
-                <span className="block select-none text-sm leading-5 text-muted-foreground">
-                  Master permission for the whole tools feature. Modes can
-                  override it.
-                </span>
-              </span>
-              <MasterPermissionSelect
-                value={toolsMasterPermission}
-                onChange={(permission) =>
-                  onToolsSettingsChange((current) => ({
-                    ...current,
-                    enabled: permission !== "deny",
-                    toolsPermission: permission,
-                    permissionModelVersion: 2,
-                  }))
-                }
-              />
-            </div>
+          <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden md:grid-cols-[400px_minmax(0,1fr)]">
+            <aside className="flex min-h-0 flex-col border-b bg-card/70 md:border-b-0 md:border-r">
+              <div className="shrink-0 border-b bg-card/90 p-2">
+                <div className="relative">
+                  <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    value={toolSearchQuery}
+                    onChange={(event) => setToolSearchQuery(event.target.value)}
+                    placeholder="Search tools"
+                    aria-label="Search tools by name or description"
+                    autoFocus={false}
+                    className="h-9 pl-8 pr-8"
+                  />
+                  {toolSearchQuery ? (
+                    <button
+                      type="button"
+                      className="absolute right-2 top-1/2 inline-flex size-5 -translate-y-1/2 items-center justify-center text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      onClick={() => setToolSearchQuery("")}
+                      title="Clear search"
+                    >
+                      <X className="size-3.5" />
+                    </button>
+                  ) : null}
+                </div>
+              </div>
 
-            <div className="mb-3 flex gap-2">
-              <Button
-                type="button"
-                variant="secondary"
-                size="sm"
-                className="flex-1 "
-                onClick={() => {
-                  const draft = createBlankToolDraft();
-                  setSelectedToolName(null);
-                  setToolDraft(draft);
-                }}
-              >
-                <Plus className="size-4" />
-                Add tool
-              </Button>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    size="sm"
-                    className=""
-                    title="Tool actions"
-                  >
-                    <MoreHorizontal className="size-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-60">
-                  <DropdownMenuItem
-                    disabled={isLoadingTools}
-                    onSelect={() => void importToolFiles()}
-                  >
-                    <Upload className="size-4" />
-                    Import tools...
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => void exportAllTools()}>
-                    <Download className="size-4" />
-                    Export all tools...
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onSelect={() => void openToolStorageFolder()}
-                  >
-                    <FolderOpen className="size-4" />
-                    Open tools folder
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-
-            <div className="grid gap-1.5">
-              <GroupHeading className="mt-0">Built-in</GroupHeading>
-
-              {renderBuiltInToolRow({
-                id: BUILTIN_ASK_USER_TOOL_ID,
-                name: BUILTIN_ASK_USER_TOOL_NAME,
-                description: getDraftModelDescription(
-                  BUILTIN_ASK_USER_TOOL_NAME,
-                  BUILTIN_ASK_USER_TOOL_DESCRIPTION,
-                ),
-                icon: MessageSquareText,
-                selected: isAskUserToolSelected,
-              })}
-
-              {BUILTIN_TASK_TOOL_META.map((taskTool) =>
-                renderBuiltInToolRow({
-                  id: taskTool.id,
-                  name: taskTool.name,
-                  description: getDraftModelDescription(
-                    taskTool.name,
-                    taskTool.description,
-                  ),
-                  icon: ListTodo,
-                  selected: selectedToolName === taskTool.name,
-                }),
-              )}
-
-              {renderBuiltInToolRow({
-                id: BUILTIN_LOAD_SKILL_TOOL_ID,
-                name: BUILTIN_LOAD_SKILL_TOOL_NAME,
-                description: getDraftModelDescription(
-                  BUILTIN_LOAD_SKILL_TOOL_NAME,
-                  BUILTIN_LOAD_SKILL_TOOL_DESCRIPTION,
-                ),
-                icon: BookOpen,
-                selected: selectedToolName === BUILTIN_LOAD_SKILL_TOOL_NAME,
-              })}
-
-              {renderBuiltInToolRow({
-                id: BUILTIN_CALL_AGENT_TOOL_ID,
-                name: BUILTIN_CALL_AGENT_TOOL_NAME,
-                description: getDraftModelDescription(
-                  BUILTIN_CALL_AGENT_TOOL_NAME,
-                  BUILTIN_CALL_AGENT_TOOL_DESCRIPTION,
-                ),
-                icon: Bot,
-                selected: isCallAgentToolSelected,
-              })}
-
-              {renderBuiltInToolRow({
-                id: BUILTIN_WEB_FETCH_TOOL_ID,
-                name: BUILTIN_WEB_FETCH_TOOL_NAME,
-                description: getDraftModelDescription(
-                  BUILTIN_WEB_FETCH_TOOL_NAME,
-                  BUILTIN_WEB_FETCH_TOOL_DESCRIPTION,
-                ),
-                icon: Globe,
-                selected: isWebFetchToolSelected,
-              })}
-
-              {BUILTIN_FILE_TOOL_META.map((fileTool) =>
-                renderBuiltInToolRow({
-                  id: fileTool.id,
-                  name: fileTool.name,
-                  description: getDraftModelDescription(
-                    fileTool.name,
-                    fileTool.description,
-                  ),
-                  icon: fileTool.icon,
-                  selected: selectedToolName === fileTool.name,
-                }),
-              )}
-
-              <GroupHeading>Custom tools</GroupHeading>
-
-              {loadedTools.map((tool) => (
-                <div
-                  key={tool.id}
-                  role="button"
-                  tabIndex={0}
-                  className={cn(
-                    "group flex min-w-0 cursor-pointer items-start gap-2 rounded-sm border px-2 py-2 outline-none",
-                    selectedTool?.id === tool.id
-                      ? "border-primary/30 bg-accent text-accent-foreground"
-                      : "border-transparent hover:border-border hover:bg-muted/60",
-                  )}
-                  onClick={() => setSelectedToolName(tool.name)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" || event.key === " ") {
-                      event.preventDefault();
-                      setSelectedToolName(tool.name);
+              <div className="min-h-0 flex-1 overflow-y-auto p-2 pr-0 chat-message-scrollbar">
+                <div className="mb-3 mr-2 flex items-start justify-between gap-3 rounded-sm border bg-background px-3 py-2 text-base">
+                  <span className="min-w-0">
+                    <span className="block font-medium">Tools</span>
+                    <span className="block select-none text-sm leading-5 text-muted-foreground">
+                      Master permission for the whole tools feature. Modes can
+                      override it.
+                    </span>
+                  </span>
+                  <MasterPermissionSelect
+                    value={toolsMasterPermission}
+                    onChange={(permission) =>
+                      onToolsSettingsChange((current) => ({
+                        ...current,
+                        enabled: permission !== "deny",
+                        toolsPermission: permission,
+                        permissionModelVersion: 2,
+                      }))
                     }
-                  }}
-                >
-                  <Wrench className="mt-1 size-4 shrink-0 text-muted-foreground" />
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-base leading-6">
-                      {tool.name}
-                    </div>
-                    <p className="line-clamp-2 text-sm leading-5 text-muted-foreground">
-                      {tool.description || "Custom command tool."}
-                    </p>
-                  </div>
-                  <PermissionSelect
-                    value={getDisplayedToolPermission(toolsSettings, tool.name)}
-                    disabled={childPermissionsLocked}
-                    onChange={(next) => setToolPermission(tool.name, next)}
                   />
                 </div>
-              ))}
 
-              {loadedTools.length === 0 && (
-                <div className="rounded-sm border border-dashed px-3 py-4 text-center text-base text-muted-foreground">
-                  No custom tools configured.
-                </div>
-              )}
-            </div>
+                <div className="grid gap-1.5">
+                  {hasFilteredTools ? (
+                    <>
+                      {filteredBuiltInToolItems.length > 0 ? (
+                        <div>
+                          <GroupHeading className="mb-1 mt-0 px-2 pb-1 pt-2">
+                            Built-in
+                          </GroupHeading>
+                          {filteredBuiltInToolItems.map((tool) =>
+                            renderBuiltInToolRow({
+                              id: tool.id,
+                              name: tool.name,
+                              description: getDraftModelDescription(
+                                tool.name,
+                                tool.description,
+                              ),
+                              icon: tool.icon,
+                              selected: selectedToolName === tool.name,
+                            }),
+                          )}
+                        </div>
+                      ) : null}
 
-            {toolLoadErrors.length > 0 && (
-              <div className="mt-4 grid gap-2">
-                <GroupHeading className="mt-0">Tool file issues</GroupHeading>
-                {toolLoadErrors.map((error) => (
-                  <div
-                    key={`${error.source}:${error.message}`}
-                    className="rounded-sm border border-destructive/40 bg-destructive/5 px-2 py-1.5 text-sm leading-5"
-                  >
-                    <div
-                      className="truncate font-medium text-destructive"
-                      title={error.source}
-                    >
-                      {error.source}
+                      {filteredLoadedTools.length > 0 ? (
+                        <div>
+                          <GroupHeading className="mb-1 mt-0 px-2 pb-1 pt-2">
+                            Custom tools
+                          </GroupHeading>
+                          {filteredLoadedTools.map((tool) => (
+                            <div
+                              key={tool.id}
+                              role="button"
+                              tabIndex={0}
+                              className={cn(
+                                "group flex min-w-0 cursor-pointer items-start gap-2 rounded-sm border px-2 py-2 outline-none",
+                                selectedTool?.id === tool.id
+                                  ? "border-primary/30 bg-accent text-accent-foreground"
+                                  : "border-transparent hover:border-border hover:bg-muted/60",
+                              )}
+                              onClick={() => requestSelectToolName(tool.name)}
+                              onKeyDown={(event) => {
+                                if (event.key === "Enter" || event.key === " ") {
+                                  event.preventDefault();
+                                  requestSelectToolName(tool.name);
+                                }
+                              }}
+                            >
+                              <Wrench className="mt-1 size-4 shrink-0 text-muted-foreground" />
+                              <div className="min-w-0 flex-1">
+                                <div className="truncate text-base leading-6">
+                                  {tool.name}
+                                </div>
+                                <p className="line-clamp-2 text-sm leading-5 text-muted-foreground">
+                                  {tool.description || "Custom command tool."}
+                                </p>
+                              </div>
+                              <PermissionSelect
+                                value={getDisplayedToolPermission(
+                                  toolsSettings,
+                                  tool.name,
+                                )}
+                                disabled={childPermissionsLocked}
+                                onChange={(next) =>
+                                  setToolPermission(tool.name, next)
+                                }
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
+                    </>
+                  ) : (
+                    <div className="mr-2 rounded-sm border border-dashed px-3 py-4 text-center text-base text-muted-foreground">
+                      {totalToolsCount > 0
+                        ? "No tools match the search."
+                        : "No custom tools configured."}
                     </div>
-                    <div className="text-muted-foreground">{error.message}</div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </aside>
+                  )}
+                </div>
 
-          <div className="min-h-0 flex flex-col overflow-hidden">
+                {toolLoadErrors.length > 0 && (
+                  <div className="mr-2 mt-4 grid gap-2">
+                    <GroupHeading className="mt-0">Tool file issues</GroupHeading>
+                    {toolLoadErrors.map((error) => (
+                      <div
+                        key={`${error.source}:${error.message}`}
+                        className="rounded-sm border border-destructive/40 bg-destructive/5 px-2 py-1.5 text-sm leading-5"
+                      >
+                        <div
+                          className="truncate font-medium text-destructive"
+                          title={error.source}
+                        >
+                          {error.source}
+                        </div>
+                        <div className="text-muted-foreground">{error.message}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="flex shrink-0 gap-2 border-t bg-card/90 p-2">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  className="h-[36px] flex-1"
+                  onClick={requestCreateTool}
+                >
+                  <Plus className="size-4" />
+                  Create tool
+                </Button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      className="h-[36px]"
+                      title="Tool actions"
+                    >
+                      <MoreHorizontal className="size-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-60">
+                    <DropdownMenuItem
+                      disabled={isLoadingTools}
+                      onSelect={requestImportToolFiles}
+                    >
+                      <Upload className="size-4" />
+                      Import tools...
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => void exportAllTools()}>
+                      <Download className="size-4" />
+                      Export all tools...
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => void openToolStorageFolder()}>
+                      <FolderOpen className="size-4" />
+                      Open tools folder
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            </aside>
+
+          <main className="min-h-0 flex flex-col overflow-hidden">
             {isAskUserToolSelected ? (
               <>
-                <div className="z-20 flex min-h-[4.25rem] shrink-0 items-center border-b bg-background px-5 py-3">
+                <div className="z-20 flex shrink-0 items-center border-b bg-background px-4 py-[10px]">
                   <div className="flex w-full items-center justify-between gap-4">
                     <Label className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
                       Built-in tool
@@ -2100,7 +2146,7 @@ export const ToolsDialog = memo(function ToolsDialog({
                   </div>
                 </div>
 
-                <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4">
+                <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 chat-message-scrollbar">
                   <div className="grid gap-5 pb-1">
                     <div className="grid gap-1">
                       <h3 className="flex items-center gap-2 text-lg font-semibold text-foreground">
@@ -2160,7 +2206,7 @@ export const ToolsDialog = memo(function ToolsDialog({
               </>
             ) : isTaskToolsSelected ? (
               <>
-                <div className="z-20 flex min-h-[4.25rem] shrink-0 items-center border-b bg-background px-5 py-3">
+                <div className="z-20 flex shrink-0 items-center border-b bg-background px-4 py-[10px]">
                   <div className="flex w-full items-center justify-between gap-4">
                     <Label className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
                       Built-in tool
@@ -2172,7 +2218,7 @@ export const ToolsDialog = memo(function ToolsDialog({
                   </div>
                 </div>
 
-                <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4">
+                <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 chat-message-scrollbar">
                   <div className="grid gap-5 pb-1">
                     <div className="grid gap-1">
                       <h3 className="flex items-center gap-2 text-lg font-semibold text-foreground">
@@ -2235,7 +2281,7 @@ export const ToolsDialog = memo(function ToolsDialog({
               </>
             ) : isLoadSkillToolSelected ? (
               <>
-                <div className="z-20 flex min-h-[4.25rem] shrink-0 items-center border-b bg-background px-5 py-3">
+                <div className="z-20 flex shrink-0 items-center border-b bg-background px-4 py-[10px]">
                   <div className="flex w-full items-center justify-between gap-4">
                     <Label className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
                       Built-in tool
@@ -2247,7 +2293,7 @@ export const ToolsDialog = memo(function ToolsDialog({
                   </div>
                 </div>
 
-                <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4">
+                <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 chat-message-scrollbar">
                   <div className="grid gap-5 pb-1">
                     <div className="grid gap-1">
                       <h3 className="flex items-center gap-2 text-lg font-semibold text-foreground">
@@ -2301,7 +2347,7 @@ export const ToolsDialog = memo(function ToolsDialog({
               </>
             ) : isCallAgentToolSelected ? (
               <>
-                <div className="z-20 flex min-h-[4.25rem] shrink-0 items-center border-b bg-background px-5 py-3">
+                <div className="z-20 flex shrink-0 items-center border-b bg-background px-4 py-[10px]">
                   <div className="flex w-full items-center justify-between gap-4">
                     <Label className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
                       Built-in tool
@@ -2313,7 +2359,7 @@ export const ToolsDialog = memo(function ToolsDialog({
                   </div>
                 </div>
 
-                <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4">
+                <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 chat-message-scrollbar">
                   <div className="grid gap-5 pb-1">
                     <div className="grid gap-1">
                       <h3 className="flex items-center gap-2 text-lg font-semibold text-foreground">
@@ -2368,7 +2414,7 @@ export const ToolsDialog = memo(function ToolsDialog({
               </>
             ) : isWebFetchToolSelected ? (
               <>
-                <div className="z-20 flex min-h-[4.25rem] shrink-0 items-center border-b bg-background px-5 py-3">
+                <div className="z-20 flex shrink-0 items-center border-b bg-background px-4 py-[10px]">
                   <div className="flex w-full items-center justify-between gap-4">
                     <Label className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
                       Built-in tool
@@ -2380,7 +2426,7 @@ export const ToolsDialog = memo(function ToolsDialog({
                   </div>
                 </div>
 
-                <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4">
+                <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 chat-message-scrollbar">
                   <div className="grid gap-5 pb-1">
                     <div className="grid gap-1">
                       <h3 className="flex items-center gap-2 text-lg font-semibold text-foreground">
@@ -2437,7 +2483,7 @@ export const ToolsDialog = memo(function ToolsDialog({
               </>
             ) : selectedFileToolInfo ? (
               <>
-                <div className="z-20 flex min-h-[4.25rem] shrink-0 items-center border-b bg-background px-5 py-3">
+                <div className="z-20 flex shrink-0 items-center border-b bg-background px-4 py-[10px]">
                   <div className="flex w-full items-center justify-between gap-4">
                     <Label className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
                       Built-in tool
@@ -2449,7 +2495,7 @@ export const ToolsDialog = memo(function ToolsDialog({
                   </div>
                 </div>
 
-                <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4">
+                <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 chat-message-scrollbar">
                   <div className="grid gap-5 pb-1">
                     <div className="grid gap-1">
                       <h3 className="flex items-center gap-2 text-lg font-semibold text-foreground">
@@ -2508,10 +2554,10 @@ export const ToolsDialog = memo(function ToolsDialog({
               </>
             ) : toolDraft ? (
               <>
-                <div className="z-20 flex min-h-[4.25rem] shrink-0 items-center border-b bg-background px-5 py-3">
+                <div className="z-20 flex shrink-0 items-center border-b bg-background px-4 py-[10px]">
                   <div className="flex w-full items-center justify-between gap-4">
                     <Label className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
-                      {selectedTool ? "Edit tool" : "Create tool"}
+                      {selectedTool ? "Edit tool" : "New tool"}
                     </Label>
                     {selectedTool && toolDraft && (
                       <DropdownMenu>
@@ -2527,9 +2573,7 @@ export const ToolsDialog = memo(function ToolsDialog({
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-44">
-                          <DropdownMenuItem
-                            onSelect={() => void cloneCurrentTool()}
-                          >
+                          <DropdownMenuItem onSelect={requestCloneCurrentTool}>
                             <Copy className="size-4" />
                             Clone
                           </DropdownMenuItem>
@@ -2542,7 +2586,7 @@ export const ToolsDialog = memo(function ToolsDialog({
                           <DropdownMenuSeparator />
                           <DropdownMenuItem
                             className="text-destructive focus:text-destructive"
-                            onSelect={() => void deleteCurrentTool()}
+                            onSelect={requestDeleteCurrentTool}
                           >
                             <Trash2 className="size-4" />
                             Delete
@@ -2553,7 +2597,7 @@ export const ToolsDialog = memo(function ToolsDialog({
                   </div>
                 </div>
 
-                <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4">
+                <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 chat-message-scrollbar">
                   <div className="grid gap-5 pb-1">
                     <div className="grid gap-1">
                       <h3 className="flex items-center gap-2 text-lg font-semibold text-foreground">
@@ -2841,65 +2885,89 @@ export const ToolsDialog = memo(function ToolsDialog({
                 </div>
               </>
             ) : (
-              <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-5">
+              <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 chat-message-scrollbar">
                 <div className="flex h-full items-center justify-center rounded-sm border border-dashed p-8 text-center text-base text-muted-foreground">
                   Select a tool or add a new one.
                 </div>
               </div>
             )}
-          </div>
+          </main>
         </div>
 
-        <DialogFooter className="shrink-0 items-center justify-between border-t px-5 py-3">
-          <div />
+        <DialogFooter className="shrink-0 items-center border-t bg-background px-4 py-2 sm:justify-between">
+          <div className="text-sm text-muted-foreground" aria-live="polite">
+            {hasUnsavedToolChanges ? "Unsaved changes" : null}
+          </div>
           <div className="flex gap-2">
-            {!isAskUserToolSelected &&
-            !isTaskToolsSelected &&
-            !isLoadSkillToolSelected &&
-            !isCallAgentToolSelected &&
-            !isWebFetchToolSelected &&
-            !selectedFileToolInfo &&
-            toolDraft ? (
-              <Button
-                type="button"
-                variant="secondary"
-                className=""
-                onClick={() => {
-                  if (selectedTool) setToolDraft(toolToDraft(selectedTool));
-                  else setToolDraft(createBlankToolDraft());
-                }}
-                disabled={!hasToolDraftChanges || isSavingTool}
-              >
-                Reset
-              </Button>
+            {toolDraft ? (
+              <>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={
+                    isCreatingTool
+                      ? requestCancelNewToolDraft
+                      : resetCurrentToolDraft
+                  }
+                  disabled={
+                    !isCreatingTool && (!hasToolDraftChanges || isSavingTool)
+                  }
+                >
+                  {isCreatingTool ? "Cancel" : "Reset"}
+                </Button>
+                <Button
+                  type="button"
+                  onClick={saveCurrentToolDraft}
+                  disabled={!hasToolDraftChanges || isSavingTool}
+                >
+                  {isSavingTool
+                    ? "Saving..."
+                    : isCreatingTool
+                      ? "Create"
+                      : "Save"}
+                </Button>
+              </>
+            ) : selectedBuiltInToolName &&
+              supportsBuiltInTimeout(selectedBuiltInToolName) ? (
+              <>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => resetBuiltInToolDraft(selectedBuiltInToolName)}
+                  disabled={!hasBuiltInToolDraftChanges}
+                >
+                  Reset
+                </Button>
+                <Button
+                  type="button"
+                  onClick={() => saveBuiltInToolDraft(selectedBuiltInToolName)}
+                  disabled={!hasBuiltInToolDraftChanges}
+                >
+                  Save
+                </Button>
+              </>
             ) : (
               <Button
                 type="button"
                 variant="secondary"
-                className=""
-                onClick={() => onOpenChange(false)}
+                onClick={() => requestClose(false)}
               >
                 Close
               </Button>
             )}
-            {!isAskUserToolSelected &&
-              !isTaskToolsSelected &&
-              !isLoadSkillToolSelected &&
-              !isCallAgentToolSelected &&
-              !isWebFetchToolSelected &&
-              !selectedFileToolInfo && (
-                <Button
-                  type="button"
-                  className=""
-                  onClick={saveCurrentToolDraft}
-                  disabled={!toolDraft || isSavingTool || !hasToolDraftChanges}
-                >
-                  {isSavingTool ? "Saving..." : "Save"}
-                </Button>
-              )}
           </div>
         </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </DialogContent>
+      </Dialog>
+
+      <UnsavedChangesDialog
+        open={unsavedChangesDialogOpen}
+        onCancel={() => {
+          setPendingAction(null);
+          setUnsavedChangesDialogOpen(false);
+        }}
+        onDiscard={confirmDiscardUnsavedChanges}
+      />
+    </>
   );
 });

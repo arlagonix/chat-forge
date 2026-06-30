@@ -140,11 +140,8 @@ export function getBuiltInToolEffectiveDescription(
   tool: Pick<LoadedToolInfo, "name" | "description">,
   settings?: ToolsSettings,
 ) {
-  const customization = settings?.builtInToolSettings?.[tool.name];
-  const customDescription = customization?.customDescription?.trim();
-  return customization?.descriptionMode === "custom" && customDescription
-    ? customDescription
-    : tool.description;
+  void settings;
+  return tool.description;
 }
 
 export function getBuiltInToolEffectiveTimeoutMs(
