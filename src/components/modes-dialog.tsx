@@ -5,8 +5,10 @@ import {
   Maximize2,
   MoreHorizontal,
   Plus,
+  Search,
   Sparkles,
   Trash2,
+  X,
 } from "lucide-react";
 import type { Dispatch, SetStateAction } from "react";
 import { memo, useEffect, useMemo, useState } from "react";
@@ -39,6 +41,7 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { UnsavedChangesDialog } from "@/components/unsaved-changes-dialog";
 import {
   Tooltip,
   TooltipContent,
@@ -512,6 +515,12 @@ export const ModesDialog = memo(function ModesDialog({
   const [modeDraft, setModeDraft] = useState<ModeDraft | null>(null);
   const [isCreatingMode, setIsCreatingMode] = useState(false);
   const [instructionsEditorOpen, setInstructionsEditorOpen] = useState(false);
+  const [modeSearchQuery, setModeSearchQuery] = useState("");
+  const [unsavedChangesDialogOpen, setUnsavedChangesDialogOpen] =
+    useState(false);
+  const [pendingAction, setPendingAction] = useState<(() => void) | null>(
+    null,
+  );
 
   const modes = useMemo(() => normalizeModesForState(modesState), [modesState]);
   const selectedMode = useMemo(
@@ -524,6 +533,44 @@ export const ModesDialog = memo(function ModesDialog({
   );
   const enabledModesCount = modes.filter((mode) => mode.enabled).length;
   const hasChanges = hasDraftChanges(modeDraft, savedDraft, isCreatingMode);
+
+  const modeValidationError = useMemo(() => {
+    if (!modeDraft) return null;
+    const name = modeDraft.name.trim();
+    if (!name) return "Mode name is required.";
+    const duplicate = modes.find(
+      (mode) =>
+        mode.id !== modeDraft.id &&
+        mode.name.trim().toLowerCase() === name.toLowerCase(),
+    );
+    if (duplicate) return `A mode named "${name}" already exists.`;
+    return null;
+  }, [modeDraft, modes]);
+
+  const filteredModeGroups = useMemo(() => {
+    const query = modeSearchQuery.trim().toLowerCase();
+    const filterMode = (mode: LoadedModeInfo) => {
+      if (!query) return true;
+      return (
+        mode.name.toLowerCase().includes(query) ||
+        mode.description.toLowerCase().includes(query)
+      );
+    };
+    return [
+      {
+        title: "Built-in",
+        modes: modes.filter((mode) => mode.builtIn && filterMode(mode)),
+      },
+      {
+        title: "Custom",
+        modes: modes.filter((mode) => !mode.builtIn && filterMode(mode)),
+      },
+    ].filter((group) => group.modes.length > 0);
+  }, [modeSearchQuery, modes]);
+
+  const hasFilteredModes = filteredModeGroups.some(
+    (group) => group.modes.length > 0,
+  );
   const modeCapabilityContext = useMemo(
     () => ({ availableTools, availableSkills, availableAgents }),
     [availableAgents, availableSkills, availableTools],
@@ -592,6 +639,44 @@ export const ModesDialog = memo(function ModesDialog({
     setModeDraft((current) => (current ? { ...current, ...patch } : current));
   }
 
+  function requestWithUnsavedCheck(action: () => void) {
+    if (hasChanges) {
+      setPendingAction(() => action);
+      setUnsavedChangesDialogOpen(true);
+      return;
+    }
+    action();
+  }
+
+  function discardCurrentDraftChanges() {
+    if (isCreatingMode) {
+      const fallbackMode = selectedMode ?? modes[0] ?? null;
+      setIsCreatingMode(false);
+      setSelectedModeId(fallbackMode?.id ?? null);
+      setModeDraft(fallbackMode ? modeToDraft(fallbackMode) : null);
+      setInstructionsEditorOpen(false);
+      return;
+    }
+
+    if (savedDraft) setModeDraft(savedDraft);
+  }
+
+  function confirmDiscardUnsavedChanges() {
+    const action = pendingAction;
+    setPendingAction(null);
+    setUnsavedChangesDialogOpen(false);
+    discardCurrentDraftChanges();
+    if (action) action();
+  }
+
+  function requestClose(nextOpen: boolean) {
+    if (nextOpen) {
+      onOpenChange(true);
+      return;
+    }
+    requestWithUnsavedCheck(() => onOpenChange(false));
+  }
+
   function updatePermission(
     kind: "tool" | "skill" | "agent",
     name: string,
@@ -643,28 +728,39 @@ export const ModesDialog = memo(function ModesDialog({
     } as Partial<ModeDraft>);
   }
 
-  function addMode() {
+  function createNewModeDraft() {
     setSelectedModeId(null);
     setIsCreatingMode(true);
     setModeDraft(createBlankModeDraft());
+    setInstructionsEditorOpen(false);
   }
 
-  function cloneCurrentMode() {
-    if (!modeDraft) return;
+  function requestCreateMode() {
+    requestWithUnsavedCheck(createNewModeDraft);
+  }
+
+  function cloneModeDraft(sourceDraft: ModeDraft) {
     const clone = {
-      ...modeDraft,
+      ...sourceDraft,
       id: `mode-${Date.now()}-${Math.random().toString(16).slice(2)}`,
       builtIn: undefined,
       usesDefaultCapabilities: false,
-      name: createUniqueModeName(`${modeDraft.name} copy`, modes),
+      name: createUniqueModeName(`${sourceDraft.name} copy`, modes),
       enabled: true,
     };
     setSelectedModeId(null);
     setIsCreatingMode(true);
     setModeDraft(clone);
+    setInstructionsEditorOpen(false);
   }
 
-  function deleteCurrentMode() {
+  function requestCloneCurrentMode() {
+    const sourceDraft = hasChanges && savedDraft ? savedDraft : modeDraft;
+    if (!sourceDraft) return;
+    requestWithUnsavedCheck(() => cloneModeDraft(sourceDraft));
+  }
+
+  function deleteSelectedMode() {
     if (!selectedMode || selectedMode.builtIn) return;
     updateModes((currentModes) =>
       currentModes.filter((mode) => mode.id !== selectedMode.id),
@@ -673,6 +769,10 @@ export const ModesDialog = memo(function ModesDialog({
     setModeDraft(null);
     setIsCreatingMode(false);
     showSuccess("Mode deleted.");
+  }
+
+  function requestDeleteCurrentMode() {
+    requestWithUnsavedCheck(deleteSelectedMode);
   }
 
   function toggleModeEnabled(mode: LoadedModeInfo, checked: boolean) {
@@ -687,12 +787,27 @@ export const ModesDialog = memo(function ModesDialog({
           : currentMode,
       ),
     );
+    if (selectedModeId === mode.id && !isCreatingMode) {
+      updateModeDraft({ enabled: checked });
+    }
   }
 
   function resetModeDraft() {
     if (!modeDraft) return;
     if (isCreatingMode) setModeDraft(createBlankModeDraft());
     else if (savedDraft) setModeDraft(savedDraft);
+  }
+
+  function cancelNewModeDraft() {
+    const fallbackMode = selectedMode ?? modes[0] ?? null;
+    setIsCreatingMode(false);
+    setSelectedModeId(fallbackMode?.id ?? null);
+    setModeDraft(fallbackMode ? modeToDraft(fallbackMode) : null);
+    setInstructionsEditorOpen(false);
+  }
+
+  function requestCancelNewModeDraft() {
+    requestWithUnsavedCheck(cancelNewModeDraft);
   }
 
   function saveCurrentModeDraft() {
@@ -733,91 +848,130 @@ export const ModesDialog = memo(function ModesDialog({
     setInstructionsEditorOpen(false);
   }
 
+  function requestSelectMode(mode: LoadedModeInfo) {
+    if (!isCreatingMode && selectedModeId === mode.id) return;
+    requestWithUnsavedCheck(() => selectMode(mode));
+  }
+
   return (
     <>
-      <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="flex h-[min(1000px,calc(100dvh-2rem))] max-h-none flex-col gap-0 overflow-hidden p-0 sm:max-w-6xl">
-          <DialogHeader className="shrink-0 border-b px-5 py-4 pr-12">
+      <Dialog open={open} onOpenChange={requestClose}>
+        <DialogContent
+          className="flex h-[min(1000px,calc(100dvh-2rem))] max-h-none flex-col gap-0 overflow-hidden p-0 outline-none focus:outline-none focus-visible:ring-0 sm:max-w-6xl"
+          onOpenAutoFocus={(event) => event.preventDefault()}
+          onInteractOutside={(event) => {
+            const target = event.target as HTMLElement | null;
+            if (target?.closest?.("[data-sonner-toaster]")) {
+              event.preventDefault();
+            }
+          }}
+        >
+          <DialogHeader className="shrink-0 border-b p-4 pr-12">
             <DialogTitle>Modes</DialogTitle>
-            <DialogDescription>
-              Define mode instructions and permission overrides for tools,
-              skills, and agents.
-            </DialogDescription>
           </DialogHeader>
 
           <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden md:grid-cols-[400px_minmax(0,1fr)]">
-            <aside className="min-h-0 overflow-y-auto border-b bg-card/70 p-3 md:border-b-0 md:border-r">
-              <Button
-                type="button"
-                variant="secondary"
-                size="sm"
-                className="mb-3 w-full"
-                onClick={addMode}
-              >
-                <Plus className="size-4" /> Add mode
-              </Button>
-              <div className="grid gap-3">
-                {[
-                  {
-                    title: "Built-in",
-                    modes: modes.filter((mode) => mode.builtIn),
-                  },
-                  {
-                    title: "Custom",
-                    modes: modes.filter((mode) => !mode.builtIn),
-                  },
-                ]
-                  .filter((group) => group.modes.length > 0)
-                  .map((group) => (
-                    <div key={group.title} className="grid gap-1.5">
-                      <GroupHeading className="mt-0">
-                        {group.title}
-                      </GroupHeading>
-                      {group.modes.map((mode) => {
-                        const selected =
-                          selectedMode?.id === mode.id && !isCreatingMode;
-                        return (
-                          <div
-                            key={mode.id}
-                            role="button"
-                            tabIndex={0}
-                            className={cn(
-                              "group flex min-w-0 cursor-pointer items-start gap-2 rounded-sm border px-2 py-2 outline-none",
-                              selected
-                                ? "border-primary/30 bg-accent text-accent-foreground"
-                                : "border-transparent hover:border-border hover:bg-muted/60",
-                            )}
-                            onClick={() => selectMode(mode)}
-                          >
-                            <Layers3 className="mt-1 size-4 shrink-0 text-muted-foreground" />
-                            <div className="min-w-0 flex-1">
-                              <div className="truncate text-base leading-6">
-                                {mode.name}
+            <aside className="flex min-h-0 flex-col border-b bg-card/70 md:border-b-0 md:border-r">
+              <div className="shrink-0 border-b bg-card/90 p-2">
+                <div className="relative">
+                  <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    value={modeSearchQuery}
+                    onChange={(event) =>
+                      setModeSearchQuery(event.target.value)
+                    }
+                    placeholder="Search modes"
+                    aria-label="Search modes by name or description"
+                    autoFocus={false}
+                    className="h-9 pl-8 pr-8"
+                  />
+                  {modeSearchQuery ? (
+                    <button
+                      type="button"
+                      className="absolute right-2 top-1/2 inline-flex size-5 -translate-y-1/2 items-center justify-center text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      onClick={() => setModeSearchQuery("")}
+                      title="Clear search"
+                    >
+                      <X className="size-3.5" />
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+
+              <div className="min-h-0 flex-1 overflow-y-auto p-2 pr-0">
+                <div className="grid gap-1.5">
+                  {hasFilteredModes ? (
+                    filteredModeGroups.map((group) => (
+                      <div key={group.title}>
+                        <GroupHeading className="mb-1 mt-0 px-2 pb-1 pt-2">
+                          {group.title}
+                        </GroupHeading>
+                        {group.modes.map((mode) => {
+                          const selected =
+                            selectedMode?.id === mode.id && !isCreatingMode;
+                          return (
+                            <div
+                              key={mode.id}
+                              role="button"
+                              tabIndex={0}
+                              className={cn(
+                                "group flex min-w-0 cursor-pointer items-start gap-2 rounded-sm border px-2 py-2 outline-none",
+                                selected
+                                  ? "border-primary/30 bg-accent text-accent-foreground"
+                                  : "border-transparent hover:border-border hover:bg-muted/60",
+                              )}
+                              onClick={() => requestSelectMode(mode)}
+                            >
+                              <Layers3 className="mt-1 size-4 shrink-0 text-muted-foreground" />
+                              <div className="min-w-0 flex-1">
+                                <div className="truncate text-base leading-6">
+                                  {mode.name}
+                                </div>
+                                <div className="line-clamp-2 text-sm leading-5 text-muted-foreground">
+                                  {mode.description || "No description."}
+                                </div>
                               </div>
-                              <div className="line-clamp-2 text-sm leading-5 text-muted-foreground">
-                                {mode.description || "No description."}
-                              </div>
+                              <Switch
+                                checked={mode.enabled}
+                                onClick={(event) => event.stopPropagation()}
+                                onCheckedChange={(checked) =>
+                                  toggleModeEnabled(mode, checked)
+                                }
+                                className="mt-0.5 shrink-0 cursor-pointer"
+                              />
                             </div>
-                            <Switch
-                              checked={mode.enabled}
-                              onClick={(event) => event.stopPropagation()}
-                              onCheckedChange={(checked) =>
-                                toggleModeEnabled(mode, checked)
-                              }
-                              className="mt-0.5 shrink-0 cursor-pointer"
-                            />
-                          </div>
-                        );
-                      })}
+                          );
+                        })}
+                      </div>
+                    ))
+                  ) : (
+                    <div className="rounded-sm border border-dashed px-3 py-4 text-center text-base text-muted-foreground">
+                      {modes.length > 0
+                        ? "No modes match the search."
+                        : "No modes available."}
                     </div>
-                  ))}
+                  )}
+                </div>
+              </div>
+
+              <div className="flex shrink-0 border-t bg-card/90 p-2">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  className="h-[36px] flex-1"
+                  onClick={requestCreateMode}
+                >
+                  <Plus className="size-4" />
+                  Create mode
+                </Button>
               </div>
             </aside>
 
-            <div className="min-h-0 flex flex-col overflow-hidden">
+            <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
               {modeDraft ? (
                 <>
-                  <div className="z-20 flex min-h-[4.25rem] shrink-0 items-center border-b bg-background px-5 py-3">
+                  <div className="z-20 flex shrink-0 items-center border-b bg-background px-4 py-[10px]">
                     <div className="flex w-full items-center justify-between gap-4">
                       <Label className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
                         {modeDraft.builtIn
@@ -839,7 +993,7 @@ export const ModesDialog = memo(function ModesDialog({
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end" className="w-44">
-                            <DropdownMenuItem onSelect={cloneCurrentMode}>
+                            <DropdownMenuItem onSelect={requestCloneCurrentMode}>
                               <Copy className="size-4" />
                               Clone
                             </DropdownMenuItem>
@@ -848,7 +1002,7 @@ export const ModesDialog = memo(function ModesDialog({
                                 <DropdownMenuSeparator />
                                 <DropdownMenuItem
                                   className="text-destructive focus:text-destructive"
-                                  onSelect={deleteCurrentMode}
+                                  onSelect={requestDeleteCurrentMode}
                                 >
                                   <Trash2 className="size-4" />
                                   Delete
@@ -861,7 +1015,7 @@ export const ModesDialog = memo(function ModesDialog({
                     </div>
                   </div>
 
-                  <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4">
+                  <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 chat-message-scrollbar">
                     <div className="grid gap-5 pb-1">
                       <div className="grid gap-2">
                         <Label htmlFor="mode-name">Name</Label>
@@ -982,22 +1136,34 @@ export const ModesDialog = memo(function ModesDialog({
                     </div>
                   </div>
 
-                  <DialogFooter className="shrink-0 border-t bg-background px-5 py-4">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={resetModeDraft}
-                      disabled={!hasChanges}
+                  <DialogFooter className="shrink-0 items-center border-t bg-background px-4 py-2 sm:justify-between">
+                    <div
+                      className="text-sm text-muted-foreground"
+                      aria-live="polite"
                     >
-                      Reset
-                    </Button>
-                    <Button
-                      type="button"
-                      onClick={saveCurrentModeDraft}
-                      disabled={!hasChanges}
-                    >
-                      Save
-                    </Button>
+                      {hasChanges ? "Unsaved changes" : null}
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={
+                          isCreatingMode
+                            ? requestCancelNewModeDraft
+                            : resetModeDraft
+                        }
+                        disabled={!isCreatingMode && !hasChanges}
+                      >
+                        {isCreatingMode ? "Cancel" : "Reset"}
+                      </Button>
+                      <Button
+                        type="button"
+                        onClick={saveCurrentModeDraft}
+                        disabled={Boolean(modeValidationError) || !hasChanges}
+                      >
+                        {isCreatingMode ? "Create" : "Save"}
+                      </Button>
+                    </div>
                   </DialogFooter>
                 </>
               ) : (
@@ -1014,7 +1180,7 @@ export const ModesDialog = memo(function ModesDialog({
                   </div>
                 </div>
               )}
-            </div>
+            </main>
           </div>
         </DialogContent>
       </Dialog>
@@ -1024,7 +1190,10 @@ export const ModesDialog = memo(function ModesDialog({
           open={instructionsEditorOpen}
           onOpenChange={setInstructionsEditorOpen}
         >
-          <DialogContent className="flex h-[min(1000px,calc(100dvh-2rem))] max-h-none flex-col gap-4 p-5 sm:max-w-6xl">
+          <DialogContent
+            className="flex h-[min(1000px,calc(100dvh-2rem))] max-h-none flex-col gap-4 p-5 outline-none focus:outline-none focus-visible:ring-0 sm:max-w-6xl"
+            onOpenAutoFocus={(event) => event.preventDefault()}
+          >
             <DialogHeader className="pr-8">
               <DialogTitle>Edit instructions</DialogTitle>
               <DialogDescription>
@@ -1050,6 +1219,15 @@ export const ModesDialog = memo(function ModesDialog({
           </DialogContent>
         </Dialog>
       ) : null}
+
+      <UnsavedChangesDialog
+        open={unsavedChangesDialogOpen}
+        onCancel={() => {
+          setPendingAction(null);
+          setUnsavedChangesDialogOpen(false);
+        }}
+        onDiscard={confirmDiscardUnsavedChanges}
+      />
     </>
   );
 });
