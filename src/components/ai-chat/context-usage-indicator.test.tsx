@@ -87,7 +87,7 @@ describe("ContextUsageIndicator", () => {
     expect(screen.getByText("Last Assistant Message")).toBeInTheDocument();
     expect(
       screen.getByText((_, element) =>
-        element?.textContent?.replace(/\s/g, "") === "35433/200000" ||
+        element?.textContent?.replace(/[\s,]/g, "") === "35433/200000" ||
         false,
       ),
     ).toBeInTheDocument();

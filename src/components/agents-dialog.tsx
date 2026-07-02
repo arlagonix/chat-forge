@@ -19,6 +19,7 @@ import {
 import type { Dispatch, SetStateAction } from "react";
 import { memo, useEffect, useMemo, useState } from "react";
 
+import { CodeEditor } from "@/components/code-editor";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -1094,17 +1095,15 @@ export const AgentsDialog = memo(function AgentsDialog({
                             Open editor
                           </Button>
                         </div>
-                        <Textarea
-                          id="agent-instructions"
+                        <CodeEditor
                           value={agentDraft.instructions}
-                          onChange={(event) =>
-                            updateAgentDraft({
-                              instructions: event.target.value,
-                            })
+                          onChange={(value) =>
+                            updateAgentDraft({ instructions: value })
                           }
                           placeholder="Agent system prompt / instructions."
-                          disabled={selectedAgentIsBuiltIn}
-                          className="min-h-72 text-sm leading-6"
+                          readOnly={selectedAgentIsBuiltIn}
+                          className="min-h-72"
+                          ariaLabel="Agent instructions"
                         />
                       </div>
 
@@ -1815,14 +1814,13 @@ export const AgentsDialog = memo(function AgentsDialog({
               </DialogDescription>
             </DialogHeader>
 
-            <Textarea
+            <CodeEditor
               value={agentDraft.instructions}
-              onChange={(event) =>
-                updateAgentDraft({ instructions: event.target.value })
-              }
+              onChange={(value) => updateAgentDraft({ instructions: value })}
               placeholder="Agent system prompt / instructions."
-              disabled={selectedAgentIsBuiltIn}
-              className="min-h-0 flex-1 resize-none text-sm leading-6"
+              readOnly={selectedAgentIsBuiltIn}
+              className="min-h-0 flex-1"
+              ariaLabel="Agent instructions"
             />
 
             <DialogFooter>

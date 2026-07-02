@@ -1228,8 +1228,7 @@ const ChatMessageItem = memo(
           )}
 
         {(message.role === "user" ||
-          (!hasInlineAssistantMessageSteps &&
-            (content || status !== "streaming"))) && (
+          (!hasInlineAssistantMessageSteps && content.trim().length > 0)) && (
           <>
             <article
               className={cn(

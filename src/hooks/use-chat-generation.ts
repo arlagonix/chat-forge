@@ -1562,7 +1562,7 @@ export function useChatGeneration({
         ...systemAccessibleRoots,
         ...(chat.workspaceRoots ?? []),
       ],
-      activeSkillNames: [],
+      activeSkillNames,
       availableSkillsByName,
     });
     const mode = getModeForChat(chat);
@@ -1668,10 +1668,15 @@ export function useChatGeneration({
   }
 
   function getActiveSkillNamesForRun(
-    _chat: ChatSession,
-    _oneShotSkillNames: string[] = [],
+    chat: ChatSession,
+    oneShotSkillNames: string[] = [],
   ) {
-    return [] as string[];
+    return [
+      ...new Set([
+        ...(chat.activeSkillNames ?? []),
+        ...oneShotSkillNames,
+      ]),
+    ].filter((skillName) => availableSkillsByName.has(skillName));
   }
 
   function getEffectiveWorkspaceRootsForChat(

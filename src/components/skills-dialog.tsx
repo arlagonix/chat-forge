@@ -16,6 +16,7 @@ import {
 import type { Dispatch, SetStateAction } from "react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { CodeEditor } from "@/components/code-editor";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -1186,14 +1187,12 @@ export const SkillsDialog = memo(function SkillsDialog({
                             Open editor
                           </Button>
                         </div>
-                        <Textarea
-                          id="skill-manifest"
-                          className="min-h-[600px] resize-none font-mono text-sm leading-6"
+                        <CodeEditor
+                          ariaLabel="SKILL.md"
+                          className="min-h-[600px]"
                           value={draftContent}
-                          spellCheck={false}
-                          onChange={(event) =>
-                            setDraftContent(event.target.value)
-                          }
+                          onChange={setDraftContent}
+                          placeholder="Skill instructions and frontmatter."
                         />
                       </div>
 
@@ -1267,12 +1266,12 @@ export const SkillsDialog = memo(function SkillsDialog({
             </DialogDescription>
           </DialogHeader>
 
-          <Textarea
+          <CodeEditor
             value={draftContent}
-            onChange={(event) => setDraftContent(event.target.value)}
+            onChange={setDraftContent}
             placeholder="Skill instructions and frontmatter."
-            spellCheck={false}
-            className="min-h-0 flex-1 resize-none font-mono text-sm leading-6"
+            className="min-h-0 flex-1"
+            ariaLabel="SKILL.md"
           />
 
           <DialogFooter>

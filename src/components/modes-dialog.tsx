@@ -13,6 +13,7 @@ import {
 import type { Dispatch, SetStateAction } from "react";
 import { memo, useEffect, useMemo, useState } from "react";
 
+import { CodeEditor } from "@/components/code-editor";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -1056,16 +1057,14 @@ export const ModesDialog = memo(function ModesDialog({
                             Open editor
                           </Button>
                         </div>
-                        <Textarea
-                          id="mode-instructions"
+                        <CodeEditor
                           value={modeDraft.instructions}
-                          onChange={(event) =>
-                            updateModeDraft({
-                              instructions: event.target.value,
-                            })
+                          onChange={(value) =>
+                            updateModeDraft({ instructions: value })
                           }
                           placeholder="Optional mode-specific instructions added to the system prompt."
-                          className="min-h-72 text-sm leading-6"
+                          className="min-h-72"
+                          ariaLabel="Mode instructions"
                         />
                       </div>
 
@@ -1200,13 +1199,12 @@ export const ModesDialog = memo(function ModesDialog({
                 Edit the selected mode instructions in a larger focused editor.
               </DialogDescription>
             </DialogHeader>
-            <Textarea
+            <CodeEditor
               value={modeDraft.instructions}
-              onChange={(event) =>
-                updateModeDraft({ instructions: event.target.value })
-              }
+              onChange={(value) => updateModeDraft({ instructions: value })}
               placeholder="Optional mode-specific instructions added to the system prompt."
-              className="min-h-0 flex-1 resize-none text-sm leading-6"
+              className="min-h-0 flex-1"
+              ariaLabel="Mode instructions"
             />
             <DialogFooter>
               <Button

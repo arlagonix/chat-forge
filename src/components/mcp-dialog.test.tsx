@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
@@ -192,12 +192,12 @@ describe("McpDialog", () => {
     const { user } = renderMcpDialog();
     const envTextarea = screen.getByLabelText("Environment variables");
 
-    await user.type(envTextarea, "A");
+    fireEvent.change(envTextarea, { target: { value: "A" } });
 
     expect(screen.getByLabelText("Environment variables")).toBe(envTextarea);
     expect(envTextarea).toHaveValue("A");
 
-    await user.type(envTextarea, "PI_KEY=");
+    fireEvent.change(envTextarea, { target: { value: "API_KEY=" } });
     await user.click(screen.getByRole("button", { name: "Save" }));
 
     expect(readRenderedMcpSettings().servers[0].env).toEqual({
@@ -209,7 +209,7 @@ describe("McpDialog", () => {
     const { user } = renderMcpDialog();
     const argsTextarea = screen.getByLabelText("Args, one per line");
 
-    await user.type(argsTextarea, "--foo{enter}{enter}--bar");
+    fireEvent.change(argsTextarea, { target: { value: "--foo\n\n--bar" } });
 
     expect(screen.getByLabelText("Args, one per line")).toBe(argsTextarea);
     expect(argsTextarea).toHaveValue("--foo\n\n--bar");

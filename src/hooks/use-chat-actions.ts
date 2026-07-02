@@ -18,6 +18,10 @@ import {
   saveActiveChatId,
   saveChat,
 } from "@/lib/ai-chat/storage";
+import {
+  collectLoadedSkillNamesFromMessage,
+  pruneActiveSkillNamesAfterDeletingLoadedSkillMessage,
+} from "@/lib/ai-chat/skill-load-messages";
 import type {
   ChatAttachment,
   ChatFileToolAutoApproval,
@@ -87,6 +91,7 @@ export function useChatActions({
   setCopiedMessageId,
   setEditingMessageId,
   resetChatScrollState,
+  armStickyScrollToBottom,
   saveCurrentChatScrollSnapshot,
   forgetChatScrollSnapshot,
   focusDraftTextarea,
@@ -116,6 +121,7 @@ export function useChatActions({
   setCopiedMessageId: Dispatch<SetStateAction<string | null>>;
   setEditingMessageId: Dispatch<SetStateAction<string | null>>;
   resetChatScrollState: () => void;
+  armStickyScrollToBottom: () => void;
   saveCurrentChatScrollSnapshot: () => void;
   forgetChatScrollSnapshot: (chatId: string) => void;
   focusDraftTextarea: () => void;
@@ -172,9 +178,33 @@ export function useChatActions({
     if (deletedMessage)
       cleanupDeletedMessageWorkspace(activeChat.id, deletedMessage);
 
-    updateActiveChatMessages((currentMessages) =>
-      currentMessages.filter((message) => message.id !== messageId),
-    );
+    const deletedSkillNames = deletedMessage
+      ? collectLoadedSkillNamesFromMessage(deletedMessage)
+      : new Set<string>();
+
+    if (deletedMessage && deletedSkillNames.size > 0) {
+      updateChat(activeChat.id, (chat) => {
+        const messages = chat.messages.filter(
+          (message) => message.id !== messageId,
+        );
+        return {
+          ...chat,
+          messages,
+          activeSkillNames: pruneActiveSkillNamesAfterDeletingLoadedSkillMessage(
+            {
+              activeSkillNames: chat.activeSkillNames ?? [],
+              deletedMessage,
+              remainingMessages: messages,
+            },
+          ),
+          updatedAt: new Date().toISOString(),
+        };
+      });
+    } else {
+      updateActiveChatMessages((currentMessages) =>
+        currentMessages.filter((message) => message.id !== messageId),
+      );
+    }
 
     setEditingMessageId((currentMessageId) =>
       currentMessageId === messageId ? null : currentMessageId,
@@ -291,6 +321,7 @@ export function useChatActions({
     setIsNewChatDraft(false);
     setEditingMessageId(null);
     resetChatScrollState();
+    armStickyScrollToBottom();
 
     try {
       await saveChat(chat);

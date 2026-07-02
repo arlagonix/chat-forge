@@ -1,7 +1,6 @@
 import {
   AlertTriangle,
   BookOpen,
-  Bot,
   Paperclip,
   Pencil,
   Send,
@@ -51,8 +50,8 @@ type AttachmentInput =
     };
 
 type ActiveMention = {
-  type: "skill" | "agent";
-  command: "skill" | "s" | "agent" | "a";
+  type: "skill";
+  command: "skill" | "s";
   startIndex: number;
   endIndex: number;
   query: string;
@@ -178,20 +177,17 @@ function findActiveMention(
   cursorIndex: number,
 ): ActiveMention | null {
   const prefix = content.slice(0, cursorIndex);
-  const match = /^\s*\/(skill|s|agent|a):?([A-Za-z0-9_-]*)$/.exec(prefix);
+  const match = /(^|[\s([{])\/(skill|s):?([A-Za-z0-9_-]*)$/.exec(prefix);
 
   if (!match) return null;
 
-  const slashIndex = prefix.indexOf("/");
-  if (slashIndex < 0) return null;
-
-  const command = match[1] as "skill" | "s" | "agent" | "a";
-  const type = command === "agent" || command === "a" ? "agent" : "skill";
-  const query = match[2] ?? "";
-  const startIndex = slashIndex;
+  const leading = match[1] ?? "";
+  const command = match[2] as "skill" | "s";
+  const query = match[3] ?? "";
+  const startIndex = match.index + leading.length;
 
   return {
-    type,
+    type: "skill",
     command,
     startIndex,
     endIndex: cursorIndex,
@@ -219,9 +215,8 @@ export const ChatComposer = memo(
       contextUsage?: ContextUsageInfo;
       supportsVision?: boolean;
       contentWidthClassName?: string;
-      toolMentionOptions?: ToolMentionOption[];
       skillMentionOptions?: ToolMentionOption[];
-      agentMentionOptions?: ToolMentionOption[];
+      onLoadSkillMention?: (skillName: string, nextDraft: string) => boolean;
       editPreview?: string;
       onCancelEdit?: () => void;
     }
@@ -240,9 +235,8 @@ export const ChatComposer = memo(
       contextUsage,
       supportsVision = false,
       contentWidthClassName,
-      toolMentionOptions = [],
       skillMentionOptions = [],
-      agentMentionOptions = [],
+      onLoadSkillMention,
       editPreview,
       onCancelEdit,
     },
@@ -276,24 +270,15 @@ export const ChatComposer = memo(
     const mentionSuggestions = useMemo<ToolMentionOption[]>(() => {
       if (!activeMention || disabled || isSending) return [];
 
-      const options: ToolMentionOption[] =
-        activeMention.type === "skill"
-          ? skillMentionOptions
-          : agentMentionOptions;
       const query = activeMention.query.trim().toLowerCase();
       const filteredOptions = query
-        ? options.filter((option) => option.name.toLowerCase().includes(query))
-        : options;
+        ? skillMentionOptions.filter((option) =>
+            option.name.toLowerCase().includes(query),
+          )
+        : skillMentionOptions;
 
       return filteredOptions.slice(0, 12);
-    }, [
-      activeMention,
-      disabled,
-      isSending,
-      agentMentionOptions,
-      skillMentionOptions,
-      toolMentionOptions,
-    ]);
+    }, [activeMention, disabled, isSending, skillMentionOptions]);
 
     const isMentionMenuOpen =
       Boolean(activeMention) && mentionSuggestions.length > 0;
@@ -320,18 +305,23 @@ export const ChatComposer = memo(
     const applyMentionSuggestion = useCallback(
       (name: string) => {
         if (!activeMention) return;
-
         const suffix = localDraft.slice(activeMention.endIndex);
-        const shouldAddTrailingSpace =
-          suffix.length === 0 || !/^\s/.test(suffix);
-        const replacement = `/${activeMention.command}:${name}${
-          shouldAddTrailingSpace ? " " : ""
-        }`;
-        const nextDraft = `${localDraft.slice(
-          0,
-          activeMention.startIndex,
-        )}${replacement}${suffix}`;
-        const nextCursorIndex = activeMention.startIndex + replacement.length;
+        let prefix = localDraft.slice(0, activeMention.startIndex);
+        let nextSuffix = suffix;
+
+        if (/\s$/.test(prefix) && /^\s/.test(nextSuffix)) {
+          nextSuffix = nextSuffix.replace(/^\s+/, " ");
+        }
+
+        const nextDraft = `${prefix}${nextSuffix}`;
+        const nextCursorIndex = prefix.length;
+        const wasLoaded = onLoadSkillMention?.(name, nextDraft) ?? false;
+        if (!wasLoaded) {
+          setActiveMention(null);
+          setMentionMenuPosition(null);
+          setSelectedMentionSuggestionIndex(0);
+          return;
+        }
 
         setLocalDraft(nextDraft);
         onDraftChange(nextDraft);
@@ -347,7 +337,7 @@ export const ChatComposer = memo(
           textarea.setSelectionRange(nextCursorIndex, nextCursorIndex);
         });
       },
-      [activeMention, localDraft, onDraftChange],
+      [activeMention, localDraft, onDraftChange, onLoadSkillMention],
     );
 
     const focusTextarea = useCallback(() => {
@@ -680,8 +670,7 @@ export const ChatComposer = memo(
                 >
                   {mentionSuggestions.map((option, index) => {
                     const isSelected = index === selectedMentionSuggestionIndex;
-                    const Icon =
-                      activeMention?.type === "skill" ? BookOpen : Bot;
+                    const Icon = BookOpen;
 
                     return (
                       <button

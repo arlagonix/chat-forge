@@ -27,7 +27,6 @@ import { ChatCapabilitiesSidebar } from "@/components/ai-chat/chat-capabilities-
 import {
   ChatComposer,
   type ChatComposerHandle,
-  type ToolMentionOption,
 } from "@/components/ai-chat/chat-composer";
 import { InteractionDock } from "@/components/ai-chat/interaction-dock";
 import {
@@ -85,7 +84,6 @@ import {
   EDIT_TOOL,
   FILE_FIND_TOOL,
   FILE_SEARCH_TOOL,
-  isBuiltInToolName,
   isValidToolName,
   READ_TOOL,
   TASK_TOOLS,
@@ -171,6 +169,7 @@ import {
   saveSystemPrompt,
   saveToolsSettings,
 } from "@/lib/ai-chat/storage";
+import { createLoadSkillAssistantMessage } from "@/lib/ai-chat/skill-load-messages";
 import {
   generateTitleFromChatContext,
   resolveTitleGenerationProvider,
@@ -1117,16 +1116,6 @@ export default function Home() {
     );
   }, [availableTools, chatToolSearchValue]);
 
-  const toolMentionOptions = useMemo<ToolMentionOption[]>(() => {
-    return availableTools
-      .filter((tool) => effectiveToolPermissions.get(tool.name) !== "deny")
-      .map((tool) => ({
-        name: tool.name,
-        description: tool.description,
-        isBuiltin: isBuiltInToolName(tool.name),
-      }));
-  }, [availableTools, effectiveToolPermissions]);
-
   const availableSkills = useMemo(() => {
     const byName = new Map<string, LoadedSkillInfo>();
 
@@ -1235,11 +1224,12 @@ export default function Home() {
 
   const skillMentionOptions = useMemo(() => {
     return availableSkills
+      .filter((skill) => effectiveSkillPermissions.get(skill.name) !== "deny")
       .map((skill) => ({
         name: skill.name,
         description: skill.description,
       }));
-  }, [availableSkills]);
+  }, [availableSkills, effectiveSkillPermissions]);
 
   const availableAgents = useMemo(() => {
     const byName = new Map<string, LoadedAgentInfo>();
@@ -1346,15 +1336,6 @@ export default function Home() {
     () => [...modeDefaultEnabledAgentNames],
     [modeDefaultEnabledAgentNames],
   );
-
-  const agentMentionOptions = useMemo(() => {
-    return availableAgents
-      .filter((agent) => effectiveAgentPermissions.get(agent.name) !== "deny")
-      .map((agent) => ({
-        name: agent.name,
-        description: agent.description,
-      }));
-  }, [availableAgents, effectiveAgentPermissions]);
 
   const visibleChatAgents = useMemo(() => {
     const search = chatAgentSearchValue.trim().toLowerCase();
@@ -2812,6 +2793,7 @@ export default function Home() {
     setCopiedMessageId,
     setEditingMessageId,
     resetChatScrollState,
+    armStickyScrollToBottom,
     saveCurrentChatScrollSnapshot,
     forgetChatScrollSnapshot,
     focusDraftTextarea,
@@ -2862,6 +2844,133 @@ export default function Home() {
 
     setActiveChatThinkingMode(thinkingMode);
   }
+
+  const loadSkillFromComposerMention = useCallback(
+    (skillName: string, nextDraft: string) => {
+      const skill = availableSkillsByName.get(skillName);
+
+      if (!skill) {
+        showError(`Skill not found: ${skillName}`);
+        return false;
+      }
+
+      if (effectiveSkillPermissions.get(skillName) === "deny") {
+        showError(`Skill is not available in this chat mode: ${skillName}`);
+        return false;
+      }
+
+      if (isNewChatDraft) {
+        const createdAt = new Date().toISOString();
+        const emptyChat = createEmptyChat();
+        const workspaceRoots = newChatDraftWorkspaceRoots.map((root) => ({
+          ...root,
+        }));
+        const draftFolderId = appSettings.chatFolders.some(
+          (folder) => folder.id === newChatDraftFolderId,
+        )
+          ? newChatDraftFolderId
+          : undefined;
+        const draftSettings: NewChatDraftSettings = {
+          ...(newChatDraftSettings ?? {}),
+          activeSkillNames: [
+            ...new Set([
+              ...(newChatDraftSettings?.activeSkillNames ?? []),
+              skillName,
+            ]),
+          ],
+        };
+
+        const chat: ChatSession = {
+          ...applyNewChatDraftSettings({
+            baseChat: emptyChat,
+            draftSettings,
+            modeId: activeMode.id,
+            folderId: draftFolderId,
+            workspaceRoots,
+            fileToolAutoApprovalDefaults:
+              buildFileToolAutoApprovalFromToolsSettings(toolsSettings),
+          }),
+          title: `Skill: ${skillName}`,
+          titleMode: "auto",
+          messages: [createLoadSkillAssistantMessage({ skill, createdAt })],
+          updatedAt: createdAt,
+        };
+
+        saveCurrentChatScrollSnapshot();
+        setChats((currentChats) => [chat, ...currentChats]);
+        setActiveChatId(chat.id);
+        setIsNewChatDraft(false);
+        setEditingMessageId(null);
+        resetChatScrollState();
+        armStickyScrollToBottom();
+
+        const nextDrafts = { ...composerDraftsRef.current };
+        delete nextDrafts[NEW_CHAT_DRAFT_KEY];
+        if (nextDraft.length > 0) nextDrafts[chat.id] = nextDraft;
+        composerDraftsRef.current = nextDrafts;
+        saveComposerDrafts(nextDrafts);
+
+        setComposerAttachmentsByKey((current) => {
+          const next = { ...current };
+          const draftAttachments = next[NEW_CHAT_DRAFT_KEY] ?? [];
+          delete next[NEW_CHAT_DRAFT_KEY];
+          if (draftAttachments.length > 0) next[chat.id] = draftAttachments;
+          return next;
+        });
+
+        setNewChatDraftWorkspaceRoots([]);
+        setNewChatDraftFolderId(undefined);
+        setNewChatDraftSettings(undefined);
+
+        void saveChat(chat).catch((error) => {
+          console.error("Failed to save skill load chat:", error);
+        });
+        void saveActiveChatId(chat.id).catch((error) => {
+          console.error("Failed to save active chat after skill load:", error);
+        });
+
+        showSuccess(`Skill loaded: ${skillName}`);
+        return true;
+      }
+
+      if (!activeChat) {
+        showError("Open or create a chat before loading a skill.");
+        return false;
+      }
+
+      const loadedMessage = createLoadSkillAssistantMessage({ skill });
+
+      updateChat(activeChat.id, (chat) => ({
+        ...chat,
+        messages: [...chat.messages, loadedMessage],
+        activeSkillNames: [
+          ...new Set([...(chat.activeSkillNames ?? []), skillName]),
+        ],
+        updatedAt: loadedMessage.createdAt,
+      }));
+      showSuccess(`Skill loaded: ${skillName}`);
+      return true;
+    },
+    [
+      activeChat,
+      availableSkillsByName,
+      effectiveSkillPermissions,
+      activeMode.id,
+      appSettings.chatFolders,
+      armStickyScrollToBottom,
+      newChatDraftFolderId,
+      newChatDraftSettings,
+      newChatDraftWorkspaceRoots,
+      resetChatScrollState,
+      saveCurrentChatScrollSnapshot,
+      setEditingMessageId,
+      toolsSettings,
+      isNewChatDraft,
+      showError,
+      showSuccess,
+      updateChat,
+    ],
+  );
 
   async function removeChatAndResetDraftState(chatId: string) {
     const willOpenNewChatDraft = chats.every((chat) => chat.id === chatId);
@@ -3929,9 +4038,8 @@ export default function Home() {
               />
             }
             contentWidthClassName={chatWidthClassName}
-            toolMentionOptions={toolMentionOptions}
             skillMentionOptions={skillMentionOptions}
-            agentMentionOptions={agentMentionOptions}
+            onLoadSkillMention={loadSkillFromComposerMention}
           />
         ) : null}
       </section>

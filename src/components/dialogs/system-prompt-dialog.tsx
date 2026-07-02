@@ -1,5 +1,6 @@
 import { memo, useEffect, useMemo, useState } from "react";
 
+import { CodeEditor } from "@/components/code-editor";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -9,7 +10,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Textarea } from "@/components/ui/textarea";
 import { UnsavedChangesDialog } from "@/components/unsaved-changes-dialog";
 import { labelForError } from "@/lib/ai-chat/chat-utils";
 import { saveSystemPrompt } from "@/lib/ai-chat/storage";
@@ -79,12 +79,12 @@ export const SystemPromptDialog = memo(function SystemPromptDialog({
           </DialogHeader>
 
           <div className="flex min-h-0 flex-1 flex-col gap-3 px-5 py-4">
-            <Textarea
-              id="system-prompt"
+            <CodeEditor
               value={draftValue}
-              onChange={(event) => setDraftValue(event.target.value)}
-              className="min-h-0 flex-1 resize-none leading-6"
+              onChange={setDraftValue}
+              className="min-h-0 flex-1"
               placeholder={DEFAULT_SYSTEM_PROMPT}
+              ariaLabel="System prompt"
             />
           </div>
 
