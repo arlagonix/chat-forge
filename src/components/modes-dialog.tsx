@@ -1063,7 +1063,7 @@ export const ModesDialog = memo(function ModesDialog({
                             updateModeDraft({ instructions: value })
                           }
                           placeholder="Optional mode-specific instructions added to the system prompt."
-                          className="min-h-72"
+                          className="h-72 max-h-[45dvh]"
                           ariaLabel="Mode instructions"
                         />
                       </div>
@@ -1190,23 +1190,25 @@ export const ModesDialog = memo(function ModesDialog({
           onOpenChange={setInstructionsEditorOpen}
         >
           <DialogContent
-            className="flex h-[min(1000px,calc(100dvh-2rem))] max-h-none flex-col gap-4 p-5 outline-none focus:outline-none focus-visible:ring-0 sm:max-w-6xl"
+            className="flex h-[min(1000px,calc(100dvh-2rem))] max-h-none flex-col gap-0 overflow-hidden p-0 outline-none focus:outline-none focus-visible:ring-0 sm:max-w-6xl"
             onOpenAutoFocus={(event) => event.preventDefault()}
           >
-            <DialogHeader className="pr-8">
+            <DialogHeader className="shrink-0 border-b px-5 py-4 pr-12">
               <DialogTitle>Edit instructions</DialogTitle>
               <DialogDescription>
                 Edit the selected mode instructions in a larger focused editor.
               </DialogDescription>
             </DialogHeader>
-            <CodeEditor
-              value={modeDraft.instructions}
-              onChange={(value) => updateModeDraft({ instructions: value })}
-              placeholder="Optional mode-specific instructions added to the system prompt."
-              className="min-h-0 flex-1"
-              ariaLabel="Mode instructions"
-            />
-            <DialogFooter>
+            <div className="flex min-h-0 flex-1 flex-col">
+              <CodeEditor
+                value={modeDraft.instructions}
+                onChange={(value) => updateModeDraft({ instructions: value })}
+                placeholder="Optional mode-specific instructions added to the system prompt."
+                className="min-h-0 flex-1 rounded-none border-0"
+                ariaLabel="Mode instructions"
+              />
+            </div>
+            <DialogFooter className="shrink-0 border-t px-5 py-3">
               <Button
                 type="button"
                 onClick={() => setInstructionsEditorOpen(false)}

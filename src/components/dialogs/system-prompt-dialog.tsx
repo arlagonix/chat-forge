@@ -23,8 +23,6 @@ type SystemPromptDialogProps = {
   showError: (title: string, description?: string) => void;
 };
 
-const DEFAULT_SYSTEM_PROMPT = "You are a helpful assistant.";
-
 export const SystemPromptDialog = memo(function SystemPromptDialog({
   open,
   value,
@@ -78,12 +76,11 @@ export const SystemPromptDialog = memo(function SystemPromptDialog({
             </DialogDescription>
           </DialogHeader>
 
-          <div className="flex min-h-0 flex-1 flex-col gap-3 px-5 py-4">
+          <div className="flex min-h-0 flex-1 flex-col">
             <CodeEditor
               value={draftValue}
               onChange={setDraftValue}
-              className="min-h-0 flex-1"
-              placeholder={DEFAULT_SYSTEM_PROMPT}
+              className="min-h-0 flex-1 rounded-none border-0"
               ariaLabel="System prompt"
             />
           </div>

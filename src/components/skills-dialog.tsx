@@ -1189,7 +1189,7 @@ export const SkillsDialog = memo(function SkillsDialog({
                         </div>
                         <CodeEditor
                           ariaLabel="SKILL.md"
-                          className="min-h-[600px]"
+                          className="h-[min(600px,55dvh)] min-h-72"
                           value={draftContent}
                           onChange={setDraftContent}
                           placeholder="Skill instructions and frontmatter."
@@ -1258,23 +1258,25 @@ export const SkillsDialog = memo(function SkillsDialog({
       </Dialog>
 
       <Dialog open={manifestEditorOpen} onOpenChange={setManifestEditorOpen}>
-        <DialogContent className="flex h-[min(1000px,calc(100dvh-2rem))] max-h-none flex-col gap-4 p-5 outline-none focus:outline-none focus-visible:ring-0 sm:max-w-6xl">
-          <DialogHeader className="pr-8">
+        <DialogContent className="flex h-[min(1000px,calc(100dvh-2rem))] max-h-none flex-col gap-0 overflow-hidden p-0 outline-none focus:outline-none focus-visible:ring-0 sm:max-w-6xl">
+          <DialogHeader className="shrink-0 border-b px-5 py-4 pr-12">
             <DialogTitle>Edit SKILL.md</DialogTitle>
             <DialogDescription>
               Edit the selected skill manifest in a larger focused editor.
             </DialogDescription>
           </DialogHeader>
 
-          <CodeEditor
-            value={draftContent}
-            onChange={setDraftContent}
-            placeholder="Skill instructions and frontmatter."
-            className="min-h-0 flex-1"
-            ariaLabel="SKILL.md"
-          />
+          <div className="flex min-h-0 flex-1 flex-col">
+            <CodeEditor
+              value={draftContent}
+              onChange={setDraftContent}
+              placeholder="Skill instructions and frontmatter."
+              className="min-h-0 flex-1 rounded-none border-0"
+              ariaLabel="SKILL.md"
+            />
+          </div>
 
-          <DialogFooter>
+          <DialogFooter className="shrink-0 border-t px-5 py-3">
             <Button type="button" onClick={() => setManifestEditorOpen(false)}>
               Done
             </Button>

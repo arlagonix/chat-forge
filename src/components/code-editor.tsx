@@ -9,7 +9,7 @@ import {
   syntaxHighlighting,
 } from "@codemirror/language";
 import { highlightSelectionMatches, searchKeymap } from "@codemirror/search";
-import { EditorState } from "@codemirror/state";
+import { Annotation, EditorState } from "@codemirror/state";
 import {
   crosshairCursor,
   drawSelection,
@@ -31,10 +31,13 @@ type CodeEditorProps = {
   value: string;
   onChange?: (value: string) => void;
   placeholder?: string;
+  language?: "plain" | "markdown";
   readOnly?: boolean;
   className?: string;
   ariaLabel?: string;
 };
+
+const externalUpdateAnnotation = Annotation.define<boolean>();
 
 const codeEditorTheme = EditorView.theme({
   "&": {
@@ -87,6 +90,7 @@ export function CodeEditor({
   value,
   onChange,
   placeholder,
+  language = "plain",
   readOnly = false,
   className,
   ariaLabel,
@@ -97,6 +101,7 @@ export function CodeEditor({
         value={value}
         onChange={onChange}
         placeholder={placeholder}
+        language={language}
         readOnly={readOnly}
         className={className}
         ariaLabel={ariaLabel}
@@ -109,6 +114,7 @@ export function CodeEditor({
       value={value}
       onChange={onChange}
       placeholder={placeholder}
+      language={language}
       readOnly={readOnly}
       className={className}
       ariaLabel={ariaLabel}
@@ -120,6 +126,7 @@ function CodeEditorTestFallback({
   value,
   onChange,
   placeholder,
+  language = "plain",
   readOnly = false,
   className,
   ariaLabel,
@@ -143,6 +150,7 @@ function CodeMirrorEditor({
   value,
   onChange,
   placeholder,
+  language = "plain",
   readOnly = false,
   className,
   ariaLabel,
@@ -172,7 +180,7 @@ function CodeMirrorEditor({
       crosshairCursor(),
       highlightActiveLine(),
       highlightSelectionMatches(),
-      markdown(),
+      language === "markdown" ? markdown() : [],
       EditorView.lineWrapping,
       EditorView.editable.of(!readOnly),
       EditorState.readOnly.of(readOnly),
@@ -189,10 +197,15 @@ function CodeMirrorEditor({
         if (!update.docChanged) return;
         const nextValue = update.state.doc.toString();
         valueRef.current = nextValue;
+        if (update.transactions.some((transaction) =>
+          transaction.annotation(externalUpdateAnnotation),
+        )) {
+          return;
+        }
         onChangeRef.current?.(nextValue);
       }),
     ],
-    [placeholder, readOnly],
+    [language, placeholder, readOnly],
   );
 
   useEffect(() => {
@@ -232,6 +245,7 @@ function CodeMirrorEditor({
         to: currentValue.length,
         insert: value,
       },
+      annotations: externalUpdateAnnotation.of(true),
     });
   }, [value]);
 
