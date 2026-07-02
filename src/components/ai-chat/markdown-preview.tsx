@@ -97,6 +97,11 @@ const MARKDOWN_PREVIEW_COMPONENTS: Components = {
       {...props}
     />
   ),
+  table: ({ className, ...props }) => (
+    <div className="chat-markdown-table-scroll chat-message-scrollbar">
+      <table className={cn(className)} {...props} />
+    </div>
+  ),
 };
 
 type MarkdownPreviewProps = {

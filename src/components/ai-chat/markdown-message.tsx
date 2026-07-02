@@ -967,6 +967,11 @@ const MARKDOWN_COMPONENTS: Components = {
   pre: ({ className, children }) => (
     <CodeBlock className={className}>{children}</CodeBlock>
   ),
+  table: ({ className, ...props }) => (
+    <div className="chat-markdown-table-scroll chat-message-scrollbar">
+      <table className={cn(className)} {...props} />
+    </div>
+  ),
 };
 
 const HUGE_MARKDOWN_THRESHOLD = 80_000;

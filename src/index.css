@@ -535,13 +535,34 @@
     @apply mr-2 align-middle;
   }
 
+  .chat-markdown-table-scroll {
+    @apply my-3 max-w-full overflow-x-auto overflow-y-hidden;
+  }
+
   .chat-markdown table {
-    @apply my-3 block max-w-full table-auto border-collapse overflow-hidden;
+    @apply w-max min-w-full table-auto border-collapse;
   }
 
   .chat-markdown th,
   .chat-markdown td {
-    @apply border px-2 py-1 align-top break-words;
+    @apply border px-2 py-1 align-top;
+    max-width: min(28rem, 72vw);
+    overflow-wrap: anywhere;
+    word-break: normal;
+    white-space: normal;
+  }
+
+  .chat-markdown th > *,
+  .chat-markdown td > * {
+    max-width: 100%;
+  }
+
+  .chat-markdown th code,
+  .chat-markdown td code,
+  .chat-markdown th a,
+  .chat-markdown td a {
+    overflow-wrap: anywhere;
+    word-break: break-word;
   }
 
   .chat-markdown th {
