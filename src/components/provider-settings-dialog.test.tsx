@@ -233,9 +233,66 @@ describe("ProviderSettingsDialog", () => {
     });
 
     expect(lmStudioModelSwitch).toBeDisabled();
-    expect(lmStudioModelSwitch).toHaveAttribute("data-state", "unchecked");
+    expect(lmStudioModelSwitch).toHaveAttribute("data-state", "checked");
     expect(openRouterModelSwitch).toBeEnabled();
     expect(openRouterModelSwitch).toHaveAttribute("data-state", "checked");
+  });
+
+
+  it("keeps disabled-provider model rows interactive and normally styled", async () => {
+    const { user } = renderProviderSettingsDialog();
+
+    await user.click(
+      screen.getByRole("switch", { name: "LM Studio provider" }),
+    );
+
+    const modelSwitch = screen.getByRole("switch", {
+      name: "LM Studio alpha model",
+    });
+    const modelRow = modelSwitch.closest('[role="button"]');
+
+    expect(modelSwitch).toBeDisabled();
+    expect(modelSwitch).toBeChecked();
+    expect(modelRow).toHaveClass("cursor-pointer");
+    expect(modelRow).toHaveClass("hover:bg-muted/60");
+    expect(modelRow).not.toHaveClass("cursor-default");
+    expect(modelRow).not.toHaveClass("opacity-50");
+    expect(modelRow).not.toHaveClass("hover:bg-transparent");
+
+    await user.click(modelRow as HTMLElement);
+
+    expect(screen.getByLabelText("Model name")).toHaveValue("alpha");
+  });
+
+  it("allows loaded and custom model visibility changes while the provider is disabled", async () => {
+    const { user } = renderProviderSettingsDialog();
+
+    await user.click(
+      screen.getByRole("switch", { name: "LM Studio provider" }),
+    );
+
+    const betaSwitch = screen.getByRole("switch", { name: "beta selectable" });
+    const customSwitch = screen.getByRole("switch", {
+      name: "custom-alpha selectable",
+    });
+
+    expect(betaSwitch).toBeEnabled();
+    expect(customSwitch).toBeEnabled();
+
+    await user.click(betaSwitch);
+    await user.click(customSwitch);
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    const provider = readRenderedState().providers[0];
+    expect(provider.enabled).toBe(false);
+    expect(provider.modelConfigs?.beta).toMatchObject({
+      enabled: true,
+      showInMenu: false,
+    });
+    expect(provider.modelConfigs?.["custom-alpha"]).toMatchObject({
+      enabled: true,
+      showInMenu: false,
+    });
   });
 
   it("filters loaded models with the loaded model search", async () => {
@@ -313,7 +370,65 @@ describe("ProviderSettingsDialog", () => {
     ).toBeTruthy();
   });
 
-  it("toggles loaded model sidebar visibility without changing chat availability", async () => {
+  it("enables loaded models for chat when showing them in the menu", async () => {
+    const { user } = renderProviderSettingsDialog({
+      activeProviderId: "lmstudio",
+      providers: [
+        createProvider({
+          modelConfigs: {
+            alpha: { enabled: true, showInMenu: true },
+            beta: { enabled: false, showInMenu: false },
+            "custom-alpha": { enabled: true, showInMenu: true },
+          },
+        }),
+      ],
+    });
+    const betaSwitch = screen.getByRole("switch", {
+      name: "beta selectable",
+    });
+
+    await user.click(betaSwitch);
+
+    expect(readRenderedState().providers[0].modelConfigs?.beta).toMatchObject({
+      enabled: false,
+      showInMenu: false,
+    });
+
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(readRenderedState().providers[0].modelConfigs?.beta).toMatchObject({
+      enabled: true,
+      showInMenu: true,
+    });
+    expect(
+      screen.getByRole("switch", { name: "LM Studio beta model" }),
+    ).toBeChecked();
+  });
+
+  it("does not re-enable existing shown models on unrelated saves", async () => {
+    const { user } = renderProviderSettingsDialog({
+      activeProviderId: "lmstudio",
+      providers: [
+        createProvider({
+          modelConfigs: {
+            alpha: { enabled: true, showInMenu: true },
+            beta: { enabled: false, showInMenu: true },
+            "custom-alpha": { enabled: true, showInMenu: true },
+          },
+        }),
+      ],
+    });
+
+    await user.type(screen.getByLabelText("Provider name"), " Local");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(readRenderedState().providers[0].modelConfigs?.beta).toMatchObject({
+      enabled: false,
+      showInMenu: true,
+    });
+  });
+
+  it("hides loaded models without changing chat availability", async () => {
     const { user } = renderProviderSettingsDialog();
     const betaSwitch = screen.getByRole("switch", {
       name: "beta selectable",

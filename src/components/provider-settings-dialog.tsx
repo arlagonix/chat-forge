@@ -747,9 +747,12 @@ export const ProviderSettingsDialog = memo(function ProviderSettingsDialog({
         ...provider,
         modelConfigs: {
           ...(provider.modelConfigs ?? {}),
-          [model]: modelConfigWithPatch(currentConfig, {
-            showInMenu: checked,
-          }),
+          [model]: modelConfigWithPatch(
+            currentConfig,
+            checked
+              ? { showInMenu: true, enabled: true }
+              : { showInMenu: false },
+          ),
         },
       };
     });
@@ -1207,9 +1210,7 @@ export const ProviderSettingsDialog = memo(function ProviderSettingsDialog({
                                   !isCreatingProvider &&
                                   item.id === activeProvider.id &&
                                   selectedModel === model;
-                                const checked =
-                                  providerEnabled &&
-                                  isModelEnabled(item, model);
+                                const checked = isModelEnabled(item, model);
 
                                 return (
                                   <div
@@ -1221,8 +1222,6 @@ export const ProviderSettingsDialog = memo(function ProviderSettingsDialog({
                                       modelSelected
                                         ? "bg-accent text-accent-foreground"
                                         : "hover:bg-muted/60",
-                                      !providerEnabled &&
-                                        "cursor-default opacity-50 hover:bg-transparent",
                                     )}
                                     onClick={() => selectModel(item.id, model)}
                                     onKeyDown={(event) => {
@@ -1460,23 +1459,19 @@ export const ProviderSettingsDialog = memo(function ProviderSettingsDialog({
                         filteredLoadedModels.length > 0 ? (
                           <div className="grid max-h-80 gap-1 overflow-y-auto">
                             {filteredLoadedModels.map((model) => {
-                              const checked =
-                                editingProviderEnabled &&
-                                isModelShownInMenu(editingProvider, model);
+                              const checked = isModelShownInMenu(
+                                editingProvider,
+                                model,
+                              );
 
                               return (
                                 <div
                                   key={`${editingProvider.id}:${model}:shown`}
                                   role="button"
-                                  tabIndex={editingProviderEnabled ? 0 : -1}
-                                  className={cn(
-                                    "flex min-w-0 cursor-pointer items-center gap-2 px-2 py-1.5 text-sm leading-5 hover:bg-muted/60",
-                                    !editingProviderEnabled &&
-                                      "cursor-default opacity-50 hover:bg-transparent",
-                                  )}
+                                  tabIndex={0}
+                                  className="flex min-w-0 cursor-pointer items-center gap-2 px-2 py-1.5 text-sm leading-5 hover:bg-muted/60"
                                   title={model}
                                   onClick={() => {
-                                    if (!editingProviderEnabled) return;
                                     toggleEditingModelShownInMenu(
                                       model,
                                       !isModelShownInMenu(
@@ -1486,7 +1481,6 @@ export const ProviderSettingsDialog = memo(function ProviderSettingsDialog({
                                     );
                                   }}
                                   onKeyDown={(event) => {
-                                    if (!editingProviderEnabled) return;
                                     if (
                                       event.key === "Enter" ||
                                       event.key === " "
@@ -1508,7 +1502,6 @@ export const ProviderSettingsDialog = memo(function ProviderSettingsDialog({
                                   <Switch
                                     aria-label={`${model} selectable`}
                                     checked={checked}
-                                    disabled={!editingProviderEnabled}
                                     onClick={(event) => event.stopPropagation()}
                                     onCheckedChange={(nextChecked) =>
                                       toggleEditingModelShownInMenu(
@@ -1576,30 +1569,25 @@ export const ProviderSettingsDialog = memo(function ProviderSettingsDialog({
                           {normalizeProviderModels(
                             editingProvider.customModels ?? [],
                           ).map((model) => {
-                            const checked =
-                              editingProviderEnabled &&
-                              isModelShownInMenu(editingProvider, model);
+                            const checked = isModelShownInMenu(
+                              editingProvider,
+                              model,
+                            );
 
                             return (
                               <div
                                 key={`${editingProvider.id}:${model}:custom`}
                                 role="button"
-                                tabIndex={editingProviderEnabled ? 0 : -1}
-                                className={cn(
-                                  "flex min-w-0 cursor-pointer items-center gap-2 px-2 py-1.5 text-sm leading-5 hover:bg-muted/60",
-                                  !editingProviderEnabled &&
-                                    "cursor-default opacity-50 hover:bg-transparent",
-                                )}
+                                tabIndex={0}
+                                className="flex min-w-0 cursor-pointer items-center gap-2 px-2 py-1.5 text-sm leading-5 hover:bg-muted/60"
                                 title={model}
                                 onClick={() => {
-                                  if (!editingProviderEnabled) return;
                                   toggleEditingModelShownInMenu(
                                     model,
                                     !isModelShownInMenu(editingProvider, model),
                                   );
                                 }}
                                 onKeyDown={(event) => {
-                                  if (!editingProviderEnabled) return;
                                   if (
                                     event.key === "Enter" ||
                                     event.key === " "
@@ -1621,7 +1609,6 @@ export const ProviderSettingsDialog = memo(function ProviderSettingsDialog({
                                 <Switch
                                   aria-label={`${model} selectable`}
                                   checked={checked}
-                                  disabled={!editingProviderEnabled}
                                   onClick={(event) => event.stopPropagation()}
                                   onCheckedChange={(nextChecked) =>
                                     toggleEditingModelShownInMenu(
