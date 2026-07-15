@@ -22,12 +22,14 @@ type ThemeContextValue = {
 const ThemeContext = createContext<ThemeContextValue | undefined>(undefined);
 const STORAGE_KEY = "code-forge-theme";
 
+function isThemePreference(value: string | null): value is ThemePreference {
+  return value === "system" || value === "light" || value === "dark";
+}
+
 function getStoredPreference(): ThemePreference {
   if (typeof window === "undefined") return "system";
   const stored = window.localStorage.getItem(STORAGE_KEY);
-  return stored === "dark" || stored === "light" || stored === "system"
-    ? stored
-    : "system";
+  return isThemePreference(stored) ? stored : "system";
 }
 
 function getSystemTheme(): ResolvedTheme {
@@ -55,7 +57,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     return () => media.removeEventListener?.("change", onChange);
   }, []);
 
-  const resolvedTheme: ResolvedTheme = theme === "system" ? systemTheme : theme;
+  const resolvedTheme: ResolvedTheme =
+    theme === "system" ? systemTheme : theme;
 
   useEffect(() => {
     applyTheme(resolvedTheme);
@@ -66,11 +69,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   }, [theme]);
 
   const setTheme = useCallback((nextTheme: ThemePreference) => {
-    setThemeState(
-      nextTheme === "dark" || nextTheme === "light" || nextTheme === "system"
-        ? nextTheme
-        : "system",
-    );
+    setThemeState(isThemePreference(nextTheme) ? nextTheme : "system");
   }, []);
 
   const value = useMemo(

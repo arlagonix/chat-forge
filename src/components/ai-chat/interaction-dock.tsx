@@ -49,7 +49,7 @@ export const InteractionDock = memo(function InteractionDock({
     >
       <div
         className={cn(
-          "mx-auto flex max-h-[min(45dvh,36rem)] w-full flex-col rounded-sm border bg-card p-4",
+          "mx-auto flex max-h-[min(70dvh,48rem)] w-full flex-col rounded-sm border bg-card p-4",
           contentWidthClassName,
         )}
       >

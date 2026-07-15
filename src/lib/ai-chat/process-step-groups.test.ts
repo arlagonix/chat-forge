@@ -54,7 +54,7 @@ describe("getVisibleAssistantProcessSteps", () => {
     ).toEqual(["tool-1"]);
   });
 
-  it("hides a pending approval and its not-yet-running tool step", () => {
+  it("hides a pending approval but keeps its pending tool step visible", () => {
     const steps: ChatAssistantProcessStep[] = [
       {
         id: "approval-1",
@@ -75,7 +75,9 @@ describe("getVisibleAssistantProcessSteps", () => {
       },
     ];
 
-    expect(getVisibleAssistantProcessSteps(steps)).toEqual([]);
+    expect(
+      getVisibleAssistantProcessSteps(steps).map((step) => step.id),
+    ).toEqual(["tool-1"]);
   });
 
   it("keeps a completed ask_user response as a tool-related step", () => {

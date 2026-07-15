@@ -37,17 +37,37 @@ function formatToolResultSummary(result: ChatToolResult | undefined) {
   return truncateText(result.content);
 }
 
-function formatAskUserStep(step: Extract<ChatAssistantProcessStep, { type: "user_input" }>) {
-  const lines = [`Ask user: ${step.request.question}`];
-  if (step.request.context?.trim()) {
-    lines.push(`Context: ${step.request.context.trim()}`);
+function formatAskUserStep(
+  step: Extract<ChatAssistantProcessStep, { type: "user_input" }>,
+) {
+  const primaryQuestion =
+    step.request.title?.trim() ||
+    step.request.questions[0]?.question.trim() ||
+    "Question";
+  const lines = [`Ask user: ${primaryQuestion}`];
+  const contextParts = [
+    step.request.description?.trim(),
+    ...step.request.questions
+      .map((question) => question.description?.trim())
+      .filter((description): description is string => Boolean(description)),
+  ].filter((item): item is string => Boolean(item));
+
+  if (contextParts.length > 0) {
+    lines.push(`Context: ${contextParts.join("\n")}`);
   }
+
   if (step.response) {
-    for (const summary of getAskUserAnswerSummaries(step.request, step.response)) {
-      lines.push(`Answer: ${summary.answer}`);
-    }
-    if (step.response.comment?.trim()) {
-      lines.push(`Comment: ${step.response.comment.trim()}`);
+    const summaries = getAskUserAnswerSummaries(step.request, step.response);
+
+    if (summaries.length === 0) {
+      lines.push("Answer: answered");
+    } else {
+      for (const summary of summaries) {
+        if (summary.question && summary.question !== primaryQuestion) {
+          lines.push(`Question: ${summary.question}`);
+        }
+        lines.push(`Answer: ${summary.answer}`);
+      }
     }
   } else {
     lines.push("Answer: pending");
