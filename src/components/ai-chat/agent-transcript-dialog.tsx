@@ -1158,6 +1158,7 @@ export const AgentTranscriptSidebar = memo(function AgentTranscriptSidebar({
   onBack,
   onClose,
   width,
+  windowControls,
 }: {
   agentCall?: ChatAgentCall;
   renderToolExecutionBlock?: RenderAgentToolExecutionBlock;
@@ -1166,6 +1167,7 @@ export const AgentTranscriptSidebar = memo(function AgentTranscriptSidebar({
   onBack?: () => void;
   onClose: () => void;
   width?: number;
+  windowControls?: ReactNode;
 } & AgentInteractionProps) {
   const displayedAgentCall = useThrottledLiveAgentCall(agentCall);
 
@@ -1177,46 +1179,52 @@ export const AgentTranscriptSidebar = memo(function AgentTranscriptSidebar({
       className="z-20 flex h-dvh min-w-[560px] shrink-0 flex-col border-l bg-background text-base leading-6 shadow-xl"
       style={{ width: width ?? 440 }}
     >
-      <div className="flex min-w-0 items-center gap-3 border-b py-2 pl-4 pr-2">
-        {onBack ? (
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            className="shrink-0"
-            onClick={onBack}
-            title="Back to parent agent"
-            aria-label="Back to parent agent"
-          >
-            <ArrowLeft className="size-4" />
-          </Button>
-        ) : null}
-        <Bot className="size-4 shrink-0 text-muted-foreground" />
-        <AgentHeaderTitle agentCall={displayedAgentCall} />
-        {onOpenAsChat ? (
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            className="shrink-0"
-            onClick={() => onOpenAsChat(displayedAgentCall.id)}
-            title="Open as subchat"
-            aria-label="Open as subchat"
-          >
-            <Maximize2 className="size-4" />
-          </Button>
-        ) : null}
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          className="shrink-0"
-          onClick={onClose}
-          title="Close agent run"
-          aria-label="Close agent run"
+      <div className="flex min-w-0 items-center border-b">
+        <div
+          data-right-sidebar-titlebar
+          className="app-region-drag flex min-w-0 flex-1 select-none items-center gap-3 py-1 pl-4 pr-2"
         >
-          <X className="size-4" />
-        </Button>
+          {onBack ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              className="shrink-0"
+              onClick={onBack}
+              title="Back to parent agent"
+              aria-label="Back to parent agent"
+            >
+              <ArrowLeft className="size-4" />
+            </Button>
+          ) : null}
+          <Bot className="size-4 shrink-0 text-muted-foreground" />
+          <AgentHeaderTitle agentCall={displayedAgentCall} />
+          {onOpenAsChat ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              className="shrink-0"
+              onClick={() => onOpenAsChat(displayedAgentCall.id)}
+              title="Open as subchat"
+              aria-label="Open as subchat"
+            >
+              <Maximize2 className="size-4" />
+            </Button>
+          ) : null}
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            className="shrink-0"
+            onClick={onClose}
+            title="Close agent run"
+            aria-label="Close agent run"
+          >
+            <X className="size-4" />
+          </Button>
+        </div>
+        {windowControls}
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 chat-message-scrollbar">

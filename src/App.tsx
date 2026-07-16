@@ -46,6 +46,7 @@ import {
   type ToolExecutionDetails,
 } from "@/components/ai-chat/tool-execution-block";
 import { WorkspaceRootsControl } from "@/components/ai-chat/workspace-roots-control";
+import { AppMenu } from "@/components/app-menu";
 import { ChatSidebar } from "@/components/chat-sidebar";
 import { SystemPromptDialog } from "@/components/dialogs/system-prompt-dialog";
 import { McpDialog } from "@/components/mcp-dialog";
@@ -55,6 +56,7 @@ import { SettingsDialog } from "@/components/settings-dialog";
 import { SkillsDialog } from "@/components/skills-dialog";
 import { ToolsDialog } from "@/components/tools-dialog";
 import { Button } from "@/components/ui/button";
+import { WindowControls } from "@/components/window-controls";
 import { useChatActions } from "@/hooks/use-chat-actions";
 import { useChatAutoscroll } from "@/hooks/use-chat-autoscroll";
 import { useChatGeneration } from "@/hooks/use-chat-generation";
@@ -3579,6 +3581,13 @@ export default function Home() {
     ? selectedAgentContextUsage
     : latestContextUsage;
   const visibleHeaderContextUsage = headerContextUsage;
+  const isRightSidebarOpen = Boolean(
+    selectedToolSidebarDetails ||
+      selectedGenerationInfoVariant ||
+      selectedAgentSidebarCall ||
+      isChatCapabilitiesSidebarOpen ||
+      (isContextUsageSidebarOpen && headerContextUsage),
+  );
   const visiblePendingInteractions = useMemo(
     () =>
       pendingInteractions.filter(
@@ -3610,7 +3619,11 @@ export default function Home() {
 
   if (!mounted) {
     return (
-      <main className="flex h-dvh items-center justify-center bg-background text-foreground">
+      <main className="relative flex h-dvh items-center justify-center bg-background text-foreground">
+        <div className="absolute inset-x-0 top-0 flex h-10 items-center">
+          <div className="app-region-drag min-w-0 flex-1" aria-hidden="true" />
+          <WindowControls />
+        </div>
         <div className="flex flex-col items-center gap-4 text-center">
           <div
             className="molten-forge-loading-text text-muted-foreground"
@@ -3685,122 +3698,134 @@ export default function Home() {
       />
 
       <section className="relative grid min-h-0 flex-1 grid-rows-[auto_1fr_auto] bg-background px-4">
-        <div className="-mx-4 grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 border-b px-2 py-2">
-          <div className="flex min-w-0 items-center gap-1">
-            {isSidebarCollapsed ? (
-              <>
+        <div className="-mx-4 flex min-w-0 items-center border-b">
+          <div
+            data-main-titlebar
+            data-sidebar-collapsed={isSidebarCollapsed ? "true" : "false"}
+            data-right-sidebar-open={isRightSidebarOpen ? "true" : "false"}
+            className="app-region-drag grid min-w-0 flex-1 select-none grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-2 py-1"
+          >
+            <div className="flex min-w-0 items-center gap-1">
+              {isSidebarCollapsed ? (
+                <>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    className="shrink-0"
+                    onClick={() => setIsSidebarCollapsed(false)}
+                    title="Show sidebar"
+                    aria-label="Show sidebar"
+                  >
+                    <Menu className="size-4" />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    className="app-region-no-drag shrink-0"
+                    onClick={createNewChatWithEmptyDraftState}
+                    title="New chat (Ctrl+N)"
+                    aria-label="New chat"
+                  >
+                    <Plus className="size-4" />
+                  </Button>
+                  <AppMenu
+                    onCreateNewChat={createNewChatWithEmptyDraftState}
+                    triggerClassName="shrink-0"
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    className="app-region-no-drag shrink-0"
+                    onClick={() => setSettingsOpen(true)}
+                    title="Settings"
+                    aria-label="Settings"
+                  >
+                    <Settings className="size-4" />
+                  </Button>
+                </>
+              ) : null}
+              {isViewingAgentChat ? (
                 <Button
                   type="button"
                   variant="ghost"
                   size="icon-sm"
                   className="shrink-0"
-                  onClick={() => setIsSidebarCollapsed(false)}
-                  title="Show sidebar"
-                  aria-label="Show sidebar"
+                  onClick={() =>
+                    selectedAgentParent
+                      ? setSelectedAgentChatId(selectedAgentParent.id)
+                      : setSelectedAgentChatId(undefined)
+                  }
+                  title={
+                    selectedAgentParent
+                      ? "Back to parent agent"
+                      : "Back to main chat"
+                  }
+                  aria-label={
+                    selectedAgentParent
+                      ? "Back to parent agent"
+                      : "Back to main chat"
+                  }
                 >
-                  <Menu className="size-4" />
+                  <ArrowLeft className="size-4" />
                 </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  className="shrink-0"
-                  onClick={createNewChatWithEmptyDraftState}
-                  title="New chat (Ctrl+N)"
-                  aria-label="New chat"
-                >
-                  <Plus className="size-4" />
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  className="shrink-0"
-                  onClick={() => setSettingsOpen(true)}
-                  title="Settings"
-                  aria-label="Settings"
-                >
-                  <Settings className="size-4" />
-                </Button>
-              </>
-            ) : null}
-            {isViewingAgentChat ? (
+              ) : null}
+              <WorkspaceRootsControl
+                activeChatExists={
+                  Boolean(activeChat) || isNewChatDraft || isViewingAgentChat
+                }
+                disabled={!isViewingAgentChat && isSending}
+                readOnly={isViewingAgentChat}
+                roots={headerWorkspaceRoots}
+                open={isWorkspacePickerOpen}
+                onOpenChange={setIsWorkspacePickerOpen}
+                onAddRoot={addActiveChatWorkspaceRoot}
+                onAddFile={addActiveChatAccessibleFile}
+                onRemoveRoot={removeActiveChatWorkspaceRoot}
+                onOpenRoot={openWorkspaceRoot}
+              />
+            </div>
+            <div className="min-w-0 text-center">
+              <div className="truncate text-sm font-medium leading-5 text-foreground">
+                {headerTitle}
+              </div>
+            </div>
+            <div className="flex min-w-0 items-center justify-end gap-1">
               <Button
                 type="button"
                 variant="ghost"
                 size="icon-sm"
                 className="shrink-0"
-                onClick={() =>
-                  selectedAgentParent
-                    ? setSelectedAgentChatId(selectedAgentParent.id)
-                    : setSelectedAgentChatId(undefined)
-                }
-                title={
-                  selectedAgentParent
-                    ? "Back to parent agent"
-                    : "Back to main chat"
-                }
-                aria-label={
-                  selectedAgentParent
-                    ? "Back to parent agent"
-                    : "Back to main chat"
-                }
-              >
-                <ArrowLeft className="size-4" />
-              </Button>
-            ) : null}
-            <WorkspaceRootsControl
-              activeChatExists={
-                Boolean(activeChat) || isNewChatDraft || isViewingAgentChat
-              }
-              disabled={!isViewingAgentChat && isSending}
-              readOnly={isViewingAgentChat}
-              roots={headerWorkspaceRoots}
-              open={isWorkspacePickerOpen}
-              onOpenChange={setIsWorkspacePickerOpen}
-              onAddRoot={addActiveChatWorkspaceRoot}
-              onAddFile={addActiveChatAccessibleFile}
-              onRemoveRoot={removeActiveChatWorkspaceRoot}
-              onOpenRoot={openWorkspaceRoot}
-            />
-          </div>
-          <div className="min-w-0 text-center">
-            <div className="truncate text-sm font-medium leading-5 text-foreground">
-              {headerTitle}
-            </div>
-          </div>
-          <div className="flex min-w-0 items-center justify-end gap-1">
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              className="shrink-0"
-              disabled={!activeChat && !isNewChatDraft}
-              onClick={() => {
-                setSelectedToolSidebarDetails(undefined);
-                setSelectedGenerationInfoVariant(undefined);
-                setSelectedAgentSidebarId(undefined);
-                setIsContextUsageSidebarOpen(false);
-                setIsChatCapabilitiesSidebarOpen(true);
-              }}
-              title="Chat capabilities"
-              aria-label="Chat capabilities"
-            >
-              <Settings2 className="size-4" />
-            </Button>
-            {visibleHeaderContextUsage ? (
-              <ContextUsageIndicator
-                usage={visibleHeaderContextUsage}
-                onOpen={() => {
+                disabled={!activeChat && !isNewChatDraft}
+                onClick={() => {
                   setSelectedToolSidebarDetails(undefined);
                   setSelectedGenerationInfoVariant(undefined);
                   setSelectedAgentSidebarId(undefined);
-                  setIsChatCapabilitiesSidebarOpen(false);
-                  setIsContextUsageSidebarOpen(true);
+                  setIsContextUsageSidebarOpen(false);
+                  setIsChatCapabilitiesSidebarOpen(true);
                 }}
-              />
-            ) : null}
+                title="Chat capabilities"
+                aria-label="Chat capabilities"
+              >
+                <Settings2 className="size-4" />
+              </Button>
+              {visibleHeaderContextUsage ? (
+                <ContextUsageIndicator
+                  usage={visibleHeaderContextUsage}
+                  onOpen={() => {
+                    setSelectedToolSidebarDetails(undefined);
+                    setSelectedGenerationInfoVariant(undefined);
+                    setSelectedAgentSidebarId(undefined);
+                    setIsChatCapabilitiesSidebarOpen(false);
+                    setIsContextUsageSidebarOpen(true);
+                  }}
+                />
+              ) : null}
+            </div>
           </div>
+          {!isRightSidebarOpen ? <WindowControls /> : null}
         </div>
 
         {findBarOpen && (
@@ -4044,11 +4069,7 @@ export default function Home() {
         ) : null}
       </section>
 
-      {selectedToolSidebarDetails ||
-      selectedGenerationInfoVariant ||
-      selectedAgentSidebarCall ||
-      isChatCapabilitiesSidebarOpen ||
-      (isContextUsageSidebarOpen && headerContextUsage) ? (
+      {isRightSidebarOpen ? (
         <div
           className="relative z-20 h-dvh shrink-0"
           style={{ width: rightSidebarWidth }}
@@ -4063,6 +4084,7 @@ export default function Home() {
           </div>
           {selectedToolSidebarDetails ? (
             <ToolExecutionDetailsSidebar
+              windowControls={<WindowControls />}
               details={selectedToolSidebarDetails}
               loadedTools={executableTools}
               width={rightSidebarWidth}
@@ -4075,12 +4097,14 @@ export default function Home() {
             />
           ) : selectedGenerationInfoVariant ? (
             <GenerationInfoSidebar
+              windowControls={<WindowControls />}
               variant={selectedGenerationInfoVariant}
               width={rightSidebarWidth}
               onClose={() => setSelectedGenerationInfoVariant(undefined)}
             />
           ) : selectedAgentSidebarCall ? (
             <AgentTranscriptSidebar
+              windowControls={<WindowControls />}
               agentCall={selectedAgentSidebarCall}
               width={rightSidebarWidth}
               renderToolExecutionBlock={stableRenderToolExecutionBlock}
@@ -4117,6 +4141,7 @@ export default function Home() {
             />
           ) : isChatCapabilitiesSidebarOpen ? (
             <ChatCapabilitiesSidebar
+              windowControls={<WindowControls />}
               width={rightSidebarWidth}
               tools={availableTools}
               toolPermissions={effectiveToolPermissions}
@@ -4135,6 +4160,7 @@ export default function Home() {
             />
           ) : (
             <ContextUsageSidebar
+              windowControls={<WindowControls />}
               usage={isContextUsageSidebarOpen ? headerContextUsage : undefined}
               width={rightSidebarWidth}
               onClose={() => setIsContextUsageSidebarOpen(false)}

@@ -38,6 +38,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { AgentStatusInline } from "@/components/ai-chat/agent-status-inline";
+import { AppMenu } from "@/components/app-menu";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -596,6 +597,15 @@ export const ChatSidebar = memo(function ChatSidebar({
     );
   }
 
+  function renderAppMenuButton(triggerClassName?: string) {
+    return (
+      <AppMenu
+        onCreateNewChat={onCreateNewChat}
+        triggerClassName={triggerClassName}
+      />
+    );
+  }
+
   function renderMoveToFolderItems(chat: ChatSession) {
     const targetFolders = folders.filter(
       (folder) => folder.id !== chat.folderId,
@@ -611,7 +621,7 @@ export const ChatSidebar = memo(function ChatSidebar({
         <DropdownMenuSubContent
           sideOffset={2}
           alignOffset={0}
-          className="max-h-[min(18rem,var(--radix-dropdown-menu-content-available-height))] min-w-52 overflow-y-auto"
+          className="max-h-[min(18rem,var(--radix-dropdown-menu-content-available-height))] min-w-52 overflow-y-auto [&_[data-slot=dropdown-menu-item]]:text-sm [&_[data-slot=dropdown-menu-separator]]:my-1 [&_[data-slot=dropdown-menu-separator]]:min-h-0 [&_[data-slot=dropdown-menu-separator]]:bg-border/70"
         >
           {chat.folderId ? (
             <DropdownMenuItem
@@ -851,6 +861,7 @@ export const ChatSidebar = memo(function ChatSidebar({
                 side="bottom"
                 align="start"
                 sideOffset={0}
+                className="[&_[data-slot=dropdown-menu-item]]:text-sm [&_[data-slot=dropdown-menu-sub-trigger]]:text-sm [&_[data-slot=dropdown-menu-separator]]:my-1 [&_[data-slot=dropdown-menu-separator]]:min-h-0 [&_[data-slot=dropdown-menu-separator]]:bg-border/70"
                 onCloseAutoFocus={(event) => event.preventDefault()}
               >
                 <DropdownMenuItem
@@ -1314,7 +1325,7 @@ export const ChatSidebar = memo(function ChatSidebar({
             <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border opacity-0 transition-opacity group-hover:opacity-100" />
           </div>
         ) : null}
-        <div className="p-2">
+        <div data-sidebar-titlebar className="app-region-drag select-none px-2 py-1">
           <div className="flex items-center justify-between gap-2">
             <Button
               type="button"
@@ -1336,7 +1347,10 @@ export const ChatSidebar = memo(function ChatSidebar({
               </h1>
             </div>
 
-            {renderSettingsButton("shrink-0")}
+            <div className="app-region-no-drag flex shrink-0 items-center gap-1">
+              {renderAppMenuButton("shrink-0")}
+              {renderSettingsButton("shrink-0")}
+            </div>
           </div>
         </div>
 

@@ -1,4 +1,5 @@
 import type { ProjectInstructionsReadResult } from "@/lib/ai-chat/project-instructions";
+import type { DesktopMenuCommand } from "@/lib/desktop-menu";
 import type {
   AgentExportResult,
   AgentImportResult,
@@ -208,6 +209,34 @@ declare global {
     };
   }
 }
+
+declare global {
+  interface Window {
+    moltenForgeDesktop?: {
+      platform: "aix" | "darwin" | "freebsd" | "linux" | "openbsd" | "sunos" | "win32";
+      usesCustomWindowControls: boolean;
+      executeMenuCommand: (command: DesktopMenuCommand) => Promise<void>;
+      minimizeWindow: () => Promise<void>;
+      toggleMaximizeWindow: () => Promise<DesktopWindowState>;
+      closeWindow: () => Promise<void>;
+      getWindowState: () => Promise<DesktopWindowState>;
+      setThemeSource: (
+        theme: "system" | "light" | "dark",
+      ) => Promise<{
+        source: "system" | "light" | "dark";
+        resolved: "light" | "dark";
+      }>;
+      onWindowStateChange: (
+        callback: (state: DesktopWindowState) => void,
+      ) => () => void;
+    };
+  }
+}
+
+type DesktopWindowState = {
+  maximized: boolean;
+  fullscreen: boolean;
+};
 
 declare global {
   interface Window {

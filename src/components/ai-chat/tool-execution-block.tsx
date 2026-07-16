@@ -9,7 +9,7 @@ import {
   Wrench,
   X,
 } from "lucide-react";
-import { memo, useMemo } from "react";
+import { memo, type ReactNode, useMemo } from "react";
 import { toast } from "sonner";
 
 import { MarkdownMessage } from "@/components/ai-chat/markdown-message";
@@ -860,12 +860,14 @@ export const ToolExecutionDetailsSidebar = memo(
     width,
     onBack,
     onClose,
+    windowControls,
   }: {
     details?: ToolExecutionDetails;
     loadedTools: LoadedToolInfo[];
     width?: number;
     onBack?: () => void;
     onClose: () => void;
+    windowControls?: ReactNode;
   }) {
     if (!details) return null;
 
@@ -915,53 +917,59 @@ export const ToolExecutionDetailsSidebar = memo(
         className="z-20 flex h-dvh min-w-[560px] shrink-0 flex-col border-l bg-background text-base leading-6 shadow-xl"
         style={{ width: width ?? 680 }}
       >
-        <div className="flex min-w-0 items-center gap-3 border-b py-2 pl-4 pr-2">
-          {onBack ? (
+        <div className="flex min-w-0 items-center border-b">
+          <div
+            data-right-sidebar-titlebar
+            className="app-region-drag flex min-w-0 flex-1 select-none items-center gap-3 py-1 pl-4 pr-2"
+          >
+            {onBack ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                className="shrink-0"
+                onClick={onBack}
+                title="Back"
+                aria-label="Back"
+              >
+                <ArrowLeft className="size-4" />
+              </Button>
+            ) : null}
+            <ToolIcon className="size-4 shrink-0 text-muted-foreground" />
+            <div className="min-w-0 flex-1">
+              <div className="flex min-w-0 items-center gap-2 text-sm font-medium text-muted-foreground">
+                <span className="min-w-0 shrink-0 truncate text-muted-foreground/90">
+                  {toolCall.function.name}
+                </span>
+                {renderedToolStatus ? (
+                  <>
+                    <span className="text-muted-foreground/60">·</span>
+                    {renderedToolStatus}
+                  </>
+                ) : null}
+                {toolHeaderDetail ? (
+                  <>
+                    <span className="text-muted-foreground/60">·</span>
+                    <span className="min-w-0 truncate font-normal normal-case tracking-normal text-muted-foreground/85">
+                      {toolHeaderDetail}
+                    </span>
+                  </>
+                ) : null}
+              </div>
+            </div>
             <Button
               type="button"
               variant="ghost"
               size="icon-sm"
               className="shrink-0"
-              onClick={onBack}
-              title="Back"
-              aria-label="Back"
+              onClick={onClose}
+              title="Close tool call"
+              aria-label="Close tool call"
             >
-              <ArrowLeft className="size-4" />
+              <X className="size-4" />
             </Button>
-          ) : null}
-          <ToolIcon className="size-4 shrink-0 text-muted-foreground" />
-          <div className="min-w-0 flex-1">
-            <div className="flex min-w-0 items-center gap-2 text-sm font-medium text-muted-foreground">
-              <span className="min-w-0 shrink-0 truncate text-muted-foreground/90">
-                {toolCall.function.name}
-              </span>
-              {renderedToolStatus ? (
-                <>
-                  <span className="text-muted-foreground/60">·</span>
-                  {renderedToolStatus}
-                </>
-              ) : null}
-              {toolHeaderDetail ? (
-                <>
-                  <span className="text-muted-foreground/60">·</span>
-                  <span className="min-w-0 truncate font-normal normal-case tracking-normal text-muted-foreground/85">
-                    {toolHeaderDetail}
-                  </span>
-                </>
-              ) : null}
-            </div>
           </div>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            className="shrink-0"
-            onClick={onClose}
-            title="Close tool call"
-            aria-label="Close tool call"
-          >
-            <X className="size-4" />
-          </Button>
+          {windowControls}
         </div>
         <ToolExecutionDetailsPanel
           toolCall={toolCall}

@@ -475,10 +475,12 @@ export const GenerationInfoSidebar = memo(function GenerationInfoSidebar({
   variant,
   width,
   onClose,
+  windowControls,
 }: {
   variant?: ChatAssistantVariant;
   width?: number;
   onClose: () => void;
+  windowControls?: ReactNode;
 }) {
   if (!variant?.metrics) return null;
 
@@ -487,21 +489,27 @@ export const GenerationInfoSidebar = memo(function GenerationInfoSidebar({
       className="z-20 flex h-dvh min-w-[560px] shrink-0 flex-col border-l bg-background text-base leading-6 shadow-xl"
       style={{ width: width ?? 680 }}
     >
-      <div className="flex min-w-0 items-center gap-3 border-b py-2 pl-4 pr-2">
-        <div className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
-          Generation info
-        </div>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          className="shrink-0"
-          onClick={onClose}
-          title="Close generation info"
-          aria-label="Close generation info"
+      <div className="flex min-w-0 items-center border-b">
+        <div
+          data-right-sidebar-titlebar
+          className="app-region-drag flex min-w-0 flex-1 select-none items-center gap-3 py-1 pl-4 pr-2"
         >
-          <X className="size-4" />
-        </Button>
+          <div className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
+            Generation info
+          </div>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            className="shrink-0"
+            onClick={onClose}
+            title="Close generation info"
+            aria-label="Close generation info"
+          >
+            <X className="size-4" />
+          </Button>
+        </div>
+        {windowControls}
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 chat-message-scrollbar">
         <GenerationInfoDetails variant={variant} />

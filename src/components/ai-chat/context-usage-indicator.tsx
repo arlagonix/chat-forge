@@ -1,5 +1,5 @@
 import { X } from "lucide-react";
-import { memo } from "react";
+import { memo, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
 import type { ContextUsageDetails } from "@/lib/ai-chat/context-usage";
@@ -351,10 +351,12 @@ export const ContextUsageSidebar = memo(function ContextUsageSidebar({
   usage,
   width,
   onClose,
+  windowControls,
 }: {
   usage?: ContextUsageInfo;
   width?: number;
   onClose: () => void;
+  windowControls?: ReactNode;
 }) {
   if (!usage) return null;
 
@@ -363,21 +365,27 @@ export const ContextUsageSidebar = memo(function ContextUsageSidebar({
       className="z-20 flex h-dvh min-w-[560px] shrink-0 flex-col border-l bg-background text-base leading-6 shadow-xl"
       style={{ width: width ?? 620 }}
     >
-      <div className="flex min-w-0 items-center gap-3 border-b py-2 pl-4 pr-2">
-        <div className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
-          Context usage
-        </div>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          className="shrink-0"
-          onClick={onClose}
-          title="Close context usage"
-          aria-label="Close context usage"
+      <div className="flex min-w-0 items-center border-b">
+        <div
+          data-right-sidebar-titlebar
+          className="app-region-drag flex min-w-0 flex-1 select-none items-center gap-3 py-1 pl-4 pr-2"
         >
-          <X className="size-4" />
-        </Button>
+          <div className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
+            Context usage
+          </div>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            className="shrink-0"
+            onClick={onClose}
+            title="Close context usage"
+            aria-label="Close context usage"
+          >
+            <X className="size-4" />
+          </Button>
+        </div>
+        {windowControls}
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 chat-message-scrollbar">
         <ContextUsageModalContent usage={usage} />

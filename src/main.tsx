@@ -8,6 +8,11 @@ import { Theme as RadixTheme } from "@radix-ui/themes";
 import App from "./App";
 import "./index.css";
 
+const desktopPlatform = window.moltenForgeDesktop?.platform;
+if (desktopPlatform) {
+  document.documentElement.dataset.platform = desktopPlatform;
+}
+
 function RadixThemeBridge({ children }: { children: ReactNode }) {
   const { resolvedTheme } = useTheme();
 

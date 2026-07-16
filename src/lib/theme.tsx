@@ -66,6 +66,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     window.localStorage.setItem(STORAGE_KEY, theme);
+    void window.moltenForgeDesktop?.setThemeSource(theme).catch((error) => {
+      console.warn("Failed to sync native app theme:", error);
+    });
   }, [theme]);
 
   const setTheme = useCallback((nextTheme: ThemePreference) => {

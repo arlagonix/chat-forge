@@ -298,6 +298,47 @@ contextBridge.exposeInMainWorld("moltenForgeWorkspace", {
   },
 });
 
+contextBridge.exposeInMainWorld("moltenForgeDesktop", {
+  platform: process.platform,
+  usesCustomWindowControls:
+    process.platform === "win32" || process.platform === "linux",
+
+  executeMenuCommand(command: unknown) {
+    return ipcRenderer.invoke("desktop:execute-menu-command", command);
+  },
+
+  minimizeWindow() {
+    return ipcRenderer.invoke("desktop:minimize-window");
+  },
+
+  toggleMaximizeWindow() {
+    return ipcRenderer.invoke("desktop:toggle-maximize-window");
+  },
+
+  closeWindow() {
+    return ipcRenderer.invoke("desktop:close-window");
+  },
+
+  getWindowState() {
+    return ipcRenderer.invoke("desktop:get-window-state");
+  },
+
+  setThemeSource(theme: unknown) {
+    return ipcRenderer.invoke("desktop:set-theme-source", theme);
+  },
+
+  onWindowStateChange(callback: (state: unknown) => void) {
+    const listener = (_event: IpcRendererEvent, state: unknown) => {
+      callback(state);
+    };
+
+    ipcRenderer.on("desktop:window-state-changed", listener);
+    return () => {
+      ipcRenderer.removeListener("desktop:window-state-changed", listener);
+    };
+  },
+});
+
 contextBridge.exposeInMainWorld("moltenForgeTools", {
   execute(request: unknown) {
     return ipcRenderer.invoke("tools:execute", request);

@@ -4,7 +4,10 @@ import {
   clipboard,
   dialog,
   ipcMain,
+  Menu,
+  nativeTheme,
   shell,
+  type MenuItemConstructorOptions,
   type OpenDialogOptions,
 } from "electron";
 import Seven from "node-7z";
@@ -22,6 +25,7 @@ import {
   ATTACHMENT_LIMITS,
   estimateAttachmentTokens,
 } from "../src/lib/ai-chat/attachment-limits";
+import { isDesktopMenuCommand } from "../src/lib/desktop-menu";
 import {
   BASH_TOOL_NAME,
   isFileToolName,
@@ -490,6 +494,57 @@ const WEB_FETCH_ALLOWED_CONTENT_TYPES = new Set([
 const TOOL_NAME_PATTERN = /^[a-zA-Z0-9_-]{1,64}$/;
 const APP_TITLE = `Molten Forge v${app.getVersion()}`;
 let win: BrowserWindow | null = null;
+
+type DesktopThemeSource = "system" | "light" | "dark";
+
+function usesCustomWindowControls() {
+  return process.platform === "win32" || process.platform === "linux";
+}
+
+function buildApplicationMenu() {
+  const template: MenuItemConstructorOptions[] = [];
+
+  if (process.platform === "darwin") {
+    template.push({ role: "appMenu" });
+  }
+
+  template.push(
+    { role: "fileMenu" },
+    { role: "editMenu" },
+    { role: "viewMenu" },
+    { role: "windowMenu" },
+  );
+
+  return Menu.buildFromTemplate(template);
+}
+
+function getWindowState(browserWindow: BrowserWindow) {
+  return {
+    maximized: browserWindow.isMaximized(),
+    fullscreen: browserWindow.isFullScreen(),
+  };
+}
+
+function emitWindowState(browserWindow: BrowserWindow) {
+  if (browserWindow.isDestroyed()) return;
+  browserWindow.webContents.send(
+    "desktop:window-state-changed",
+    getWindowState(browserWindow),
+  );
+}
+
+function getWindowBackgroundColor() {
+  return nativeTheme.shouldUseDarkColors ? "#1e1e1e" : "#f4f3ef";
+}
+
+function updateWindowBackgroundColors() {
+  const backgroundColor = getWindowBackgroundColor();
+  for (const browserWindow of BrowserWindow.getAllWindows()) {
+    if (!browserWindow.isDestroyed()) {
+      browserWindow.setBackgroundColor(backgroundColor);
+    }
+  }
+}
 
 function normalizeBaseUrl(baseUrl: string) {
   return baseUrl.trim().replace(/\/+$/, "");
@@ -2037,13 +2092,24 @@ function getWindowIconPath() {
 }
 
 function createWindow() {
-  win = new BrowserWindow({
+  const customWindowControls = usesCustomWindowControls();
+
+  const browserWindow = new BrowserWindow({
     width: 1280,
     height: 860,
     minWidth: 940,
     minHeight: 620,
     title: APP_TITLE,
     icon: getWindowIconPath(),
+    frame: customWindowControls ? false : undefined,
+    autoHideMenuBar: process.platform !== "darwin",
+    titleBarStyle:
+      process.platform === "darwin"
+        ? "hiddenInset"
+        : customWindowControls
+          ? "hidden"
+          : "default",
+    backgroundColor: getWindowBackgroundColor(),
     webPreferences: {
       preload: resolvePreloadPath(),
       contextIsolation: true,
@@ -2051,24 +2117,37 @@ function createWindow() {
       sandbox: false,
     },
   });
+  win = browserWindow;
 
-  win.webContents.setWindowOpenHandler(({ url }) => {
+  browserWindow.webContents.setWindowOpenHandler(({ url }) => {
     openExternalUrl(url);
     return { action: "deny" };
   });
 
-  win.webContents.on("will-navigate", (event, url) => {
+  browserWindow.webContents.on("will-navigate", (event, url) => {
     if (isSafeExternalUrl(url) && !isAppUrl(url)) {
       event.preventDefault();
       openExternalUrl(url);
     }
   });
 
-  win.webContents.on("found-in-page", (_event, result) => {
-    win?.webContents.send("find-in-page:result", result);
+  browserWindow.webContents.on("found-in-page", (_event, result) => {
+    browserWindow.webContents.send("find-in-page:result", result);
   });
 
-  win.webContents.on(
+  browserWindow.on("maximize", () => emitWindowState(browserWindow));
+  browserWindow.on("unmaximize", () => emitWindowState(browserWindow));
+  browserWindow.on("enter-full-screen", () =>
+    emitWindowState(browserWindow),
+  );
+  browserWindow.on("leave-full-screen", () =>
+    emitWindowState(browserWindow),
+  );
+  browserWindow.on("closed", () => {
+    if (win === browserWindow) win = null;
+  });
+
+  browserWindow.webContents.on(
     "did-fail-load",
     (_event, errorCode, errorDescription, validatedURL) => {
       console.error("Failed to load renderer", {
@@ -2080,9 +2159,9 @@ function createWindow() {
   );
 
   if (VITE_DEV_SERVER_URL) {
-    win.loadURL(VITE_DEV_SERVER_URL);
+    browserWindow.loadURL(VITE_DEV_SERVER_URL);
   } else {
-    win.loadFile(path.join(getRendererDist(), "index.html"));
+    browserWindow.loadFile(path.join(getRendererDist(), "index.html"));
   }
 }
 
@@ -6010,6 +6089,107 @@ ipcMain.handle("storage:chat:delete", async (_event, chatId: unknown) =>
 );
 
 ipcMain.handle("storage:chats:delete-all", async () => deleteAllJsonChats());
+
+ipcMain.handle("desktop:execute-menu-command", (event, command: unknown) => {
+  if (!isDesktopMenuCommand(command)) {
+    throw new Error("Unknown desktop menu command.");
+  }
+
+  const browserWindow = BrowserWindow.fromWebContents(event.sender);
+  const webContents = event.sender;
+
+  switch (command) {
+    case "undo":
+      webContents.undo();
+      break;
+    case "redo":
+      webContents.redo();
+      break;
+    case "cut":
+      webContents.cut();
+      break;
+    case "copy":
+      webContents.copy();
+      break;
+    case "paste":
+      webContents.paste();
+      break;
+    case "delete":
+      webContents.delete();
+      break;
+    case "select-all":
+      webContents.selectAll();
+      break;
+    case "reload":
+      webContents.reload();
+      break;
+    case "force-reload":
+      webContents.reloadIgnoringCache();
+      break;
+    case "toggle-dev-tools":
+      webContents.toggleDevTools();
+      break;
+    case "reset-zoom":
+      webContents.setZoomLevel(0);
+      break;
+    case "zoom-in":
+      webContents.setZoomLevel(webContents.getZoomLevel() + 0.5);
+      break;
+    case "zoom-out":
+      webContents.setZoomLevel(webContents.getZoomLevel() - 0.5);
+      break;
+    case "toggle-fullscreen":
+      if (browserWindow) {
+        browserWindow.setFullScreen(!browserWindow.isFullScreen());
+      }
+      break;
+    case "quit":
+      app.quit();
+      break;
+  }
+});
+
+ipcMain.handle("desktop:minimize-window", (event) => {
+  BrowserWindow.fromWebContents(event.sender)?.minimize();
+});
+
+ipcMain.handle("desktop:toggle-maximize-window", (event) => {
+  const browserWindow = BrowserWindow.fromWebContents(event.sender);
+  if (!browserWindow) return { maximized: false, fullscreen: false };
+
+  if (browserWindow.isMaximized()) {
+    browserWindow.unmaximize();
+  } else {
+    browserWindow.maximize();
+  }
+
+  return getWindowState(browserWindow);
+});
+
+ipcMain.handle("desktop:close-window", (event) => {
+  BrowserWindow.fromWebContents(event.sender)?.close();
+});
+
+ipcMain.handle("desktop:get-window-state", (event) => {
+  const browserWindow = BrowserWindow.fromWebContents(event.sender);
+  return browserWindow
+    ? getWindowState(browserWindow)
+    : { maximized: false, fullscreen: false };
+});
+
+ipcMain.handle("desktop:set-theme-source", (_event, value: unknown) => {
+  const source: DesktopThemeSource =
+    value === "light" || value === "dark" || value === "system"
+      ? value
+      : "system";
+  nativeTheme.themeSource = source;
+  updateWindowBackgroundColors();
+  return {
+    source,
+    resolved: nativeTheme.shouldUseDarkColors ? "dark" : "light",
+  };
+});
+
 ipcMain.handle("ai:load-models", async (_event, request: AiProviderRequest) => {
   const { baseUrl, apiKey, customHeaders, headers } =
     assertProviderRequest(request);
@@ -6106,4 +6286,8 @@ app.on("activate", () => {
   }
 });
 
-app.whenReady().then(createWindow);
+app.whenReady().then(() => {
+  nativeTheme.on("updated", updateWindowBackgroundColors);
+  Menu.setApplicationMenu(buildApplicationMenu());
+  createWindow();
+});

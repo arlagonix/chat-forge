@@ -313,33 +313,41 @@ export const ChatCapabilitiesDialog = memo(function ChatCapabilitiesDialog({
 export const ChatCapabilitiesSidebar = memo(function ChatCapabilitiesSidebar({
   width,
   onClose,
+  windowControls,
   ...props
 }: ChatCapabilitiesProps & {
   width?: number;
   onClose: () => void;
+  windowControls?: ReactNode;
 }) {
   return (
     <aside
       className="z-20 flex h-dvh min-w-[560px] shrink-0 flex-col border-l bg-background text-base leading-6 shadow-xl"
       style={{ width: width ?? 680 }}
     >
-      <div className="flex min-w-0 items-center gap-3 border-b py-2 pl-4 pr-2">
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-sm font-medium text-foreground">
-            Chat capabilities
-          </div>
-        </div>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          className="shrink-0"
-          onClick={onClose}
-          title="Close chat capabilities"
-          aria-label="Close chat capabilities"
+      <div className="flex min-w-0 items-center border-b">
+        <div
+          data-right-sidebar-titlebar
+          className="app-region-drag flex min-w-0 flex-1 select-none items-center gap-3 py-1 pl-4 pr-2"
         >
-          <X className="size-4" />
-        </Button>
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-sm font-medium text-foreground">
+              Chat capabilities
+            </div>
+          </div>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            className="shrink-0"
+            onClick={onClose}
+            title="Close chat capabilities"
+            aria-label="Close chat capabilities"
+          >
+            <X className="size-4" />
+          </Button>
+        </div>
+        {windowControls}
       </div>
       <ChatCapabilitiesContent {...props} />
     </aside>
