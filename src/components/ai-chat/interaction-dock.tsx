@@ -43,7 +43,7 @@ export const InteractionDock = memo(function InteractionDock({
 
   return (
     <section
-      className="shrink-0 bg-background px-3 py-3 md:px-4 md:py-4"
+      className="shrink-0 py-3 md:py-4"
       aria-label="Pending interaction"
       aria-live="polite"
     >

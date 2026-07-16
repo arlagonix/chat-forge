@@ -236,6 +236,15 @@
     -webkit-app-region: no-drag;
   }
 
+  .chat-bottom-overlay {
+    background: linear-gradient(
+      to top,
+      var(--background) 0%,
+      var(--background) 58%,
+      transparent 100%
+    );
+  }
+
   .window-control-button {
     border: 0;
     border-radius: 4px;

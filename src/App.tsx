@@ -220,6 +220,9 @@ const CHAT_WIDTH_CLASS_NAMES: Record<ChatWidth, string> = {
 const APP_NAME = "Molten Forge";
 const APP_VERSION_LABEL = `v${__APP_VERSION__}`;
 const APP_TITLE = `${APP_NAME} ${APP_VERSION_LABEL}`;
+const CHAT_BOTTOM_OVERLAY_FADE_HEIGHT_PX = 48;
+const CHAT_BOTTOM_CONTENT_CLEARANCE_PX = 16;
+const SCROLL_TO_BOTTOM_GUTTER_REQUIRED_PX = 48;
 const TITLE_GENERATION_CHAT_DEFAULT_VALUE = "chat-default";
 const TITLE_GENERATION_CHAT_DEFAULT_OPTION = {
   value: TITLE_GENERATION_CHAT_DEFAULT_VALUE,
@@ -676,6 +679,23 @@ export default function Home() {
     ((messageId: string) => number | null) | null
   >(null);
   const chatComposerRef = useRef<ChatComposerHandle | null>(null);
+  const [bottomPanelElement, setBottomPanelElement] =
+    useState<HTMLDivElement | null>(null);
+  const bottomPanelRef = useCallback((element: HTMLDivElement | null) => {
+    setBottomPanelElement(element);
+  }, []);
+  const [bottomPanelHeight, setBottomPanelHeight] = useState(0);
+  const [scrollButtonAnchorElement, setScrollButtonAnchorElement] =
+    useState<HTMLDivElement | null>(null);
+  const scrollButtonAnchorRef = useCallback(
+    (element: HTMLDivElement | null) => {
+      setScrollButtonAnchorElement(element);
+    },
+    [],
+  );
+  const [scrollButtonPlacement, setScrollButtonPlacement] = useState<
+    "right" | "above"
+  >("above");
   const findInputRef = useRef<HTMLInputElement | null>(null);
   const didHydrateRef = useRef(false);
   const composerDraftSaveTimeoutRef = useRef<number | null>(null);
@@ -3599,6 +3619,101 @@ export default function Home() {
     () => visiblePendingInteractions.map((interaction) => interaction.id),
     [visiblePendingInteractions],
   );
+  const hasBottomOverlay =
+    visiblePendingInteractions.length > 0 || !selectedAgentChat;
+  const bottomOverlayHeight = hasBottomOverlay
+    ? bottomPanelHeight +
+      CHAT_BOTTOM_OVERLAY_FADE_HEIGHT_PX +
+      CHAT_BOTTOM_CONTENT_CLEARANCE_PX
+    : 0;
+
+  useLayoutEffect(() => {
+    const panelElement = bottomPanelElement;
+
+    if (!hasBottomOverlay || !panelElement) {
+      setBottomPanelHeight(0);
+      return;
+    }
+
+    let resizeFrame: number | null = null;
+
+    const updatePanelHeight = () => {
+      if (resizeFrame !== null) {
+        window.cancelAnimationFrame(resizeFrame);
+      }
+
+      resizeFrame = window.requestAnimationFrame(() => {
+        resizeFrame = null;
+        const nextHeight = Math.ceil(
+          panelElement.getBoundingClientRect().height,
+        );
+        setBottomPanelHeight((currentHeight) =>
+          currentHeight === nextHeight ? currentHeight : nextHeight,
+        );
+      });
+    };
+
+    const resizeObserver = new ResizeObserver(updatePanelHeight);
+    resizeObserver.observe(panelElement);
+    updatePanelHeight();
+
+    return () => {
+      resizeObserver.disconnect();
+      if (resizeFrame !== null) {
+        window.cancelAnimationFrame(resizeFrame);
+      }
+    };
+  }, [bottomPanelElement, hasBottomOverlay]);
+
+  useLayoutEffect(() => {
+    const anchorElement = scrollButtonAnchorElement;
+    const overlayElement = anchorElement?.closest<HTMLElement>(
+      "[data-chat-bottom-overlay]",
+    );
+
+    if (!anchorElement || !overlayElement) {
+      setScrollButtonPlacement("above");
+      return;
+    }
+
+    let resizeFrame: number | null = null;
+
+    const updatePlacement = () => {
+      if (resizeFrame !== null) {
+        window.cancelAnimationFrame(resizeFrame);
+      }
+
+      resizeFrame = window.requestAnimationFrame(() => {
+        resizeFrame = null;
+        const anchorRect = anchorElement.getBoundingClientRect();
+        const overlayRect = overlayElement.getBoundingClientRect();
+        const availableRightSpace = overlayRect.right - anchorRect.right;
+        const nextPlacement =
+          availableRightSpace >= SCROLL_TO_BOTTOM_GUTTER_REQUIRED_PX
+            ? "right"
+            : "above";
+
+        setScrollButtonPlacement((currentPlacement) =>
+          currentPlacement === nextPlacement
+            ? currentPlacement
+            : nextPlacement,
+        );
+      });
+    };
+
+    const resizeObserver = new ResizeObserver(updatePlacement);
+    resizeObserver.observe(anchorElement);
+    resizeObserver.observe(overlayElement);
+    updatePlacement();
+
+    return () => {
+      resizeObserver.disconnect();
+      if (resizeFrame !== null) {
+        window.cancelAnimationFrame(resizeFrame);
+      }
+    };
+  }, [scrollButtonAnchorElement]);
+
   const headerWorkspaceRoots = selectedAgentChat
     ? (selectedAgentChat.workspaceRoots ?? activeChatVisibleWorkspaceRoots)
     : activeChatVisibleWorkspaceRoots;
@@ -3697,7 +3812,7 @@ export default function Home() {
         }}
       />
 
-      <section className="relative grid min-h-0 flex-1 grid-rows-[auto_1fr_auto] bg-background px-4">
+      <section className="relative flex min-h-0 flex-1 flex-col bg-background px-4">
         <div className="-mx-4 flex min-w-0 items-center border-b">
           <div
             data-main-titlebar
@@ -3840,11 +3955,7 @@ export default function Home() {
           />
         )}
 
-        <div
-          className="relative flex min-h-0 flex-col overflow-hidden"
-          onWheel={handleChatWheel}
-          onPointerDown={handleChatPointerDown}
-        >
+        <div className="relative min-h-0 flex-1 overflow-hidden">
           {showChatSwitchLoading && (
             <div
               className="pointer-events-auto absolute inset-0 z-30 flex items-center justify-center text-foreground backdrop-blur-lg"
@@ -3860,8 +3971,10 @@ export default function Home() {
           <div
             ref={chatScrollRef}
             onScroll={handleChatScroll}
+            onWheel={handleChatWheel}
+            onPointerDown={handleChatPointerDown}
             className={cn(
-              "chat-scrollbar min-h-0 flex-1 w-full [overflow-anchor:none]",
+              "chat-scrollbar absolute inset-0 w-full [overflow-anchor:none]",
               hasMessages
                 ? "overflow-y-auto pt-3 pb-3 md:pt-6 md:pb-6"
                 : selectedAgentChat
@@ -3959,114 +4072,131 @@ export default function Home() {
               <div
                 ref={chatBottomRef}
                 aria-hidden="true"
-                className={cn(
-                  "w-full shrink-0",
-                  hasMessages && !selectedAgentChat
-                    ? "h-[10vh] min-h-10"
-                    : "h-px",
-                )}
+                className="w-full shrink-0"
+                style={{
+                  height:
+                    hasMessages || selectedAgentChat
+                      ? Math.max(bottomOverlayHeight, 1)
+                      : 1,
+                }}
               />
             </div>
           </div>
 
-          {hasMessages &&
-            !selectedAgentChat &&
-            isChatScrollable &&
-            !isNearChatBottom &&
-            showScrollToBottomButton && (
-              <div
-                className={cn(
-                  "pointer-events-none absolute inset-x-0 right-[-74px] bottom-0 z-10 px-3 md:px-4",
-                )}
-              >
-                <div
-                  className={cn(
-                    "mx-auto flex w-full justify-end",
-                    chatWidthClassName,
-                  )}
-                >
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    size="icon"
-                    className="pointer-events-auto  shadow-md opacity-80 hover:opacity-100"
-                    onClick={() => scrollChatToBottom()}
-                    title="Scroll to bottom"
-                    aria-label="Scroll to bottom"
-                  >
-                    <ChevronDown className="size-4" />
-                  </Button>
+          {hasBottomOverlay ? (
+            <div
+              data-chat-bottom-overlay
+              className="chat-bottom-overlay pointer-events-none absolute -inset-x-4 bottom-0 z-20 pt-12"
+            >
+              <div ref={bottomPanelRef} className="pointer-events-auto px-4">
+                <div className="relative">
+                  {hasMessages &&
+                  !selectedAgentChat &&
+                  isChatScrollable &&
+                  !isNearChatBottom &&
+                  showScrollToBottomButton ? (
+                    <div className="pointer-events-none absolute inset-x-0 top-3 z-10 md:top-4">
+                      <div
+                        ref={scrollButtonAnchorRef}
+                        className={cn(
+                          "relative mx-auto w-full",
+                          chatWidthClassName,
+                        )}
+                      >
+                        <div
+                          className={cn(
+                            "absolute",
+                            scrollButtonPlacement === "right"
+                              ? "left-full top-0 ml-2"
+                              : "bottom-full right-0 mb-2",
+                          )}
+                        >
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            size="icon"
+                            className="pointer-events-auto shadow-md opacity-80 hover:opacity-100"
+                            onClick={() => scrollChatToBottom()}
+                            title="Scroll to bottom"
+                            aria-label="Scroll to bottom"
+                          >
+                            <ChevronDown className="size-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
+                  {visiblePendingInteractions.length > 0 ? (
+                  <InteractionDock
+                    interactions={visiblePendingInteractions}
+                    contentWidthClassName={
+                      selectedAgentChat ? "max-w-4xl" : chatWidthClassName
+                    }
+                    canSubmit={stableCanSubmitAskUserResponse}
+                    onSubmitAskUserResponse={stableSubmitAskUserResponse}
+                    onSubmitToolApprovalResponse={
+                      stableSubmitFileToolApprovalResponse
+                    }
+                    onCancelAskUserRequest={stableCancelAskUserRequest}
+                  />
+                ) : !selectedAgentChat ? (
+                  <ChatComposer
+                    ref={chatComposerRef}
+                    disabled={!activeChat && !isNewChatDraft}
+                    isSending={isSending}
+                    draftKey={composerDraftKey}
+                    draft={activeComposerDraft}
+                    onDraftChange={updateActiveComposerDraft}
+                    attachments={activeComposerAttachments}
+                    onAttachmentsChange={updateActiveComposerAttachments}
+                    onSend={handleComposerSend}
+                    onStop={stopGeneration}
+                    editPreview={activeComposerEditState?.preview}
+                    onCancelEdit={
+                      activeComposerEditState ? cancelComposerEdit : undefined
+                    }
+                    supportsVision={modelSupportsVision(
+                      activeChatProvider,
+                      activeChatModel,
+                    )}
+                    footerStart={
+                      <ComposerFooter
+                        activeChatExists={Boolean(activeChat) || isNewChatDraft}
+                        isSending={isSending}
+                        activeChatProvider={activeChatProvider}
+                        activeChatModel={activeChatModel}
+                        visibleProviderGroups={visibleProviderGroups}
+                        isModelPickerOpen={isSidebarModelComboboxOpen}
+                        onModelPickerOpenChange={setIsSidebarModelComboboxOpen}
+                        modelSearchValue={sidebarModelSearchValue}
+                        onModelSearchValueChange={setSidebarModelSearchValue}
+                        onSelectProviderModel={selectActiveChatProviderModel}
+                        activeMode={activeMode}
+                        visibleModes={visibleModes}
+                        isModePickerOpen={isModePickerOpen}
+                        onModePickerOpenChange={setIsModePickerOpen}
+                        modeSearchValue={modeSearchValue}
+                        onModeSearchValueChange={setModeSearchValue}
+                        onSelectMode={selectActiveChatMode}
+                        thinkingMode={effectiveThinkingMode}
+                        thinkingLevels={activeThinkingLevels}
+                        isThinkingModePickerOpen={isThinkingModePickerOpen}
+                        onThinkingModePickerOpenChange={
+                          setIsThinkingModePickerOpen
+                        }
+                        onThinkingModeChange={setActiveOrDraftChatThinkingMode}
+                      />
+                    }
+                    contentWidthClassName={chatWidthClassName}
+                    skillMentionOptions={skillMentionOptions}
+                    onLoadSkillMention={loadSkillFromComposerMention}
+                  />
+                ) : null}
                 </div>
               </div>
-            )}
+            </div>
+          ) : null}
         </div>
-
-        {visiblePendingInteractions.length > 0 ? (
-          <InteractionDock
-            interactions={visiblePendingInteractions}
-            contentWidthClassName={
-              selectedAgentChat ? "max-w-4xl" : chatWidthClassName
-            }
-            canSubmit={stableCanSubmitAskUserResponse}
-            onSubmitAskUserResponse={stableSubmitAskUserResponse}
-            onSubmitToolApprovalResponse={
-              stableSubmitFileToolApprovalResponse
-            }
-            onCancelAskUserRequest={stableCancelAskUserRequest}
-          />
-        ) : null}
-
-        {!selectedAgentChat && visiblePendingInteractions.length === 0 ? (
-          <ChatComposer
-            ref={chatComposerRef}
-            disabled={!activeChat && !isNewChatDraft}
-            isSending={isSending}
-            draftKey={composerDraftKey}
-            draft={activeComposerDraft}
-            onDraftChange={updateActiveComposerDraft}
-            attachments={activeComposerAttachments}
-            onAttachmentsChange={updateActiveComposerAttachments}
-            onSend={handleComposerSend}
-            onStop={stopGeneration}
-            editPreview={activeComposerEditState?.preview}
-            onCancelEdit={
-              activeComposerEditState ? cancelComposerEdit : undefined
-            }
-            supportsVision={modelSupportsVision(
-              activeChatProvider,
-              activeChatModel,
-            )}
-            footerStart={
-              <ComposerFooter
-                activeChatExists={Boolean(activeChat) || isNewChatDraft}
-                isSending={isSending}
-                activeChatProvider={activeChatProvider}
-                activeChatModel={activeChatModel}
-                visibleProviderGroups={visibleProviderGroups}
-                isModelPickerOpen={isSidebarModelComboboxOpen}
-                onModelPickerOpenChange={setIsSidebarModelComboboxOpen}
-                modelSearchValue={sidebarModelSearchValue}
-                onModelSearchValueChange={setSidebarModelSearchValue}
-                onSelectProviderModel={selectActiveChatProviderModel}
-                activeMode={activeMode}
-                visibleModes={visibleModes}
-                isModePickerOpen={isModePickerOpen}
-                onModePickerOpenChange={setIsModePickerOpen}
-                modeSearchValue={modeSearchValue}
-                onModeSearchValueChange={setModeSearchValue}
-                onSelectMode={selectActiveChatMode}
-                thinkingMode={effectiveThinkingMode}
-                thinkingLevels={activeThinkingLevels}
-                isThinkingModePickerOpen={isThinkingModePickerOpen}
-                onThinkingModePickerOpenChange={setIsThinkingModePickerOpen}
-                onThinkingModeChange={setActiveOrDraftChatThinkingMode}
-              />
-            }
-            contentWidthClassName={chatWidthClassName}
-            skillMentionOptions={skillMentionOptions}
-            onLoadSkillMention={loadSkillFromComposerMention}
-          />
-        ) : null}
       </section>
 
       {isRightSidebarOpen ? (

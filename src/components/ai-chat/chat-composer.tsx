@@ -606,7 +606,7 @@ export const ChatComposer = memo(
           setIsDraggingAttachments(false);
           void getDroppedFileInputs(event).then(addFiles);
         }}
-        className="bg-background py-3 md:py-4"
+        className="py-3 md:py-4"
         data-draft-input
       >
         <div
