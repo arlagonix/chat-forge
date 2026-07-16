@@ -619,7 +619,7 @@ export const ChatSidebar = memo(function ChatSidebar({
           Move to folder
         </DropdownMenuSubTrigger>
         <DropdownMenuSubContent
-          sideOffset={2}
+          sideOffset={4}
           alignOffset={0}
           className="max-h-[min(18rem,var(--radix-dropdown-menu-content-available-height))] min-w-52 overflow-y-auto [&_[data-slot=dropdown-menu-item]]:text-sm [&_[data-slot=dropdown-menu-separator]]:my-1 [&_[data-slot=dropdown-menu-separator]]:min-h-0 [&_[data-slot=dropdown-menu-separator]]:bg-border/70"
         >
@@ -1090,6 +1090,7 @@ export const ChatSidebar = memo(function ChatSidebar({
                   side="bottom"
                   align="start"
                   sideOffset={0}
+                  className="[&_[data-slot=dropdown-menu-item]]:text-sm [&_[data-slot=dropdown-menu-label]]:text-sm [&_[data-slot=dropdown-menu-separator]]:my-1 [&_[data-slot=dropdown-menu-separator]]:min-h-0 [&_[data-slot=dropdown-menu-separator]]:bg-border/70"
                   onCloseAutoFocus={(event) => event.preventDefault()}
                 >
                   <DropdownMenuItem
