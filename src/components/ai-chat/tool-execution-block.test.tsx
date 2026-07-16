@@ -161,6 +161,27 @@ describe("ToolExecutionBlock", () => {
     expect(screen.queryByText("Exposed name: mcp_memory_search_memory")).not.toBeInTheDocument();
   });
 
+  it("capitalizes only the first character of tool names in compact and details headers", () => {
+    const customToolCall: ChatToolCall = {
+      id: "tool-call-custom-1",
+      type: "function",
+      function: {
+        name: "call_agent",
+        arguments: "{}",
+      },
+    };
+
+    render(<ToolBlockWithSidebar call={customToolCall} />);
+
+    expect(screen.getByText("Call_agent")).toBeInTheDocument();
+    expect(screen.queryByText("call_agent")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTitle("Open tool call details"));
+
+    expect(screen.getAllByText("Call_agent")).toHaveLength(2);
+    expect(screen.queryByText("call_agent")).not.toBeInTheDocument();
+  });
+
   it("shows a muted checkmark for successful tool calls", () => {
     const toolResult: ChatToolResult = {
       toolCallId: toolCall.id,
@@ -182,7 +203,7 @@ describe("ToolExecutionBlock", () => {
 
     expect(screen.queryByText("Complete")).not.toBeInTheDocument();
     expect(screen.getByLabelText("Tool complete")).toBeInTheDocument();
-    expect(screen.getByText(BASH_TOOL_NAME)).toBeInTheDocument();
+    expect(screen.getByText("Bash")).toBeInTheDocument();
     expect(screen.getByText("echo hello")).toBeInTheDocument();
   });
 
@@ -275,7 +296,7 @@ describe("ToolExecutionBlock", () => {
       />,
     );
 
-    expect(screen.getByText(CALL_AGENT_TOOL_NAME)).toBeInTheDocument();
+    expect(screen.getByText("Call_agent")).toBeInTheDocument();
     expect(screen.getByText("general")).toBeInTheDocument();
     expect(screen.queryByText(/funniest pun/)).not.toBeInTheDocument();
   });

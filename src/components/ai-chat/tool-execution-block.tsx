@@ -64,6 +64,10 @@ const TOOL_INFO_CODE_BLOCK_CLASS_NAME =
 const SKILL_CONTENT_CODE_BLOCK_CLASS_NAME =
   "chat-markdown-compact chat-skill-content-codeblock";
 
+function formatToolDisplayName(name: string) {
+  return name ? name[0].toUpperCase() + name.slice(1) : name;
+}
+
 const BUILTIN_TOOL_DESCRIPTIONS: Record<string, string> = {
   [ASK_USER_TOOL.name]: ASK_USER_TOOL.description,
   ...Object.fromEntries(
@@ -939,7 +943,7 @@ export const ToolExecutionDetailsSidebar = memo(
             <div className="min-w-0 flex-1">
               <div className="flex min-w-0 items-center gap-2 text-sm font-medium text-muted-foreground">
                 <span className="min-w-0 shrink-0 truncate text-muted-foreground/90">
-                  {toolCall.function.name}
+                  {formatToolDisplayName(toolCall.function.name)}
                 </span>
                 {renderedToolStatus ? (
                   <>
@@ -1118,7 +1122,7 @@ export const ToolExecutionBlock = memo(function ToolExecutionBlock({
                 <Maximize2 className="hidden size-3.5 group-hover:block group-focus:block" />
               </span>
               <span className="shrink-0 truncate text-muted-foreground/85">
-                {toolCall.function.name}
+                {formatToolDisplayName(toolCall.function.name)}
               </span>
               {renderedToolStatus ? (
                 <>
