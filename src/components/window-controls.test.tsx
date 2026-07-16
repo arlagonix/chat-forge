@@ -51,8 +51,12 @@ describe("WindowControls", () => {
     const controls = await screen.findByLabelText("Window controls");
     expect(controls).not.toHaveClass("absolute");
     expect(screen.getByRole("button", { name: "Minimize" })).toHaveClass(
+      "window-control-button",
       "h-8",
       "w-8",
+    );
+    expect(screen.getByRole("button", { name: "Close" })).toHaveClass(
+      "window-control-button-close",
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Minimize" }));

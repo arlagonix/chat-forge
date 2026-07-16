@@ -236,6 +236,40 @@
     -webkit-app-region: no-drag;
   }
 
+  .window-control-button {
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    cursor: pointer;
+    transition:
+      background-color 120ms ease,
+      color 120ms ease;
+  }
+
+  .window-control-button:hover {
+    background: color-mix(in oklab, currentColor 12%, transparent);
+  }
+
+  .window-control-button:focus-visible {
+    outline: 2px solid currentColor;
+    outline-offset: -2px;
+  }
+
+  .window-control-button-close:hover {
+    background: #dc2626;
+    color: #ffffff;
+  }
+
+  .window-control-icon {
+    width: 14px;
+    height: 14px;
+    fill: none;
+    stroke: currentColor;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-width: 1.5;
+  }
+
   :root[data-platform="darwin"] [data-sidebar-titlebar] {
     padding-left: 5rem;
   }

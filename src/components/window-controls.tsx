@@ -1,10 +1,56 @@
-import { Copy, Minus, Square, X } from "lucide-react";
 import { useEffect, useState } from "react";
 
-import { cn } from "@/lib/utils";
-
 const controlClassName =
-  "app-region-no-drag inline-flex h-8 w-8 items-center justify-center text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring";
+  "window-control-button app-region-no-drag inline-flex h-8 w-8 items-center justify-center text-muted-foreground";
+
+function MinimizeIcon() {
+  return (
+    <svg
+      className="window-control-icon"
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+    >
+      <path d="M5 12h14" />
+    </svg>
+  );
+}
+
+function MaximizeIcon() {
+  return (
+    <svg
+      className="window-control-icon"
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+    >
+      <rect x="5" y="5" width="14" height="14" rx="1" />
+    </svg>
+  );
+}
+
+function RestoreIcon() {
+  return (
+    <svg
+      className="window-control-icon"
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+    >
+      <rect x="8" y="4" width="12" height="12" rx="1" />
+      <path d="M16 16v3a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1h3" />
+    </svg>
+  );
+}
+
+function CloseIcon() {
+  return (
+    <svg
+      className="window-control-icon"
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+    >
+      <path d="m6 6 12 12M18 6 6 18" />
+    </svg>
+  );
+}
 
 type WindowState = {
   maximized: boolean;
@@ -45,7 +91,7 @@ export function WindowControls() {
 
   return (
     <div
-      className="app-region-no-drag flex h-8 shrink-0 items-center"
+      className="app-region-no-drag flex h-8 shrink-0 items-center pr-1"
       aria-label="Window controls"
     >
       <button
@@ -55,7 +101,7 @@ export function WindowControls() {
         title="Minimize"
         aria-label="Minimize"
       >
-        <Minus className="size-3.5" strokeWidth={1.5} />
+        <MinimizeIcon />
       </button>
       <button
         type="button"
@@ -69,23 +115,16 @@ export function WindowControls() {
         title={windowState.maximized ? "Restore" : "Maximize"}
         aria-label={windowState.maximized ? "Restore" : "Maximize"}
       >
-        {windowState.maximized ? (
-          <Copy className="size-3.5" strokeWidth={1.5} />
-        ) : (
-          <Square className="size-3.5" strokeWidth={1.5} />
-        )}
+        {windowState.maximized ? <RestoreIcon /> : <MaximizeIcon />}
       </button>
       <button
         type="button"
-        className={cn(
-          controlClassName,
-          "hover:bg-red-600 hover:text-white dark:hover:bg-red-600 dark:hover:text-white",
-        )}
+        className={`${controlClassName} window-control-button-close`}
         onClick={() => void desktop.closeWindow()}
         title="Close"
         aria-label="Close"
       >
-        <X className="size-3.5" strokeWidth={1.5} />
+        <CloseIcon />
       </button>
     </div>
   );

@@ -39,6 +39,8 @@ function RadixThemeBridge({ children }: { children: ReactNode }) {
   );
 }
 
+document.getElementById("startup-titlebar")?.remove();
+
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <ThemeProvider>

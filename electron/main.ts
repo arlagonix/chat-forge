@@ -497,6 +497,30 @@ let win: BrowserWindow | null = null;
 
 type DesktopThemeSource = "system" | "light" | "dark";
 
+const DESKTOP_THEME_FILE_NAME = "theme.json";
+
+function normalizeDesktopThemeSource(value: unknown): DesktopThemeSource {
+  return value === "light" || value === "dark" || value === "system"
+    ? value
+    : "system";
+}
+
+function getDesktopThemeStoragePath() {
+  return path.join(app.getPath("userData"), DESKTOP_THEME_FILE_NAME);
+}
+
+async function loadDesktopThemeSource(): Promise<DesktopThemeSource> {
+  const stored = await readJsonFile<{ source?: unknown }>(
+    getDesktopThemeStoragePath(),
+    {},
+  );
+  return normalizeDesktopThemeSource(stored.source);
+}
+
+async function saveDesktopThemeSource(source: DesktopThemeSource) {
+  await writeJsonAtomic(getDesktopThemeStoragePath(), { source });
+}
+
 function usesCustomWindowControls() {
   return process.platform === "win32" || process.platform === "linux";
 }
@@ -6177,13 +6201,17 @@ ipcMain.handle("desktop:get-window-state", (event) => {
     : { maximized: false, fullscreen: false };
 });
 
-ipcMain.handle("desktop:set-theme-source", (_event, value: unknown) => {
-  const source: DesktopThemeSource =
-    value === "light" || value === "dark" || value === "system"
-      ? value
-      : "system";
+ipcMain.handle("desktop:set-theme-source", async (_event, value: unknown) => {
+  const source = normalizeDesktopThemeSource(value);
   nativeTheme.themeSource = source;
   updateWindowBackgroundColors();
+
+  try {
+    await saveDesktopThemeSource(source);
+  } catch (error) {
+    console.warn("Failed to persist desktop theme preference:", error);
+  }
+
   return {
     source,
     resolved: nativeTheme.shouldUseDarkColors ? "dark" : "light",
@@ -6286,7 +6314,8 @@ app.on("activate", () => {
   }
 });
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  nativeTheme.themeSource = await loadDesktopThemeSource();
   nativeTheme.on("updated", updateWindowBackgroundColors);
   Menu.setApplicationMenu(buildApplicationMenu());
   createWindow();
