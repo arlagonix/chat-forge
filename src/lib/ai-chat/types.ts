@@ -490,6 +490,13 @@ export type ModeFeaturePermission = "custom" | ModePermission;
 export type PermissionMap = Record<string, Permission>;
 export type ModePermissionMap = Record<string, ModeFeaturePermission>;
 
+export type SkillAvailability = "on" | "off";
+export type SkillFeatureAvailability = "custom" | SkillAvailability;
+export type ModeSkillAvailability = "global" | SkillAvailability;
+export type ModeSkillFeatureAvailability = "custom" | ModeSkillAvailability;
+export type SkillAvailabilityMap = Record<string, SkillAvailability>;
+export type ModeSkillAvailabilityMap = Record<string, ModeSkillFeatureAvailability>;
+
 export type ModeDefinition = {
   id: string;
   name: string;
@@ -504,10 +511,14 @@ export type ModeDefinition = {
   allowedSkillNames: string[];
   allowedAgentNames: string[];
   toolPermissions?: ModePermissionMap;
+  skillAvailability?: ModeSkillAvailabilityMap;
+  /** Legacy skill permission map, migrated into skillAvailability. */
   skillPermissions?: ModePermissionMap;
   agentPermissions?: ModePermissionMap;
-  /** Permission model version. Missing means legacy master rows should be migrated conservatively. */
+  /** Permission model version for tools and agents. */
   permissionModelVersion?: 2;
+  /** Skill availability model version. */
+  skillAvailabilityModelVersion?: 1;
 };
 
 export type LoadedModeInfo = ModeDefinition;
@@ -585,6 +596,7 @@ export type ChatSession = {
   workspaceRoots?: ChatWorkspaceRoot[];
   fileToolAutoApproval?: ChatFileToolAutoApproval;
   thinkingMode?: ChatThinkingMode;
+  autoApprove?: boolean;
   modeId?: string;
 };
 
@@ -715,7 +727,7 @@ export type SkillDefinition = {
   manifestPath?: string;
   /** Full raw SKILL.md content including frontmatter, used for readonly UI display. */
   manifestContent?: string;
-  /** Pi/Claude-style flag: hide from automatic model discovery, but keep /skill:name available. */
+  /** Pi/Claude-style flag: hide from automatic model discovery, but keep /skill/name available. */
   disableModelInvocation?: boolean;
   /** Human-readable discovery source, e.g. global or workspace path. */
   source?: string;
@@ -745,8 +757,11 @@ export type AgentDefinition = {
   providerId?: string;
   model?: string;
   maxNestingDepth: number;
-  /** Skills this agent may discover and load with the skill tool. Not preloaded into context. */
+  /** Legacy explicit skill allow-list, migrated into skillAvailability. */
   availableSkillNames: string[];
+  /** Skill visibility inheritance for this custom agent. Built-in agents inherit the chat. */
+  skillAvailability?: ModeSkillAvailabilityMap;
+  skillAvailabilityModelVersion?: 1;
   allowedToolNames: string[];
   allowedAgentNames: string[];
 };
@@ -854,12 +869,14 @@ export type ToolsSettings = {
 };
 
 export type SkillsSettings = {
-  /** Legacy global switch. Permission maps are the active model. */
+  /** Global model visibility switch. Modes and custom agents may override it. */
   enabled?: boolean;
-  /** Feature-level master permission for the whole skills category. */
+  /** Per-skill model visibility. Missing entries default to On. */
+  skillAvailability?: SkillAvailabilityMap;
+  availabilityModelVersion?: 1;
+  /** Legacy permission fields retained only for migration. */
   skillsPermission?: FeaturePermission;
   skillPermissions?: PermissionMap;
-  /** Permission model version. Missing means legacy master values should be migrated to custom. */
   permissionModelVersion?: 2;
 };
 

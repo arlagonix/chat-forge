@@ -269,6 +269,8 @@ type AgentDefinition = {
   model?: string;
   maxNestingDepth: number;
   availableSkillNames: string[];
+  skillAvailability?: ModeSkillAvailabilityMap;
+  skillAvailabilityModelVersion?: 1;
   allowedToolNames: string[];
   allowedAgentNames: string[];
 };
@@ -277,6 +279,9 @@ type PublicAgentDefinition = AgentDefinition;
 
 type Permission = "allow" | "ask" | "deny";
 type FeaturePermission = "custom" | Permission;
+type SkillAvailability = "on" | "off";
+type ModeSkillFeatureAvailability = "custom" | "global" | SkillAvailability;
+type ModeSkillAvailabilityMap = Record<string, ModeSkillFeatureAvailability>;
 type BuiltInToolSettings = {
   descriptionMode?: "default" | "custom";
   customDescription?: string;
@@ -305,6 +310,8 @@ type ToolsSettings = {
 
 type SkillsSettings = {
   enabled?: boolean;
+  skillAvailability?: Record<string, SkillAvailability>;
+  availabilityModelVersion?: 1;
   skillsPermission?: FeaturePermission;
   skillPermissions?: Record<string, Permission>;
   permissionModelVersion?: 2;
@@ -443,9 +450,8 @@ const DEFAULT_TOOLS_SETTINGS: ToolsSettings = {
 };
 const DEFAULT_SKILLS_SETTINGS: SkillsSettings = {
   enabled: true,
-  skillsPermission: "custom",
-  skillPermissions: {},
-  permissionModelVersion: 2,
+  skillAvailability: {},
+  availabilityModelVersion: 1,
 };
 const DEFAULT_AGENTS_SETTINGS: AgentsSettings = {
   enabled: true,
@@ -722,6 +728,48 @@ function normalizePermissionMap(value: unknown): Record<string, Permission> {
   return result;
 }
 
+function normalizeSkillAvailabilityMap(
+  value: unknown,
+): Record<string, SkillAvailability> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const result: Record<string, SkillAvailability> = {};
+  for (const [name, state] of Object.entries(
+    value as Record<string, unknown>,
+  )) {
+    const trimmedName = name.trim();
+    if (!trimmedName || (state !== "on" && state !== "off")) continue;
+    result[trimmedName] = state;
+  }
+  return result;
+}
+
+function normalizeModeSkillAvailabilityMap(
+  value: unknown,
+): ModeSkillAvailabilityMap {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const result: ModeSkillAvailabilityMap = {};
+  for (const [name, state] of Object.entries(
+    value as Record<string, unknown>,
+  )) {
+    const trimmedName = name.trim();
+    if (!trimmedName) continue;
+    if (
+      state !== "custom" &&
+      state !== "global" &&
+      state !== "on" &&
+      state !== "off"
+    )
+      continue;
+    if (
+      trimmedName !== "__feature__" &&
+      (state === "custom" || state === "global")
+    )
+      continue;
+    result[trimmedName] = state;
+  }
+  return result;
+}
+
 function legacyToolPermission(
   enabled: unknown,
   autoApproved: unknown,
@@ -845,23 +893,36 @@ function normalizeToolsSettings(value: unknown): ToolsSettings {
 function normalizeSkillsSettings(value: unknown): SkillsSettings {
   if (!isPlainObject(value)) return DEFAULT_SKILLS_SETTINGS;
 
-  const permissionModelVersion =
-    value.permissionModelVersion === 2 ? 2 : undefined;
-  const skillsPermission: FeaturePermission =
-    permissionModelVersion === 2
-      ? normalizeFeaturePermission(value.skillsPermission, "custom")
-      : "custom";
+  if (value.availabilityModelVersion === 1) {
+    return {
+      enabled: typeof value.enabled === "boolean" ? value.enabled : true,
+      skillAvailability: normalizeSkillAvailabilityMap(value.skillAvailability),
+      availabilityModelVersion: 1,
+    };
+  }
+
+  const legacyMaster = normalizeFeaturePermission(
+    value.skillsPermission,
+    "custom",
+  );
+  const legacyPermissions = normalizePermissionMap(value.skillPermissions);
+  const skillAvailability = Object.fromEntries(
+    Object.entries(legacyPermissions).map(([name, permission]) => [
+      name,
+      permission === "deny" ? "off" : "on",
+    ]),
+  ) as Record<string, SkillAvailability>;
+
+  const hasLegacyPermissionModel = value.permissionModelVersion === 2;
 
   return {
-    enabled:
-      permissionModelVersion === 2
-        ? skillsPermission !== "deny"
-        : typeof value.enabled === "boolean"
-          ? value.enabled
-          : true,
-    skillsPermission,
-    skillPermissions: normalizePermissionMap(value.skillPermissions),
-    permissionModelVersion: 2,
+    enabled: hasLegacyPermissionModel
+      ? legacyMaster !== "deny"
+      : typeof value.enabled === "boolean"
+        ? value.enabled
+        : true,
+    skillAvailability,
+    availabilityModelVersion: 1,
   };
 }
 
@@ -1170,6 +1231,14 @@ function normalizeAgentDefinition(candidate: unknown): AgentDefinition {
     )
       .map((item) => item.trim())
       .filter(Boolean),
+    ...(source.skillAvailabilityModelVersion === 1
+      ? {
+          skillAvailability: normalizeModeSkillAvailabilityMap(
+            source.skillAvailability,
+          ),
+          skillAvailabilityModelVersion: 1 as const,
+        }
+      : {}),
     allowedToolNames: safeStringArray(source.allowedToolNames)
       .map((item) => item.trim())
       .filter(Boolean),
@@ -2161,12 +2230,8 @@ function createWindow() {
 
   browserWindow.on("maximize", () => emitWindowState(browserWindow));
   browserWindow.on("unmaximize", () => emitWindowState(browserWindow));
-  browserWindow.on("enter-full-screen", () =>
-    emitWindowState(browserWindow),
-  );
-  browserWindow.on("leave-full-screen", () =>
-    emitWindowState(browserWindow),
-  );
+  browserWindow.on("enter-full-screen", () => emitWindowState(browserWindow));
+  browserWindow.on("leave-full-screen", () => emitWindowState(browserWindow));
   browserWindow.on("closed", () => {
     if (win === browserWindow) win = null;
   });

@@ -68,6 +68,10 @@ import {
   isBuiltInAgentName,
 } from "@/lib/ai-chat/builtin-agents";
 import {
+  FEATURE_PERMISSION_KEY,
+  normalizeModeSkillAvailabilityMap,
+} from "@/lib/ai-chat/modes";
+import {
   createId,
   getEnabledProviderModels,
   labelForError,
@@ -94,6 +98,9 @@ import type {
   LoadedAgentInfo,
   LoadedSkillInfo,
   LoadedToolInfo,
+  ModeSkillAvailability,
+  ModeSkillAvailabilityMap,
+  ModeSkillFeatureAvailability,
   Permission,
   ProviderConfig,
 } from "@/lib/ai-chat/types";
@@ -109,7 +116,7 @@ type AgentDraft = {
   providerId: string;
   model: string;
   maxNestingDepth: string;
-  availableSkillNames: string[];
+  skillAvailability: ModeSkillAvailabilityMap;
   allowedToolNames: string[];
   allowedAgentNames: string[];
 };
@@ -213,6 +220,62 @@ function MasterPermissionSelect({
   );
 }
 
+function AgentSkillAvailabilitySelect({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: ModeSkillAvailability;
+  onChange: (value: ModeSkillAvailability) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <Select
+      value={value}
+      onValueChange={(next: string) =>
+        onChange(next as ModeSkillAvailability)
+      }
+      disabled={disabled}
+    >
+      <SelectTrigger className="h-8 w-24 shrink-0">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value="global">Global</SelectItem>
+        <SelectItem value="on">On</SelectItem>
+        <SelectItem value="off">Off</SelectItem>
+      </SelectContent>
+    </Select>
+  );
+}
+
+function AgentSkillFeatureAvailabilitySelect({
+  value,
+  onChange,
+}: {
+  value: ModeSkillFeatureAvailability;
+  onChange: (value: ModeSkillFeatureAvailability) => void;
+}) {
+  return (
+    <Select
+      value={value}
+      onValueChange={(next: string) =>
+        onChange(next as ModeSkillFeatureAvailability)
+      }
+    >
+      <SelectTrigger className="h-8 w-24 shrink-0">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value="custom">Custom</SelectItem>
+        <SelectItem value="global">Global</SelectItem>
+        <SelectItem value="on">On</SelectItem>
+        <SelectItem value="off">Off</SelectItem>
+      </SelectContent>
+    </Select>
+  );
+}
+
 function createBlankAgentDraft(): AgentDraft {
   return {
     id: createId(),
@@ -224,14 +287,37 @@ function createBlankAgentDraft(): AgentDraft {
     providerId: "",
     model: "",
     maxNestingDepth: String(DEFAULT_AGENT_MAX_NESTING_DEPTH),
-    availableSkillNames: [],
+    skillAvailability: { [FEATURE_PERMISSION_KEY]: "global" },
     allowedToolNames: [],
     allowedAgentNames: [],
   };
 }
 
-function agentToDraft(agent: LoadedAgentInfo): AgentDraft {
+function agentToDraft(
+  agent: LoadedAgentInfo,
+  availableSkills: LoadedSkillInfo[],
+): AgentDraft {
   const source = agent as LoadedAgentInfo & { loadedSkillNames?: string[] };
+  const legacySkillNames = new Set(
+    source.availableSkillNames ?? source.loadedSkillNames ?? [],
+  );
+  const normalizedSkillAvailability = normalizeModeSkillAvailabilityMap(
+    agent.skillAvailability,
+  );
+  const hasStoredSkillAvailability =
+    agent.skillAvailabilityModelVersion === 1;
+  const skillAvailability = hasStoredSkillAvailability
+    ? normalizedSkillAvailability
+    : {
+        [FEATURE_PERMISSION_KEY]: "custom" as const,
+        ...Object.fromEntries(
+          availableSkills.map((skill) => [
+            skill.name,
+            legacySkillNames.has(skill.name) ? "on" : "off",
+          ]),
+        ),
+      };
+
   return {
     id: agent.id,
     name: agent.name,
@@ -244,8 +330,7 @@ function agentToDraft(agent: LoadedAgentInfo): AgentDraft {
     maxNestingDepth: String(
       agent.maxNestingDepth ?? DEFAULT_AGENT_MAX_NESTING_DEPTH,
     ),
-    availableSkillNames:
-      source.availableSkillNames ?? source.loadedSkillNames ?? [],
+    skillAvailability,
     allowedToolNames: agent.allowedToolNames ?? [],
     allowedAgentNames: agent.allowedAgentNames ?? [],
   };
@@ -270,7 +355,15 @@ function draftToAgent(draft: AgentDraft): LoadedAgentInfo {
     maxNestingDepth: Number.isFinite(rawMaxNestingDepth)
       ? Math.min(Math.max(Math.round(rawMaxNestingDepth), 1), 8)
       : DEFAULT_AGENT_MAX_NESTING_DEPTH,
-    availableSkillNames: normalizeNameList(draft.availableSkillNames),
+    availableSkillNames: Object.entries(draft.skillAvailability)
+      .filter(([name, availability]) =>
+        name !== FEATURE_PERMISSION_KEY && availability === "on"
+      )
+      .map(([name]) => name),
+    skillAvailability: normalizeModeSkillAvailabilityMap(
+      draft.skillAvailability,
+    ),
+    skillAvailabilityModelVersion: 1,
     allowedToolNames: normalizeNameList(draft.allowedToolNames),
     allowedAgentNames: normalizeNameList(draft.allowedAgentNames),
   };
@@ -308,8 +401,16 @@ function areAgentDraftsEqual(left: AgentDraft, right: AgentDraft) {
     left.providerId === right.providerId &&
     left.model === right.model &&
     left.maxNestingDepth === right.maxNestingDepth &&
-    JSON.stringify([...left.availableSkillNames].sort()) ===
-      JSON.stringify([...right.availableSkillNames].sort()) &&
+    JSON.stringify(
+      Object.entries(left.skillAvailability).sort(([a], [b]) =>
+        a.localeCompare(b),
+      ),
+    ) ===
+      JSON.stringify(
+        Object.entries(right.skillAvailability).sort(([a], [b]) =>
+          a.localeCompare(b),
+        ),
+      ) &&
     JSON.stringify([...left.allowedToolNames].sort()) ===
       JSON.stringify([...right.allowedToolNames].sort()) &&
     JSON.stringify([...left.allowedAgentNames].sort()) ===
@@ -463,9 +564,9 @@ export const AgentsDialog = memo(function AgentsDialog({
     const selected = displayedAgents.find(
       (agent) => agent.name === selectedAgentName,
     );
-    if (selected) setAgentDraft(agentToDraft(selected));
+    if (selected) setAgentDraft(agentToDraft(selected, availableSkills));
     else if (selectedAgentName) setAgentDraft(null);
-  }, [displayedAgents, selectedAgentName]);
+  }, [availableSkills, displayedAgents, selectedAgentName]);
 
   function updateAgentDraft(patch: Partial<AgentDraft>) {
     setAgentDraft((current) => (current ? { ...current, ...patch } : current));
@@ -476,8 +577,8 @@ export const AgentsDialog = memo(function AgentsDialog({
   }
 
   const savedAgentDraft = useMemo(
-    () => (selectedAgent ? agentToDraft(selectedAgent) : null),
-    [selectedAgent],
+    () => (selectedAgent ? agentToDraft(selectedAgent, availableSkills) : null),
+    [availableSkills, selectedAgent],
   );
   const isCreatingAgent = Boolean(agentDraft && !selectedAgent);
 
@@ -525,7 +626,7 @@ export const AgentsDialog = memo(function AgentsDialog({
         return next.sort((left, right) => left.name.localeCompare(right.name));
       });
       setSelectedAgentName(savedAgent.name);
-      setAgentDraft(agentToDraft(savedAgent));
+      setAgentDraft(agentToDraft(savedAgent, availableSkills));
       showSuccess(isCreatingAgent ? "Agent created" : "Agent saved");
     } catch (error) {
       showError("Failed to save agent", labelForError(error));
@@ -621,12 +722,17 @@ export const AgentsDialog = memo(function AgentsDialog({
     setInstructionsEditorOpen(false);
   }
 
-  function toggleAvailableSkill(skillName: string) {
+  function updateSkillAvailability(
+    skillName: string,
+    availability: ModeSkillFeatureAvailability,
+  ) {
     if (!agentDraft) return;
-    const selectedNames = new Set<string>(agentDraft.availableSkillNames);
-    if (selectedNames.has(skillName)) selectedNames.delete(skillName);
-    else selectedNames.add(skillName);
-    updateAgentDraft({ availableSkillNames: [...selectedNames] });
+    updateAgentDraft({
+      skillAvailability: {
+        ...agentDraft.skillAvailability,
+        [skillName]: availability,
+      },
+    });
   }
 
   function toggleAllowedTool(toolName: string) {
@@ -653,10 +759,6 @@ export const AgentsDialog = memo(function AgentsDialog({
           .includes(availableSkillSearchText),
       )
     : availableSkills;
-  const availableSkillsByName = useMemo(
-    () => new Map(availableSkills.map((skill) => [skill.name, skill] as const)),
-    [availableSkills],
-  );
 
   const visibleToolGroups = useMemo(
     () => groupToolsBySource(filterToolsForSearch(availableTools, toolSearch)),
@@ -711,7 +813,7 @@ export const AgentsDialog = memo(function AgentsDialog({
 
     const fallbackAgent = displayedAgents[0] ?? null;
     setSelectedAgentName(fallbackAgent?.name ?? null);
-    setAgentDraft(fallbackAgent ? agentToDraft(fallbackAgent) : null);
+    setAgentDraft(fallbackAgent ? agentToDraft(fallbackAgent, availableSkills) : null);
     setInstructionsEditorOpen(false);
   }
 
@@ -745,7 +847,7 @@ export const AgentsDialog = memo(function AgentsDialog({
   function cancelNewAgentDraft() {
     const fallbackAgent = displayedAgents[0] ?? null;
     setSelectedAgentName(fallbackAgent?.name ?? null);
-    setAgentDraft(fallbackAgent ? agentToDraft(fallbackAgent) : null);
+    setAgentDraft(fallbackAgent ? agentToDraft(fallbackAgent, availableSkills) : null);
     setInstructionsEditorOpen(false);
   }
 
@@ -761,7 +863,7 @@ export const AgentsDialog = memo(function AgentsDialog({
 
   function selectAgent(agent: LoadedAgentInfo) {
     setSelectedAgentName(agent.name);
-    setAgentDraft(agentToDraft(agent));
+    setAgentDraft(agentToDraft(agent, availableSkills));
     setInstructionsEditorOpen(false);
   }
 
@@ -1296,150 +1398,87 @@ export const AgentsDialog = memo(function AgentsDialog({
                             <div className="grid gap-1">
                               <Label>Available skills</Label>
                               <p className="text-sm leading-5 text-muted-foreground">
-                                These skills are shown to the agent and can be
-                                loaded with the skill tool. They are not
-                                preloaded into context.
+                                Controls which skills this agent can discover.
+                                Global follows the parent chat and active mode.
                               </p>
                             </div>
-                            <Popover
-                              onOpenChange={(nextOpen) => {
-                                if (!nextOpen) setAvailableSkillSearch("");
-                              }}
-                            >
-                              <PopoverTrigger asChild>
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  role="combobox"
-                                  className="w-full justify-between px-3 text-left font-normal"
-                                  disabled={availableSkills.length === 0}
-                                >
-                                  <span
-                                    className={cn(
-                                      "min-w-0 truncate",
-                                      agentDraft.availableSkillNames.length ===
-                                        0 && "text-muted-foreground",
-                                    )}
-                                  >
-                                    {agentDraft.availableSkillNames.length > 0
-                                      ? `${agentDraft.availableSkillNames.length} available skill${agentDraft.availableSkillNames.length === 1 ? "" : "s"}`
-                                      : availableSkills.length > 0
-                                        ? "Select available skills"
-                                        : "No skills are available"}
-                                  </span>
-                                  <ChevronDown className="ml-2 size-4 shrink-0 opacity-50" />
-                                </Button>
-                              </PopoverTrigger>
-                              <PopoverContent
-                                align="start"
-                                className="w-[var(--radix-popover-trigger-width)] max-w-[var(--radix-popover-trigger-width)] p-0"
-                              >
-                                <div className="grid max-h-[min(24rem,var(--radix-popover-content-available-height))] min-h-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden">
-                                  <div className="border-b p-2">
-                                    <Input
-                                      value={availableSkillSearch}
-                                      onChange={(event) =>
-                                        setAvailableSkillSearch(event.target.value)
-                                      }
-                                      placeholder="Search skills..."
-                                      className="h-9"
-                                    />
-                                  </div>
-                                  <div
-                                    className="max-h-80 overflow-y-auto overscroll-contain p-1 chat-message-scrollbar"
-                                    onWheelCapture={(event) =>
-                                      event.stopPropagation()
-                                    }
-                                  >
-                                    {visibleAvailableSkills.length > 0 ? (
-                                      visibleAvailableSkills.map((skill) => {
-                                        const checked =
-                                          agentDraft.availableSkillNames.includes(
-                                            skill.name,
-                                          );
-                                        return (
-                                          <div
-                                            key={skill.name}
-                                            role="button"
-                                            tabIndex={0}
-                                            className="flex w-full min-w-0 cursor-pointer items-start gap-2 px-2 py-2 text-left hover:bg-accent hover:text-accent-foreground focus-visible:outline-none"
-                                            onClick={() =>
-                                              toggleAvailableSkill(skill.name)
-                                            }
-                                            onKeyDown={(event) => {
-                                              if (
-                                                event.key === "Enter" ||
-                                                event.key === " "
-                                              ) {
-                                                event.preventDefault();
-                                                toggleAvailableSkill(skill.name);
-                                              }
-                                            }}
-                                            title={skill.description}
-                                          >
-                                            <Checkbox
-                                              checked={checked}
-                                              tabIndex={-1}
-                                              className="mt-1 shrink-0 pointer-events-none"
-                                            />
-                                            <span className="min-w-0 flex-1">
-                                              <span className="block truncate font-medium">
-                                                {skill.name}
-                                              </span>
-                                              {skill.description && (
-                                                <span className="mt-0.5 line-clamp-2 text-sm leading-5 text-muted-foreground">
-                                                  {skill.description}
-                                                </span>
-                                              )}
-                                            </span>
-                                          </div>
-                                        );
-                                      })
-                                    ) : (
-                                      <div className="px-3 py-6 text-center text-base text-muted-foreground">
-                                        No skills found.
-                                      </div>
-                                    )}
-                                  </div>
+                            <div className="flex items-center justify-between gap-3 rounded-sm border bg-card px-3 py-2">
+                              <div className="min-w-0 flex-1">
+                                <div className="font-medium">Skills</div>
+                                <div className="text-sm text-muted-foreground">
+                                  Set all skills or configure them individually.
                                 </div>
-                              </PopoverContent>
-                            </Popover>
-
-                            {agentDraft.availableSkillNames.length > 0 && (
-                              <div className="grid max-h-56 gap-1 overflow-y-auto rounded-sm border bg-muted/10 p-2">
-                                {agentDraft.availableSkillNames.map(
-                                  (skillName) => {
-                                    const skill =
-                                      availableSkillsByName.get(skillName);
-                                    return (
-                                      <div
-                                        key={skillName}
-                                        className="flex min-w-0 items-start gap-2 rounded-sm px-2 py-1.5 hover:bg-muted/70"
-                                        title={skill?.description}
-                                      >
-                                        <Checkbox
-                                          checked
-                                          onCheckedChange={() =>
-                                            toggleAvailableSkill(skillName)
-                                          }
-                                          className="mt-1 shrink-0"
-                                        />
-                                        <span className="min-w-0 flex-1">
-                                          <span className="block truncate font-medium">
-                                            {skillName}
-                                          </span>
-                                          {skill?.description && (
-                                            <span className="mt-0.5 line-clamp-2 text-sm leading-5 text-muted-foreground">
-                                              {skill.description}
-                                            </span>
-                                          )}
-                                        </span>
-                                      </div>
-                                    );
-                                  },
-                                )}
                               </div>
-                            )}
+                              <AgentSkillFeatureAvailabilitySelect
+                                value={
+                                  agentDraft.skillAvailability[
+                                    FEATURE_PERMISSION_KEY
+                                  ] ?? "global"
+                                }
+                                onChange={(value) =>
+                                  updateSkillAvailability(
+                                    FEATURE_PERMISSION_KEY,
+                                    value,
+                                  )
+                                }
+                              />
+                            </div>
+                            <Input
+                              value={availableSkillSearch}
+                              onChange={(event) =>
+                                setAvailableSkillSearch(event.target.value)
+                              }
+                              placeholder="Search skills..."
+                              className="h-9"
+                            />
+                            <div className="grid max-h-72 gap-1 overflow-y-auto chat-message-scrollbar">
+                              {visibleAvailableSkills.length > 0 ? (
+                                visibleAvailableSkills.map((skill) => {
+                                  const master =
+                                    agentDraft.skillAvailability[
+                                      FEATURE_PERMISSION_KEY
+                                    ] ?? "global";
+                                  const childLocked = master !== "custom";
+                                  const value = childLocked
+                                    ? master === "global"
+                                      ? "global"
+                                      : master
+                                    : (agentDraft.skillAvailability[
+                                        skill.name
+                                      ] ?? "global");
+                                  return (
+                                    <div
+                                      key={skill.name}
+                                      className="flex min-w-0 items-start gap-3 rounded-sm border bg-card px-3 py-2"
+                                    >
+                                      <div className="min-w-0 flex-1">
+                                        <div className="truncate font-medium">
+                                          {skill.name}
+                                        </div>
+                                        <div className="mt-0.5 line-clamp-2 text-sm leading-5 text-muted-foreground">
+                                          {skill.description ||
+                                            "No description."}
+                                        </div>
+                                      </div>
+                                      <AgentSkillAvailabilitySelect
+                                        value={value}
+                                        disabled={childLocked}
+                                        onChange={(next) =>
+                                          updateSkillAvailability(
+                                            skill.name,
+                                            next,
+                                          )
+                                        }
+                                      />
+                                    </div>
+                                  );
+                                })
+                              ) : (
+                                <div className="rounded-sm border border-dashed px-3 py-4 text-sm text-muted-foreground">
+                                  No skills found.
+                                </div>
+                              )}
+                            </div>
                           </div>
 
                           <div className="grid gap-2">

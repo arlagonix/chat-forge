@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
 
+import { FEATURE_PERMISSION_KEY, normalizeModesState } from "./modes";
 import {
-  getEffectiveSkillPermission,
+  getEffectiveSkillAvailability,
   getEffectiveWorkspaceRoots,
 } from "./request-builder";
-import type { ChatWorkspaceRoot, SkillsSettings } from "./types";
+import type { ChatWorkspaceRoot, LoadedModeInfo, SkillsSettings } from "./types";
 
 const oldDate = "2026-01-01T00:00:00.000Z";
 
@@ -20,7 +21,7 @@ function workspaceRoot(
   };
 }
 
-describe("skills workspace and permission behavior", () => {
+describe("skills workspace and availability behavior", () => {
   it("ignores legacy automatic chat workspaces", () => {
     expect(
       getEffectiveWorkspaceRoots({
@@ -59,16 +60,89 @@ describe("skills workspace and permission behavior", () => {
     ]);
   });
 
-  it("defaults missing skill permissions to allow", () => {
+  it("defaults missing skill availability to on", () => {
     const settings: SkillsSettings = {
       enabled: true,
-      skillsPermission: "custom",
-      skillPermissions: {},
-      permissionModelVersion: 2,
+      skillAvailability: {},
+      availabilityModelVersion: 1,
     };
 
     expect(
-      getEffectiveSkillPermission({ skillName: "docs", skillsSettings: settings }),
-    ).toBe("allow");
+      getEffectiveSkillAvailability({
+        skillName: "docs",
+        skillsSettings: settings,
+      }),
+    ).toBe("on");
+  });
+
+  it("allows a mode to turn a skill on when global skills are off", () => {
+    const settings: SkillsSettings = {
+      enabled: false,
+      skillAvailability: {},
+      availabilityModelVersion: 1,
+    };
+    const mode: LoadedModeInfo = {
+      id: "mode-1",
+      name: "Skill mode",
+      enabled: true,
+      description: "",
+      instructions: "",
+      allowedToolNames: [],
+      allowedSkillNames: [],
+      allowedAgentNames: [],
+      toolPermissions: {},
+      skillAvailability: { [FEATURE_PERMISSION_KEY]: "custom", docs: "on" },
+      agentPermissions: {},
+      permissionModelVersion: 2,
+      skillAvailabilityModelVersion: 1,
+    };
+
+    expect(
+      getEffectiveSkillAvailability({
+        skillName: "docs",
+        skillsSettings: settings,
+        mode,
+        modeCapabilityContext: {
+          availableTools: [],
+          availableSkills: [],
+          availableAgents: [],
+        },
+      }),
+    ).toBe("on");
+  });
+
+  it("migrates legacy mode skill permissions to availability", () => {
+    const migrated = normalizeModesState({
+      modes: [
+        {
+          id: "legacy-mode",
+          name: "Legacy mode",
+          enabled: true,
+          description: "",
+          instructions: "",
+          allowedToolNames: [],
+          allowedSkillNames: [],
+          allowedAgentNames: [],
+          toolPermissions: {},
+          skillPermissions: {
+            [FEATURE_PERMISSION_KEY]: "ask",
+            docs: "deny",
+            slides: "allow",
+          },
+          agentPermissions: {},
+          permissionModelVersion: 2,
+        },
+      ],
+    });
+    const mode = migrated.modes.find(
+      (candidate) => candidate.id === "legacy-mode",
+    );
+
+    expect(mode?.skillAvailabilityModelVersion).toBe(1);
+    expect(mode?.skillAvailability).toEqual({
+      [FEATURE_PERMISSION_KEY]: "on",
+      docs: "off",
+      slides: "on",
+    });
   });
 });

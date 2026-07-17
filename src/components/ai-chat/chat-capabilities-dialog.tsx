@@ -11,13 +11,6 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
@@ -29,7 +22,9 @@ import type {
   LoadedSkillInfo,
   LoadedToolInfo,
   ModeFeaturePermission,
+  ModeSkillFeatureAvailability,
   Permission,
+  SkillAvailability,
 } from "@/lib/ai-chat/types";
 
 type ChatCapabilitiesProps = {
@@ -38,14 +33,15 @@ type ChatCapabilitiesProps = {
   globalToolPermissions: Map<string, Permission>;
   modeToolPermissions?: Map<string, ModeFeaturePermission>;
   skills: LoadedSkillInfo[];
-  skillPermissions: Map<string, Permission>;
-  globalSkillPermissions: Map<string, Permission>;
-  modeSkillPermissions?: Map<string, ModeFeaturePermission>;
+  skillAvailability: Map<string, SkillAvailability>;
+  globalSkillAvailability: Map<string, SkillAvailability>;
+  modeSkillAvailability?: Map<string, ModeSkillFeatureAvailability>;
   agents: LoadedAgentInfo[];
   agentPermissions: Map<string, Permission>;
   globalAgentPermissions: Map<string, Permission>;
   modeAgentPermissions?: Map<string, ModeFeaturePermission>;
   modeName: string;
+  autoApprove: boolean;
 };
 
 type ChatCapabilitiesDialogProps = ChatCapabilitiesProps & {
@@ -59,78 +55,222 @@ function formatPermission(permission: Permission) {
   return "Deny";
 }
 
-function PermissionSelect({ value }: { value: Permission }) {
-  return (
-    <Select value={value} disabled>
-      <SelectTrigger
-        className="h-8 w-[6.25rem] shrink-0"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <SelectValue />
-      </SelectTrigger>
-      <SelectContent>
-        <SelectItem value="allow">Allow</SelectItem>
-        <SelectItem value="ask">Ask</SelectItem>
-        <SelectItem value="deny">Deny</SelectItem>
-      </SelectContent>
-    </Select>
-  );
+function formatSkillAvailability(value: SkillAvailability) {
+  return value === "on" ? "On" : "Off";
 }
 
-function PermissionSourceTooltip({ text }: { text: string }) {
+type CapabilityDetail = {
+  label: string;
+  value: string;
+};
+
+function PermissionSourceTooltip({ details }: { details: CapabilityDetail[] }) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
         <button
           type="button"
           className="inline-flex size-5 shrink-0 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          aria-label="Permission source"
+          aria-label="Capability details"
         >
           <Info className="size-3.5" />
         </button>
       </TooltipTrigger>
       <TooltipContent side="top" className="max-w-[22rem] text-left">
-        {text}
+        <div className="grid gap-1">
+          {details.map((detail) => (
+            <div
+              key={detail.label}
+              className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-2"
+            >
+              <span className="font-medium">{detail.label}:</span>
+              <span>{detail.value}</span>
+            </div>
+          ))}
+        </div>
       </TooltipContent>
     </Tooltip>
   );
 }
 
-function permissionSourceText({
+function getModePermissionLabel({
+  modePermission,
+  modeFeaturePermission,
+}: {
+  modePermission?: ModeFeaturePermission;
+  modeFeaturePermission?: ModeFeaturePermission;
+}) {
+  if (modeFeaturePermission && modeFeaturePermission !== "custom") {
+    return modeFeaturePermission === "global"
+      ? "Global"
+      : formatPermission(modeFeaturePermission);
+  }
+
+  if (modePermission && modePermission !== "custom") {
+    return modePermission === "global"
+      ? "Global"
+      : formatPermission(modePermission);
+  }
+
+  return "Global";
+}
+
+function permissionSourceDetails({
   modeName,
   permission,
   globalPermission,
   modePermission,
   modeFeaturePermission,
+  autoApprove,
 }: {
   modeName: string;
   permission: Permission;
   globalPermission: Permission;
   modePermission?: ModeFeaturePermission;
   modeFeaturePermission?: ModeFeaturePermission;
+  autoApprove: boolean;
+}): CapabilityDetail[] {
+  const details: CapabilityDetail[] = [
+    { label: "Global", value: formatPermission(globalPermission) },
+    {
+      label: `Mode "${modeName}"`,
+      value: getModePermissionLabel({
+        modePermission,
+        modeFeaturePermission,
+      }),
+    },
+  ];
+
+  if (autoApprove) {
+    details.push({ label: "Auto Approve", value: "On" });
+  }
+
+  details.push({ label: "Permission", value: formatPermission(permission) });
+  return details;
+}
+
+function getModeSkillAvailabilityLabel({
+  modeAvailability,
+  modeFeatureAvailability,
+}: {
+  modeAvailability?: ModeSkillFeatureAvailability;
+  modeFeatureAvailability?: ModeSkillFeatureAvailability;
 }) {
-  if (modeFeaturePermission === "global") {
-    return `Mode "${modeName}" master uses global: ${formatPermission(globalPermission)}`;
+  if (modeFeatureAvailability && modeFeatureAvailability !== "custom") {
+    return modeFeatureAvailability === "global"
+      ? "Global"
+      : formatSkillAvailability(modeFeatureAvailability);
   }
-  if (
-    modeFeaturePermission === "allow" ||
-    modeFeaturePermission === "ask" ||
-    modeFeaturePermission === "deny"
-  ) {
-    return `Mode "${modeName}" master forces: ${formatPermission(modeFeaturePermission)}`;
+
+  if (modeAvailability && modeAvailability !== "custom") {
+    return modeAvailability === "global"
+      ? "Global"
+      : formatSkillAvailability(modeAvailability);
   }
-  if (
-    !modePermission ||
-    modePermission === "global" ||
-    modePermission === "custom"
-  ) {
-    if (permission === globalPermission)
-      return `Uses global setting: ${formatPermission(globalPermission)}`;
-    return `Mode "${modeName}" overrides global: ${formatPermission(globalPermission)} → ${formatPermission(permission)}`;
-  }
-  if (modePermission === globalPermission)
-    return `Mode "${modeName}" matches global: ${formatPermission(globalPermission)}`;
-  return `Mode "${modeName}" overrides global: ${formatPermission(globalPermission)} → ${formatPermission(permission)}`;
+
+  return "Global";
+}
+
+function skillAvailabilitySourceDetails({
+  modeName,
+  availability,
+  globalAvailability,
+  modeAvailability,
+  modeFeatureAvailability,
+}: {
+  modeName: string;
+  availability: SkillAvailability;
+  globalAvailability: SkillAvailability;
+  modeAvailability?: ModeSkillFeatureAvailability;
+  modeFeatureAvailability?: ModeSkillFeatureAvailability;
+}): CapabilityDetail[] {
+  return [
+    { label: "Global", value: formatSkillAvailability(globalAvailability) },
+    {
+      label: `Mode "${modeName}"`,
+      value: getModeSkillAvailabilityLabel({
+        modeAvailability,
+        modeFeatureAvailability,
+      }),
+    },
+    { label: "Availability", value: formatSkillAvailability(availability) },
+  ];
+}
+
+function SkillCapabilitySection({
+  skills,
+  availability,
+  globalAvailability,
+  modeAvailability,
+  modeName,
+}: {
+  skills: LoadedSkillInfo[];
+  availability: Map<string, SkillAvailability>;
+  globalAvailability: Map<string, SkillAvailability>;
+  modeAvailability?: Map<string, ModeSkillFeatureAvailability>;
+  modeName: string;
+}) {
+  const visibleSkills = skills.filter(
+    (skill) => availability.get(skill.name) === "on",
+  );
+  return (
+    <section className="min-w-0 space-y-2">
+      <div className="flex items-center justify-between gap-3">
+        <Label className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
+          Skills
+        </Label>
+        <span className="text-sm text-muted-foreground">
+          {visibleSkills.length}
+        </span>
+      </div>
+      <div className="grid gap-1.5">
+        {visibleSkills.map((skill) => {
+          const value = availability.get(skill.name) ?? "off";
+          const globalValue = globalAvailability.get(skill.name) ?? value;
+          const modeValue = modeAvailability?.get(skill.name);
+          const modeFeatureValue = modeAvailability?.get(
+            FEATURE_PERMISSION_KEY,
+          );
+          return (
+            <div
+              key={skill.name}
+              className="flex min-w-0 items-start gap-3 rounded-sm border border-transparent bg-transparent py-2 transition-colors"
+            >
+              <span className="mt-1 shrink-0 text-muted-foreground">
+                <BookOpen className="size-4" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="flex min-w-0 items-center gap-1.5">
+                  <div className="truncate text-base font-medium leading-6">
+                    {skill.name}
+                  </div>
+                  <PermissionSourceTooltip
+                    details={skillAvailabilitySourceDetails({
+                      modeName,
+                      availability: value,
+                      globalAvailability: globalValue,
+                      modeAvailability: modeValue,
+                      modeFeatureAvailability: modeFeatureValue,
+                    })}
+                  />
+                </div>
+                {skill.description ? (
+                  <div className="mt-0.5 line-clamp-2 text-sm leading-5 text-muted-foreground">
+                    {skill.description}
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          );
+        })}
+        {visibleSkills.length === 0 ? (
+          <div className="rounded-sm border border-dashed px-3 py-4 text-sm text-muted-foreground">
+            No skills available.
+          </div>
+        ) : null}
+      </div>
+    </section>
+  );
 }
 
 function CapabilitySection({
@@ -141,6 +281,7 @@ function CapabilitySection({
   globalPermissions,
   modePermissions,
   modeName,
+  autoApprove,
 }: {
   title: string;
   icon: ReactNode;
@@ -149,6 +290,7 @@ function CapabilitySection({
   globalPermissions: Map<string, Permission>;
   modePermissions?: Map<string, ModeFeaturePermission>;
   modeName: string;
+  autoApprove: boolean;
 }) {
   const visibleItems = items.filter(
     (item) => permissions.get(item.name) !== "deny",
@@ -172,12 +314,13 @@ function CapabilitySection({
           const modeFeaturePermission = modePermissions?.get(
             FEATURE_PERMISSION_KEY,
           );
-          const sourceText = permissionSourceText({
+          const sourceDetails = permissionSourceDetails({
             modeName,
             permission,
             globalPermission,
             modePermission,
             modeFeaturePermission,
+            autoApprove,
           });
           return (
             <div
@@ -192,7 +335,7 @@ function CapabilitySection({
                   <div className="truncate text-base font-medium leading-6">
                     {item.name}
                   </div>
-                  <PermissionSourceTooltip text={sourceText} />
+                  <PermissionSourceTooltip details={sourceDetails} />
                 </div>
                 {item.description ? (
                   <div className="mt-0.5 line-clamp-2 text-sm leading-5 text-muted-foreground">
@@ -200,7 +343,6 @@ function CapabilitySection({
                   </div>
                 ) : null}
               </div>
-              <PermissionSelect value={permission} />
             </div>
           );
         })}
@@ -220,14 +362,15 @@ function ChatCapabilitiesContent({
   globalToolPermissions,
   modeToolPermissions,
   skills,
-  skillPermissions,
-  globalSkillPermissions,
-  modeSkillPermissions,
+  skillAvailability,
+  globalSkillAvailability,
+  modeSkillAvailability,
   agents,
   agentPermissions,
   globalAgentPermissions,
   modeAgentPermissions,
   modeName,
+  autoApprove,
 }: ChatCapabilitiesProps) {
   const toolGroups = groupToolsBySource(tools)
     .map((group) => ({
@@ -243,16 +386,18 @@ function ChatCapabilitiesContent({
       <div className="grid gap-4">
         {toolGroups.length > 0 ? (
           toolGroups.map((group) => (
-            <CapabilitySection
-              key={group.id}
-              title={group.title}
-              icon={<Wrench className="size-4" />}
-              items={group.tools}
-              permissions={toolPermissions}
-              globalPermissions={globalToolPermissions}
-              modePermissions={modeToolPermissions}
-              modeName={modeName}
-            />
+            <div key={group.id}>
+              <CapabilitySection
+                title={group.title}
+                icon={<Wrench className="size-4" />}
+                items={group.tools}
+                permissions={toolPermissions}
+                globalPermissions={globalToolPermissions}
+                modePermissions={modeToolPermissions}
+                modeName={modeName}
+                autoApprove={autoApprove}
+              />
+            </div>
           ))
         ) : (
           <CapabilitySection
@@ -263,15 +408,14 @@ function ChatCapabilitiesContent({
             globalPermissions={globalToolPermissions}
             modePermissions={modeToolPermissions}
             modeName={modeName}
+            autoApprove={autoApprove}
           />
         )}
-        <CapabilitySection
-          title="Skills"
-          icon={<BookOpen className="size-4" />}
-          items={skills}
-          permissions={skillPermissions}
-          globalPermissions={globalSkillPermissions}
-          modePermissions={modeSkillPermissions}
+        <SkillCapabilitySection
+          skills={skills}
+          availability={skillAvailability}
+          globalAvailability={globalSkillAvailability}
+          modeAvailability={modeSkillAvailability}
           modeName={modeName}
         />
         <CapabilitySection
@@ -282,6 +426,7 @@ function ChatCapabilitiesContent({
           globalPermissions={globalAgentPermissions}
           modePermissions={modeAgentPermissions}
           modeName={modeName}
+          autoApprove={false}
         />
       </div>
     </div>
@@ -299,8 +444,8 @@ export const ChatCapabilitiesDialog = memo(function ChatCapabilitiesDialog({
         <DialogHeader className="shrink-0 border-b px-5 py-4">
           <DialogTitle>Chat capabilities</DialogTitle>
           <DialogDescription>
-            Readonly effective permissions from global settings and the selected
-            mode.
+            Available tools, skills, and agents for this chat. Hover the info
+            icons to inspect how each capability is resolved.
           </DialogDescription>
         </DialogHeader>
 

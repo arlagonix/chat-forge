@@ -76,9 +76,8 @@ export function buildFileToolAutoApprovalFromToolsSettings(
 
 export const DEFAULT_SKILLS_SETTINGS: SkillsSettings = {
   enabled: true,
-  skillsPermission: "custom",
-  permissionModelVersion: 2,
-  skillPermissions: {},
+  skillAvailability: {},
+  availabilityModelVersion: 1,
 };
 
 export const DEFAULT_AGENTS_SETTINGS: AgentsSettings = {

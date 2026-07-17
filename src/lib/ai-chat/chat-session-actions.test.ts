@@ -105,6 +105,7 @@ describe("chat session actions", () => {
       ],
       fileToolAutoApproval: { read: true, write: false },
       thinkingMode: "low",
+      autoApprove: true,
       messages: [
         {
           id: "message-1",
@@ -148,6 +149,7 @@ describe("chat session actions", () => {
       sourceChat.fileToolAutoApproval,
     );
     expect(newChat.thinkingMode).toBe(sourceChat.thinkingMode);
+    expect(newChat.autoApprove).toBe(true);
   });
 
   it("builds a cloned chat with copied settings, messages, and fresh dates", () => {
@@ -173,6 +175,7 @@ describe("chat session actions", () => {
       ],
       fileToolAutoApproval: { read: true, write: false },
       thinkingMode: "low",
+      autoApprove: true,
       messages: [
         {
           id: "message-1",
@@ -222,6 +225,7 @@ describe("chat session actions", () => {
       sourceChat.fileToolAutoApproval,
     );
     expect(clonedChat.thinkingMode).toBe(sourceChat.thinkingMode);
+    expect(clonedChat.autoApprove).toBe(true);
 
     expect(clonedChat.messages).toEqual(sourceChat.messages);
     expect(clonedChat.messages).not.toBe(sourceChat.messages);
@@ -333,6 +337,7 @@ describe("chat session actions", () => {
       ],
       fileToolAutoApproval: { read: true, write: false },
       thinkingMode: "low",
+      autoApprove: true,
     });
     const branchMessages = [
       {
@@ -367,6 +372,7 @@ describe("chat session actions", () => {
       sourceChat.fileToolAutoApproval,
     );
     expect(branch.thinkingMode).toBe("low");
+    expect(branch.autoApprove).toBe(true);
     expect(branch.messages).toBe(branchMessages);
   });
 

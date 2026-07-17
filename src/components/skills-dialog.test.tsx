@@ -38,9 +38,8 @@ function createSkill(
 function createSettings(): SkillsSettings {
   return {
     enabled: true,
-    skillsPermission: "custom",
-    skillPermissions: {},
-    permissionModelVersion: 2,
+    skillAvailability: {},
+    availabilityModelVersion: 1,
   };
 }
 

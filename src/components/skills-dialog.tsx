@@ -4,6 +4,7 @@ import {
   File,
   Folder,
   FolderOpen,
+  Info,
   Maximize2,
   MoreHorizontal,
   Plus,
@@ -13,7 +14,12 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import type { Dispatch, SetStateAction } from "react";
+import type {
+  Dispatch,
+  MouseEvent as ReactMouseEvent,
+  ReactNode,
+  SetStateAction,
+} from "react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { CodeEditor } from "@/components/code-editor";
@@ -46,14 +52,13 @@ import {
 import { GroupHeading } from "@/components/ui/group-heading";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { UnsavedChangesDialog } from "@/components/unsaved-changes-dialog";
 import { labelForError } from "@/lib/ai-chat/chat-utils";
 import {
@@ -64,10 +69,9 @@ import {
 } from "@/lib/ai-chat/storage";
 import type {
   ChatWorkspaceRoot,
-  FeaturePermission,
   LoadedSkillInfo,
   LoadedToolInfo,
-  Permission,
+  SkillAvailability,
   SkillsSettings,
 } from "@/lib/ai-chat/types";
 import { cn } from "@/lib/utils";
@@ -90,6 +94,37 @@ type CreationLocation = "global" | "workspace";
 
 const SKILL_NAME_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 
+function InfoTooltip({
+  label,
+  children,
+}: {
+  label: string;
+  children: ReactNode;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          aria-label={`${label} info`}
+          className="inline-flex size-5 shrink-0 cursor-help items-center justify-center rounded-sm text-muted-foreground transition-colors hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          onClick={(event) => event.stopPropagation()}
+          onKeyDown={(event) => event.stopPropagation()}
+        >
+          <Info className="size-3.5" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent
+        side="right"
+        sideOffset={6}
+        className="max-w-xs text-sm leading-5"
+      >
+        {children}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
 function formatSkillLocation(skill: LoadedSkillInfo) {
   return skill.manifestPath || skill.directoryPath || "Unknown location";
 }
@@ -98,79 +133,58 @@ function getSkillSelectionKey(skill: LoadedSkillInfo) {
   return `${skill.name}:${skill.manifestPath ?? skill.directoryPath ?? ""}`;
 }
 
-function getSkillsMasterPermission(
-  settings: SkillsSettings,
-): FeaturePermission {
-  return settings.skillsPermission ?? "custom";
-}
-
-function getSkillPermission(
+function getSkillAvailability(
   settings: SkillsSettings,
   skillName: string,
-): Permission {
-  return (
-    settings.skillPermissions?.[skillName] ??
-    (settings.enabled === false ? "deny" : "allow")
-  );
+): SkillAvailability {
+  return settings.skillAvailability?.[skillName] ?? "on";
 }
 
-function getDisplayedSkillPermission(
-  settings: SkillsSettings,
-  skillName: string,
-): Permission {
-  const masterPermission = getSkillsMasterPermission(settings);
-  return masterPermission === "custom"
-    ? getSkillPermission(settings, skillName)
-    : masterPermission;
-}
-
-function setSkillPermission(
+function setSkillAvailability(
   onChange: Dispatch<SetStateAction<SkillsSettings>>,
   skillName: string,
-  permission: Permission,
+  availability: SkillAvailability,
 ) {
-  onChange((current) => ({
+  onChange((current: SkillsSettings) => ({
     ...current,
-    enabled: true,
-    permissionModelVersion: 2,
-    skillPermissions: {
-      ...(current.skillPermissions ?? {}),
-      [skillName]: permission,
+    skillAvailability: {
+      ...(current.skillAvailability ?? {}),
+      [skillName]: availability,
     },
+    availabilityModelVersion: 1,
   }));
 }
 
-function removeSkillPermission(
+function removeSkillAvailability(
   onChange: Dispatch<SetStateAction<SkillsSettings>>,
   skillName: string,
 ) {
-  onChange((current) => {
-    const nextPermissions = { ...(current.skillPermissions ?? {}) };
-    delete nextPermissions[skillName];
+  onChange((current: SkillsSettings) => {
+    const nextAvailability = { ...(current.skillAvailability ?? {}) };
+    delete nextAvailability[skillName];
     return {
       ...current,
-      permissionModelVersion: 2,
-      skillPermissions: nextPermissions,
+      skillAvailability: nextAvailability,
+      availabilityModelVersion: 1,
     };
   });
 }
 
-function moveSkillPermission(
+function moveSkillAvailability(
   onChange: Dispatch<SetStateAction<SkillsSettings>>,
   previousName: string,
   nextName: string,
 ) {
   if (previousName === nextName) return;
-  onChange((current) => {
-    const nextPermissions = { ...(current.skillPermissions ?? {}) };
-    const currentPermission = nextPermissions[previousName] ?? "allow";
-    delete nextPermissions[previousName];
-    nextPermissions[nextName] = currentPermission;
+  onChange((current: SkillsSettings) => {
+    const nextAvailability = { ...(current.skillAvailability ?? {}) };
+    const currentAvailability = nextAvailability[previousName] ?? "on";
+    delete nextAvailability[previousName];
+    nextAvailability[nextName] = currentAvailability;
     return {
       ...current,
-      enabled: true,
-      permissionModelVersion: 2,
-      skillPermissions: nextPermissions,
+      skillAvailability: nextAvailability,
+      availabilityModelVersion: 1,
     };
   });
 }
@@ -232,52 +246,22 @@ function getWorkspaceSkillsRoot(workspaceRoot?: ChatWorkspaceRoot) {
   return `${workspaceRoot.path.replace(/[\\/]+$/, "")}/.agents/skills`;
 }
 
-function PermissionSelect({
-  value,
-  onChange,
-  disabled,
-}: {
-  value: Permission;
-  onChange: (value: Permission) => void;
-  disabled?: boolean;
-}) {
-  return (
-    <Select
-      value={value}
-      onValueChange={(next) => onChange(next as Permission)}
-      disabled={disabled}
-    >
-      <SelectTrigger
-        className="h-8 w-[6.25rem] shrink-0"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <SelectValue />
-      </SelectTrigger>
-      <SelectContent>
-        <SelectItem value="allow">Allow</SelectItem>
-        <SelectItem value="ask">Ask</SelectItem>
-        <SelectItem value="deny">Deny</SelectItem>
-      </SelectContent>
-    </Select>
-  );
-}
-
 type SkillListRowProps = {
   skill: LoadedSkillInfo;
   selected: boolean;
-  permission: Permission;
-  permissionDisabled: boolean;
+  enabled: boolean;
+  globalEnabled: boolean;
   onSelectSkill: (skill: LoadedSkillInfo) => void;
-  onPermissionChange: (skillName: string, permission: Permission) => void;
+  onEnabledChange: (skillName: string, enabled: boolean) => void;
 };
 
 const SkillListRow = memo(function SkillListRow({
   skill,
   selected,
-  permission,
-  permissionDisabled,
+  enabled,
+  globalEnabled,
   onSelectSkill,
-  onPermissionChange,
+  onEnabledChange,
 }: SkillListRowProps) {
   return (
     <div
@@ -288,7 +272,7 @@ const SkillListRow = memo(function SkillListRow({
         selected
           ? "border-primary/30 bg-accent text-accent-foreground"
           : "border-transparent hover:border-border hover:bg-muted/60",
-        (skill.shadowed || skill.conflict) && "opacity-70",
+        (skill.shadowed || skill.conflict || !globalEnabled) && "opacity-70",
       )}
       onClick={() => onSelectSkill(skill)}
       onKeyDown={(event) => {
@@ -311,44 +295,20 @@ const SkillListRow = memo(function SkillListRow({
           </div>
         ) : null}
       </div>
-      <PermissionSelect
-        value={permission}
-        disabled={permissionDisabled}
-        onChange={(nextPermission) =>
-          onPermissionChange(skill.name, nextPermission)
+      <Switch
+        aria-label={`${skill.name} model visibility`}
+        checked={globalEnabled ? enabled : false}
+        disabled={!globalEnabled || Boolean(skill.shadowed || skill.conflict)}
+        onClick={(event: ReactMouseEvent) => event.stopPropagation()}
+        onCheckedChange={(checked: boolean) =>
+          onEnabledChange(skill.name, checked)
         }
+        className="mt-0.5 shrink-0 cursor-pointer"
+        title={enabled ? "Hide skill from models" : "Show skill to models"}
       />
     </div>
   );
 });
-
-function MasterPermissionSelect({
-  value,
-  onChange,
-}: {
-  value: FeaturePermission;
-  onChange: (value: FeaturePermission) => void;
-}) {
-  return (
-    <Select
-      value={value}
-      onValueChange={(next) => onChange(next as FeaturePermission)}
-    >
-      <SelectTrigger
-        className="h-8 w-27 shrink-0"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <SelectValue />
-      </SelectTrigger>
-      <SelectContent>
-        <SelectItem value="custom">Custom</SelectItem>
-        <SelectItem value="allow">Allow</SelectItem>
-        <SelectItem value="ask">Ask</SelectItem>
-        <SelectItem value="deny">Deny</SelectItem>
-      </SelectContent>
-    </Select>
-  );
-}
 
 const SkillMetadataFields = memo(function SkillMetadataFields({
   name,
@@ -548,8 +508,7 @@ export const SkillsDialog = memo(function SkillsDialog({
     ].filter((group) => group.skills.length > 0);
   }, [filteredSkills]);
 
-  const skillsMasterPermission = getSkillsMasterPermission(skillsSettings);
-  const childPermissionsLocked = skillsMasterPermission !== "custom";
+  const skillsEnabled = skillsSettings.enabled !== false;
   const hasChanges = draftMode === "new" || draftContent !== savedDraftContent;
 
   const effectiveDraftMetadata = useMemo(
@@ -697,9 +656,13 @@ export const SkillsDialog = memo(function SkillsDialog({
     [requestWithUnsavedCheck],
   );
 
-  const handleSkillPermissionChange = useCallback(
-    (skillName: string, permission: Permission) => {
-      setSkillPermission(onSkillsSettingsChange, skillName, permission);
+  const handleSkillEnabledChange = useCallback(
+    (skillName: string, enabled: boolean) => {
+      setSkillAvailability(
+        onSkillsSettingsChange,
+        skillName,
+        enabled ? "on" : "off",
+      );
     },
     [onSkillsSettingsChange],
   );
@@ -782,9 +745,9 @@ export const SkillsDialog = memo(function SkillsDialog({
       );
 
       if (draftMode === "new") {
-        setSkillPermission(onSkillsSettingsChange, saved.name, "allow");
+        setSkillAvailability(onSkillsSettingsChange, saved.name, "on");
       } else if (previousName && previousName !== saved.name) {
-        moveSkillPermission(onSkillsSettingsChange, previousName, saved.name);
+        moveSkillAvailability(onSkillsSettingsChange, previousName, saved.name);
       }
 
       const skills = await loadSkills(stableWorkspaceRoots);
@@ -832,7 +795,7 @@ export const SkillsDialog = memo(function SkillsDialog({
     try {
       const deletedName = selectedSkill.name;
       await deleteSkill(selectedSkill);
-      removeSkillPermission(onSkillsSettingsChange, deletedName);
+      removeSkillAvailability(onSkillsSettingsChange, deletedName);
       const skills = await loadSkills(stableWorkspaceRoots);
       onLoadedSkillsChange(skills);
       setDeleteDialogOpen(false);
@@ -959,7 +922,7 @@ export const SkillsDialog = memo(function SkillsDialog({
 
           <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden md:grid-cols-[400px_minmax(0,1fr)]">
             <aside className="flex min-h-0 flex-col border-b bg-card/70 md:border-b-0 md:border-r">
-              <div className="shrink-0 border-b bg-card/90 p-2">
+              <div className="shrink-0 bg-card/90 p-2">
                 <div className="relative">
                   <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
                   <Input
@@ -985,29 +948,55 @@ export const SkillsDialog = memo(function SkillsDialog({
                 </div>
               </div>
 
-              <div className="min-h-0 flex-1 overflow-y-auto p-2 pr-0">
-                <div className="mb-2 flex items-start justify-between gap-3 rounded-sm border bg-background px-2 py-2 text-base">
-                  <span className="min-w-0">
-                    <span className="block font-medium">Skills</span>
-                    <span className="block select-none text-sm leading-5 text-muted-foreground">
-                      Master permission for skill loading. Modes can override
-                      it.
-                    </span>
-                  </span>
-                  <MasterPermissionSelect
-                    value={skillsMasterPermission}
-                    onChange={(permission) =>
+              <div className="min-h-0 flex-1 overflow-y-auto">
+                <div
+                  role="button"
+                  tabIndex={0}
+                  className="flex cursor-pointer items-center justify-between gap-3 border-y border-border bg-transparent px-2 py-2 text-base outline-none transition-colors hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-ring"
+                  onClick={() =>
+                    onSkillsSettingsChange((current) => ({
+                      ...current,
+                      enabled: current.enabled === false,
+                      availabilityModelVersion: 1,
+                    }))
+                  }
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
                       onSkillsSettingsChange((current) => ({
                         ...current,
-                        enabled: permission !== "deny",
-                        skillsPermission: permission,
-                        permissionModelVersion: 2,
+                        enabled: current.enabled === false,
+                        availabilityModelVersion: 1,
+                      }));
+                    }
+                  }}
+                >
+                  <span className="min-w-0">
+                    <span className="flex min-h-8 select-none items-center gap-1.5 font-medium">
+                      Enable skills globally
+                      <InfoTooltip label="Enable skills globally">
+                        Controls model visibility by default. Modes and custom
+                        agents can override it.
+                      </InfoTooltip>
+                    </span>
+                  </span>
+                  <Switch
+                    checked={skillsEnabled}
+                    onClick={(event: ReactMouseEvent) =>
+                      event.stopPropagation()
+                    }
+                    onCheckedChange={(enabled: boolean) =>
+                      onSkillsSettingsChange((current: SkillsSettings) => ({
+                        ...current,
+                        enabled,
+                        availabilityModelVersion: 1,
                       }))
                     }
+                    className="shrink-0 cursor-pointer"
                   />
                 </div>
 
-                <div className="grid gap-1.5">
+                <div className="grid gap-1.5 p-2 pr-0">
                   {filteredSkills.length > 0 ? (
                     groupedSkills.map((group) => (
                       <div key={group.title}>
@@ -1024,17 +1013,15 @@ export const SkillsDialog = memo(function SkillsDialog({
                               key={`${skill.name}:${skill.manifestPath ?? ""}`}
                               skill={skill}
                               selected={selected}
-                              permission={getDisplayedSkillPermission(
-                                skillsSettings,
-                                skill.name,
-                              )}
-                              permissionDisabled={Boolean(
-                                skill.shadowed ||
-                                skill.conflict ||
-                                childPermissionsLocked,
-                              )}
+                              enabled={
+                                getSkillAvailability(
+                                  skillsSettings,
+                                  skill.name,
+                                ) === "on"
+                              }
+                              globalEnabled={skillsEnabled}
                               onSelectSkill={requestSelectSkill}
-                              onPermissionChange={handleSkillPermissionChange}
+                              onEnabledChange={handleSkillEnabledChange}
                             />
                           );
                         })}

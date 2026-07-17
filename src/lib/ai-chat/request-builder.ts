@@ -28,8 +28,16 @@ import {
   applyBuiltInToolSettings,
   LOAD_SKILL_TOOL_NAME,
 } from "@/lib/ai-chat/builtin-tools";
-import { FEATURE_PERMISSION_KEY, getModeInstructionsBlock, getModePermissionMaps, resolvePermission, type ModeCapabilityContext } from "@/lib/ai-chat/modes";
-import { createProjectInstructionsContextBlock, type ProjectInstructionsSnapshot } from "@/lib/ai-chat/project-instructions";
+import {
+  FEATURE_PERMISSION_KEY,
+  getModeInstructionsBlock,
+  getModePermissionMaps,
+  type ModeCapabilityContext,
+} from "@/lib/ai-chat/modes";
+import {
+  createProjectInstructionsContextBlock,
+  type ProjectInstructionsSnapshot,
+} from "@/lib/ai-chat/project-instructions";
 import type {
   AgentsSettings,
   ChatSession,
@@ -41,6 +49,7 @@ import type {
   Permission,
   PermissionMap,
   ProviderConfig,
+  SkillAvailability,
   SkillsSettings,
   ToolsSettings,
 } from "@/lib/ai-chat/types";
@@ -52,7 +61,8 @@ export function resolveProviderForChat({
   providers: ProviderConfig[];
   activeProvider: ProviderConfig;
 }) {
-  const model = activeProvider.model?.trim() || getProviderFallbackModel(activeProvider);
+  const model =
+    activeProvider.model?.trim() || getProviderFallbackModel(activeProvider);
 
   return normalizeProviderForState({ ...activeProvider, model });
 }
@@ -104,15 +114,40 @@ export function getGlobalToolPermission(
   const explicit = toolsSettings.toolPermissions?.[toolName];
   if (explicit) return explicit;
 
-  if (toolName === ASK_USER_TOOL_NAME) return toolsSettings.askUserEnabled ? "allow" : "deny";
-  if (isTaskToolName(toolName)) return toolsSettings.taskToolsEnabled ? "allow" : "deny";
-  if (toolName === LOAD_SKILL_TOOL_NAME) return toolsSettings.loadSkillEnabled ? "allow" : "deny";
-  if (toolName === WEB_FETCH_TOOL_NAME) return toolsSettings.webFetchEnabled ? "ask" : "deny";
-  if (toolName === READ_TOOL_NAME) return toolsSettings.readEnabled ? (toolsSettings.readAutoApproveEnabled ? "allow" : "ask") : "deny";
-  if (toolName === BASH_TOOL_NAME) return toolsSettings.bashEnabled ? (toolsSettings.bashAutoApproveEnabled ? "allow" : "ask") : "deny";
-  if (toolName === EDIT_TOOL_NAME) return toolsSettings.editEnabled ? (toolsSettings.editAutoApproveEnabled ? "allow" : "ask") : "deny";
-  if (toolName === WRITE_TOOL_NAME) return toolsSettings.writeEnabled ? (toolsSettings.writeAutoApproveEnabled ? "allow" : "ask") : "deny";
-  if (toolName === FILE_FIND_TOOL_NAME || toolName === FILE_SEARCH_TOOL_NAME) return "ask";
+  if (toolName === ASK_USER_TOOL_NAME)
+    return toolsSettings.askUserEnabled ? "allow" : "deny";
+  if (isTaskToolName(toolName))
+    return toolsSettings.taskToolsEnabled ? "allow" : "deny";
+  if (toolName === LOAD_SKILL_TOOL_NAME)
+    return toolsSettings.loadSkillEnabled ? "allow" : "deny";
+  if (toolName === WEB_FETCH_TOOL_NAME)
+    return toolsSettings.webFetchEnabled ? "ask" : "deny";
+  if (toolName === READ_TOOL_NAME)
+    return toolsSettings.readEnabled
+      ? toolsSettings.readAutoApproveEnabled
+        ? "allow"
+        : "ask"
+      : "deny";
+  if (toolName === BASH_TOOL_NAME)
+    return toolsSettings.bashEnabled
+      ? toolsSettings.bashAutoApproveEnabled
+        ? "allow"
+        : "ask"
+      : "deny";
+  if (toolName === EDIT_TOOL_NAME)
+    return toolsSettings.editEnabled
+      ? toolsSettings.editAutoApproveEnabled
+        ? "allow"
+        : "ask"
+      : "deny";
+  if (toolName === WRITE_TOOL_NAME)
+    return toolsSettings.writeEnabled
+      ? toolsSettings.writeAutoApproveEnabled
+        ? "allow"
+        : "ask"
+      : "deny";
+  if (toolName === FILE_FIND_TOOL_NAME || toolName === FILE_SEARCH_TOOL_NAME)
+    return "ask";
   if (toolName.startsWith("mcp_")) return "ask";
   return "ask";
 }
@@ -121,7 +156,9 @@ export function resolveMasterPermission(
   masterPermission: "custom" | Permission | undefined,
   itemPermission: Permission,
 ): Permission {
-  return masterPermission && masterPermission !== "custom" ? masterPermission : itemPermission;
+  return masterPermission && masterPermission !== "custom"
+    ? masterPermission
+    : itemPermission;
 }
 
 export function getEffectiveGlobalToolPermission(
@@ -138,15 +175,15 @@ export function getEffectiveGlobalToolPermission(
   );
 }
 
-export function getEffectiveGlobalSkillPermission(
+export function getGlobalSkillAvailability(
   skillName: string,
   skillsSettings: SkillsSettings,
-): Permission {
-  return resolveMasterPermission(
-    skillsSettings.skillsPermission ?? "custom",
-    skillsSettings.skillPermissions?.[skillName] ?? (skillsSettings.enabled === false ? "deny" : "allow"),
-  );
+): SkillAvailability {
+  if (skillsSettings.enabled === false) return "off";
+  return skillsSettings.skillAvailability?.[skillName] ?? "on";
 }
+
+export const getEffectiveGlobalSkillAvailability = getGlobalSkillAvailability;
 
 export function getEffectiveGlobalAgentPermission(
   agentName: string,
@@ -154,7 +191,8 @@ export function getEffectiveGlobalAgentPermission(
 ): Permission {
   return resolveMasterPermission(
     agentsSettings.agentsPermission ?? "custom",
-    agentsSettings.agentPermissions?.[agentName] ?? (agentsSettings.enabled === false ? "deny" : "ask"),
+    agentsSettings.agentPermissions?.[agentName] ??
+      (agentsSettings.enabled === false ? "deny" : "ask"),
   );
 }
 
@@ -173,9 +211,42 @@ function resolveModeItemPermission({
   }
 
   const itemPermission = modePermissions?.[name];
-  return itemPermission && itemPermission !== "global" && itemPermission !== "custom"
+  return itemPermission &&
+    itemPermission !== "global" &&
+    itemPermission !== "custom"
     ? itemPermission
     : globalPermission;
+}
+
+function resolveModeSkillAvailability({
+  name,
+  globalAvailability,
+  modeAvailability,
+}: {
+  name: string;
+  globalAvailability: SkillAvailability;
+  modeAvailability?: Record<string, "custom" | "global" | SkillAvailability>;
+}): SkillAvailability {
+  const masterAvailability = modeAvailability?.[FEATURE_PERMISSION_KEY];
+  if (masterAvailability && masterAvailability !== "custom") {
+    return masterAvailability === "global"
+      ? globalAvailability
+      : masterAvailability;
+  }
+
+  const itemAvailability = modeAvailability?.[name];
+  return itemAvailability &&
+    itemAvailability !== "global" &&
+    itemAvailability !== "custom"
+    ? itemAvailability
+    : globalAvailability;
+}
+
+export function applyAutoApprove(
+  permission: Permission,
+  autoApprove: boolean | undefined,
+): Permission {
+  return autoApprove === true && permission === "ask" ? "allow" : permission;
 }
 
 export function getGlobalEnabledTools({
@@ -198,31 +269,36 @@ export function getGlobalEnabledTools({
   ];
   const enabledBuiltIns = builtInTools
     .map((tool) => applyBuiltInToolSettings(tool, toolsSettings))
-    .map((tool) => withPermissionApproval(tool, getEffectiveGlobalToolPermission(tool.name, toolsSettings)))
+    .map((tool) =>
+      withPermissionApproval(
+        tool,
+        getEffectiveGlobalToolPermission(tool.name, toolsSettings),
+      ),
+    )
     .filter((tool): tool is LoadedToolInfo => Boolean(tool));
 
   const enabledCommandTools = loadedTools
-        .filter(
-          (tool) =>
-            tool.name !== ASK_USER_TOOL_NAME &&
-            tool.name !== CALL_AGENT_TOOL_NAME &&
-            !isTaskToolName(tool.name) &&
-            tool.name !== WEB_FETCH_TOOL_NAME &&
-            tool.name !== READ_TOOL_NAME &&
-            tool.name !== BASH_TOOL_NAME &&
-            tool.name !== EDIT_TOOL_NAME &&
-            tool.name !== WRITE_TOOL_NAME &&
-            tool.name !== FILE_FIND_TOOL_NAME &&
-            tool.name !== FILE_SEARCH_TOOL_NAME &&
-            tool.name !== LOAD_SKILL_TOOL_NAME,
-        )
-        .map((tool) =>
-          withPermissionApproval(
-            tool,
-            getEffectiveGlobalToolPermission(tool.name, toolsSettings),
-          ),
-        )
-        .filter((tool): tool is LoadedToolInfo => Boolean(tool));
+    .filter(
+      (tool) =>
+        tool.name !== ASK_USER_TOOL_NAME &&
+        tool.name !== CALL_AGENT_TOOL_NAME &&
+        !isTaskToolName(tool.name) &&
+        tool.name !== WEB_FETCH_TOOL_NAME &&
+        tool.name !== READ_TOOL_NAME &&
+        tool.name !== BASH_TOOL_NAME &&
+        tool.name !== EDIT_TOOL_NAME &&
+        tool.name !== WRITE_TOOL_NAME &&
+        tool.name !== FILE_FIND_TOOL_NAME &&
+        tool.name !== FILE_SEARCH_TOOL_NAME &&
+        tool.name !== LOAD_SKILL_TOOL_NAME,
+    )
+    .map((tool) =>
+      withPermissionApproval(
+        tool,
+        getEffectiveGlobalToolPermission(tool.name, toolsSettings),
+      ),
+    )
+    .filter((tool): tool is LoadedToolInfo => Boolean(tool));
 
   return [...enabledBuiltIns, ...enabledCommandTools];
 }
@@ -235,7 +311,10 @@ export function withPermissionApproval(
   return { ...tool, requiresApproval: permission === "ask" };
 }
 
-export function combinePermissions(featurePermission: Permission, itemPermission: Permission): Permission {
+export function combinePermissions(
+  featurePermission: Permission,
+  itemPermission: Permission,
+): Permission {
   if (featurePermission === "deny" || itemPermission === "deny") return "deny";
   if (featurePermission === "ask" || itemPermission === "ask") return "ask";
   return "allow";
@@ -272,7 +351,8 @@ export function createUnavailableToolCallMessage({
   const modePermissions = modeCapabilityContext
     ? getModePermissionMaps(mode, modeCapabilityContext).toolPermissions
     : undefined;
-  const modeMasterPermission = modePermissions?.[FEATURE_PERMISSION_KEY] ?? "custom";
+  const modeMasterPermission =
+    modePermissions?.[FEATURE_PERMISSION_KEY] ?? "custom";
   const modeToolPermission = modePermissions?.[toolName];
   const globalPermission = getEffectiveGlobalToolPermission(
     toolName,
@@ -325,9 +405,11 @@ export function createUnavailableToolCallMessage({
   return lines.join("\n");
 }
 
-
 function normalizeWorkspaceRootPathForCompare(value: string) {
-  return value.trim().replace(/[\\/]+$/, "").toLowerCase();
+  return value
+    .trim()
+    .replace(/[\\/]+$/, "")
+    .toLowerCase();
 }
 
 export function getSkillWorkspaceRoots(): ChatWorkspaceRoot[] {
@@ -370,7 +452,6 @@ export function getEffectiveWorkspaceRoots({
   return selectedRoots;
 }
 
-
 function toNameSet(names: string[]) {
   return new Set(names.map((name) => name.trim()).filter(Boolean));
 }
@@ -380,23 +461,31 @@ export function getEffectiveToolPermission({
   toolsSettings,
   mode,
   modeCapabilityContext,
+  autoApprove,
 }: {
   toolName: string;
   toolsSettings: ToolsSettings;
   mode?: LoadedModeInfo;
   modeCapabilityContext?: ModeCapabilityContext;
+  autoApprove?: boolean;
 }): Permission {
   const modePermissions = modeCapabilityContext
     ? getModePermissionMaps(mode, modeCapabilityContext).toolPermissions
     : undefined;
-  return resolveModeItemPermission({
-    name: toolName,
-    globalPermission: getEffectiveGlobalToolPermission(toolName, toolsSettings),
-    modePermissions,
-  });
+  return applyAutoApprove(
+    resolveModeItemPermission({
+      name: toolName,
+      globalPermission: getEffectiveGlobalToolPermission(
+        toolName,
+        toolsSettings,
+      ),
+      modePermissions,
+    }),
+    autoApprove,
+  );
 }
 
-export function getEffectiveSkillPermission({
+export function getEffectiveSkillAvailability({
   skillName,
   skillsSettings,
   mode,
@@ -406,14 +495,14 @@ export function getEffectiveSkillPermission({
   skillsSettings: SkillsSettings;
   mode?: LoadedModeInfo;
   modeCapabilityContext?: ModeCapabilityContext;
-}): Permission {
-  const modePermissions = modeCapabilityContext
-    ? getModePermissionMaps(mode, modeCapabilityContext).skillPermissions
+}): SkillAvailability {
+  const modeAvailability = modeCapabilityContext
+    ? getModePermissionMaps(mode, modeCapabilityContext).skillAvailability
     : undefined;
-  return resolveModeItemPermission({
+  return resolveModeSkillAvailability({
     name: skillName,
-    globalPermission: getEffectiveGlobalSkillPermission(skillName, skillsSettings),
-    modePermissions,
+    globalAvailability: getGlobalSkillAvailability(skillName, skillsSettings),
+    modeAvailability,
   });
 }
 
@@ -433,7 +522,10 @@ export function getEffectiveAgentPermission({
     : undefined;
   return resolveModeItemPermission({
     name: agentName,
-    globalPermission: getEffectiveGlobalAgentPermission(agentName, agentsSettings),
+    globalPermission: getEffectiveGlobalAgentPermission(
+      agentName,
+      agentsSettings,
+    ),
     modePermissions,
   });
 }
@@ -467,9 +559,14 @@ export function getEnabledToolsForChat({
   toolsSettings?: ToolsSettings;
 }) {
   const byName = new Map<string, LoadedToolInfo>();
-  const addTool = (tool: LoadedToolInfo | undefined, permission?: Permission) => {
+  const addTool = (
+    tool: LoadedToolInfo | undefined,
+    permission?: Permission,
+  ) => {
     if (!tool || byName.has(tool.name)) return;
-    const finalTool = permission ? withPermissionApproval(tool, permission) : tool;
+    const finalTool = permission
+      ? withPermissionApproval(tool, permission)
+      : tool;
     if (finalTool) byName.set(finalTool.name, finalTool);
   };
 
@@ -484,22 +581,32 @@ export function getEnabledToolsForChat({
           toolsSettings,
           mode,
           modeCapabilityContext,
+          autoApprove: _chat.autoApprove,
         })
-      : (tool.requiresApproval ? "ask" : "allow");
+      : tool.requiresApproval
+        ? "ask"
+        : "allow";
     addTool(tool, permission);
   }
 
   for (const toolName of [...oneShotToolNames, ...skillRecommendedToolNames]) {
     const tool = availableToolsByName.get(toolName);
     const permission = toolsSettings
-      ? getEffectiveToolPermission({ toolName, toolsSettings, mode, modeCapabilityContext })
-      : (tool?.requiresApproval ? "ask" : "allow");
+      ? getEffectiveToolPermission({
+          toolName,
+          toolsSettings,
+          mode,
+          modeCapabilityContext,
+          autoApprove: _chat.autoApprove,
+        })
+      : tool?.requiresApproval
+        ? "ask"
+        : "allow";
     addTool(tool, permission);
   }
 
   return [...byName.values()];
 }
-
 
 export function validateToolMentionsForRequest({
   content: _content,
@@ -524,8 +631,12 @@ export function getGlobalEnabledSkills({
   skillsSettings: SkillsSettings;
   loadedSkills: LoadedSkillInfo[];
 }) {
-  return loadedSkills.filter((skill) =>
-    getEffectiveSkillPermission({ skillName: skill.name, skillsSettings }) !== "deny",
+  return loadedSkills.filter(
+    (skill) =>
+      getEffectiveSkillAvailability({
+        skillName: skill.name,
+        skillsSettings,
+      }) === "on",
   );
 }
 
@@ -551,15 +662,16 @@ export function getEnabledSkillsForChat({
   return baseSkills.filter((skill) => {
     if (!skill.name || !skill.description || !skill.manifestPath) return false;
     if (!skillsSettings) return true;
-    return getEffectiveSkillPermission({
-      skillName: skill.name,
-      skillsSettings,
-      mode,
-      modeCapabilityContext,
-    }) !== "deny";
+    return (
+      getEffectiveSkillAvailability({
+        skillName: skill.name,
+        skillsSettings,
+        mode,
+        modeCapabilityContext,
+      }) === "on"
+    );
   });
 }
-
 
 export function getToolsWithLoadSkillTool({
   tools,
@@ -589,9 +701,11 @@ export function getGlobalEnabledAgents({
   agentsSettings: AgentsSettings;
   loadedAgents: LoadedAgentInfo[];
 }) {
-  return loadedAgents.filter((agent) =>
-    agent.enabled &&
-    getEffectiveAgentPermission({ agentName: agent.name, agentsSettings }) !== "deny",
+  return loadedAgents.filter(
+    (agent) =>
+      agent.enabled &&
+      getEffectiveAgentPermission({ agentName: agent.name, agentsSettings }) !==
+        "deny",
   );
 }
 
@@ -617,15 +731,16 @@ export function getEnabledAgentsForChat({
   return baseAgents.filter((agent) => {
     if (!agent.enabled) return false;
     if (!agentsSettings) return true;
-    return getEffectiveAgentPermission({
-      agentName: agent.name,
-      agentsSettings,
-      mode,
-      modeCapabilityContext,
-    }) !== "deny";
+    return (
+      getEffectiveAgentPermission({
+        agentName: agent.name,
+        agentsSettings,
+        mode,
+        modeCapabilityContext,
+      }) !== "deny"
+    );
   });
 }
-
 
 export function validateAgentMentionsForRequest({
   content: _content,
@@ -687,31 +802,40 @@ export function buildSystemPromptWithActiveSkills({
       ].join("\n")
     : "";
 
-  const workspaceBlock = (effectiveWorkspaceRoots?.length ?? 0) > 0
-    ? [
-        "<accessible_paths>",
-        ...(effectiveWorkspaceRoots ?? []).map((root) =>
-          [
-            "  <path>",
-            `    <id>${escapeXmlText(root.id)}</id>`,
-            `    <name>${escapeXmlText(root.name)}</name>`,
-            `    <kind>${escapeXmlText(root.pathKind ?? "folder")}</kind>`,
-            `    <source>${escapeXmlText(root.kind ?? "manual")}</source>`,
-            `    <locked>${root.automatic === true ? "true" : "false"}</locked>`,
-            `    <path>${escapeXmlText(root.path)}</path>`,
-            "  </path>",
-          ].join("\n"),
-        ),
-        "</accessible_paths>",
-        "Use exact absolute paths when calling read, write, or edit. The path must be one of the listed files, inside one of the listed folders, or an attached file path shown in the user's message.",
-        "For bash, provide an exact absolute cwd. The cwd must be inside one of the listed accessible folders.",
-        "Project-local skills are not auto-loaded. If the user points you to a skill folder, read its SKILL.md by exact path and follow it as ordinary user-provided instructions.",
-      ].join("\n")
-    : "";
+  const workspaceBlock =
+    (effectiveWorkspaceRoots?.length ?? 0) > 0
+      ? [
+          "<accessible_paths>",
+          ...(effectiveWorkspaceRoots ?? []).map((root) =>
+            [
+              "  <path>",
+              `    <id>${escapeXmlText(root.id)}</id>`,
+              `    <name>${escapeXmlText(root.name)}</name>`,
+              `    <kind>${escapeXmlText(root.pathKind ?? "folder")}</kind>`,
+              `    <source>${escapeXmlText(root.kind ?? "manual")}</source>`,
+              `    <locked>${root.automatic === true ? "true" : "false"}</locked>`,
+              `    <path>${escapeXmlText(root.path)}</path>`,
+              "  </path>",
+            ].join("\n"),
+          ),
+          "</accessible_paths>",
+          "Use exact absolute paths when calling read, write, or edit. The path must be one of the listed files, inside one of the listed folders, or an attached file path shown in the user's message.",
+          "For bash, provide an exact absolute cwd. The cwd must be inside one of the listed accessible folders.",
+          "Project-local skills are not auto-loaded. If the user points you to a skill folder, read its SKILL.md by exact path and follow it as ordinary user-provided instructions.",
+        ].join("\n")
+      : "";
 
   const projectInstructionsBlock = projectInstructions
     ? createProjectInstructionsContextBlock(projectInstructions)
     : "";
 
-  return [systemPrompt.trim(), modeBlock, workspaceBlock, projectInstructionsBlock, skillsBlock].filter(Boolean).join("\n\n");
+  return [
+    systemPrompt.trim(),
+    modeBlock,
+    workspaceBlock,
+    projectInstructionsBlock,
+    skillsBlock,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 }

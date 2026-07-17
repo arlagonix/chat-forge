@@ -134,7 +134,7 @@ function formatSkillDirectory(location: string) {
 }
 
 function parseSlashInvocation(content: string) {
-  const match = /^(\s*)(\/(?:skill|s|agent|a):[A-Za-z0-9_-]+)([\s\S]*)$/.exec(
+  const match = /^(\s*)(\/(?:(?:skill|s)\/[A-Za-z0-9_-]+|(?:agent|a):[A-Za-z0-9_-]+))([\s\S]*)$/.exec(
     content,
   );
   if (!match) return null;

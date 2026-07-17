@@ -1,4 +1,4 @@
-import { Brain, Check, Cpu, Layers3 } from "lucide-react";
+import { Brain, Check, Cpu, Layers3, ShieldCheck } from "lucide-react";
 import { memo } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -52,6 +52,8 @@ type ComposerFooterProps = {
   isThinkingModePickerOpen: boolean;
   onThinkingModePickerOpenChange: (open: boolean) => void;
   onThinkingModeChange: (thinkingMode: ChatThinkingMode) => void;
+  autoApprove: boolean;
+  onAutoApproveChange: (enabled: boolean) => void;
 };
 
 export const ComposerFooter = memo(function ComposerFooter({
@@ -77,6 +79,8 @@ export const ComposerFooter = memo(function ComposerFooter({
   isThinkingModePickerOpen,
   onThinkingModePickerOpenChange,
   onThinkingModeChange,
+  autoApprove,
+  onAutoApproveChange,
 }: ComposerFooterProps) {
   const thinkingModeLabel =
     thinkingLevels.find((level) => level.id === thinkingMode)?.label ??
@@ -287,6 +291,25 @@ export const ComposerFooter = memo(function ComposerFooter({
           </Command>
         </PopoverContent>
       </Popover>
+
+      <Button
+        type="button"
+        variant="ghost"
+        disabled={!activeChatExists || isSending}
+        aria-pressed={autoApprove}
+        onClick={() => onAutoApproveChange(!autoApprove)}
+        className="h-8 w-auto shrink-0 justify-start gap-1.5 px-1.5 font-normal"
+        title={
+          isSending
+            ? "Wait until this chat finishes generating"
+            : autoApprove
+              ? "Auto approve is on: Ask tool permissions are treated as Allow"
+              : "Auto approve is off"
+        }
+      >
+        <ShieldCheck className={cn("size-4 shrink-0", autoApprove ? "opacity-100" : "opacity-60")} />
+        <span>{autoApprove ? "On" : "Off"}</span>
+      </Button>
     </div>
   );
 });

@@ -136,9 +136,9 @@ import { defaultProvider } from "@/lib/ai-chat/provider-presets";
 import {
   getEffectiveAgentPermission,
   getEffectiveGlobalAgentPermission,
-  getEffectiveGlobalSkillPermission,
+  getEffectiveGlobalSkillAvailability,
   getEffectiveGlobalToolPermission,
-  getEffectiveSkillPermission,
+  getEffectiveSkillAvailability,
   getEffectiveToolPermission,
   getEffectiveWorkspaceRoots,
   resolveProviderForChat,
@@ -903,6 +903,9 @@ export default function Home() {
       sortedChats.find((chat) => chat.id === activeChatId) ?? sortedChats[0]
     );
   }, [isNewChatDraft, activeChatId, sortedChats]);
+  const activeOrDraftAutoApprove = isNewChatDraft
+    ? newChatDraftSettings?.autoApprove === true
+    : activeChat?.autoApprove === true;
   const composerDraftKey = isNewChatDraft
     ? NEW_CHAT_DRAFT_KEY
     : (activeChatId ?? "");
@@ -1098,11 +1101,17 @@ export default function Home() {
               toolsSettings,
               mode: activeMode,
               modeCapabilityContext: context,
+              autoApprove: activeOrDraftAutoApprove,
             }),
           ] as const,
       ),
     );
-  }, [activeMode, availableTools, toolsSettings]);
+  }, [
+    activeMode,
+    activeOrDraftAutoApprove,
+    availableTools,
+    toolsSettings,
+  ]);
 
   const globalToolPermissions = useMemo(() => {
     return new Map(
@@ -1188,7 +1197,7 @@ export default function Home() {
     availableSkillsByName,
   ]);
 
-  const effectiveSkillPermissions = useMemo(() => {
+  const effectiveSkillAvailability = useMemo(() => {
     const context = {
       availableTools,
       availableSkills,
@@ -1199,7 +1208,7 @@ export default function Home() {
         (skill) =>
           [
             skill.name,
-            getEffectiveSkillPermission({
+            getEffectiveSkillAvailability({
               skillName: skill.name,
               skillsSettings,
               mode: activeMode,
@@ -1210,13 +1219,13 @@ export default function Home() {
     );
   }, [activeMode, availableSkills, availableTools, skillsSettings]);
 
-  const globalSkillPermissions = useMemo(() => {
+  const globalSkillAvailability = useMemo(() => {
     return new Map(
       availableSkills.map(
         (skill) =>
           [
             skill.name,
-            getEffectiveGlobalSkillPermission(skill.name, skillsSettings),
+            getEffectiveGlobalSkillAvailability(skill.name, skillsSettings),
           ] as const,
       ),
     );
@@ -1225,10 +1234,10 @@ export default function Home() {
   const globallyEnabledSkillNames = useMemo(() => {
     return new Set(
       availableSkills
-        .filter((skill) => effectiveSkillPermissions.get(skill.name) !== "deny")
+        .filter((skill) => effectiveSkillAvailability.get(skill.name) === "on")
         .map((skill) => skill.name),
     );
-  }, [availableSkills, effectiveSkillPermissions]);
+  }, [availableSkills, effectiveSkillAvailability]);
 
   const modeDefaultEnabledSkillNames = globallyEnabledSkillNames;
   const activeChatEnabledSkillNames = useMemo(
@@ -1245,13 +1254,11 @@ export default function Home() {
   }, [availableSkills, chatSkillSearchValue]);
 
   const skillMentionOptions = useMemo(() => {
-    return availableSkills
-      .filter((skill) => effectiveSkillPermissions.get(skill.name) !== "deny")
-      .map((skill) => ({
-        name: skill.name,
-        description: skill.description,
-      }));
-  }, [availableSkills, effectiveSkillPermissions]);
+    return availableSkills.map((skill) => ({
+      name: skill.name,
+      description: skill.description,
+    }));
+  }, [availableSkills]);
 
   const availableAgents = useMemo(() => {
     const byName = new Map<string, LoadedAgentInfo>();
@@ -1336,8 +1343,8 @@ export default function Home() {
     () => new Map(Object.entries(activeModePermissionMaps.toolPermissions)),
     [activeModePermissionMaps],
   );
-  const activeModeSkillPermissions = useMemo(
-    () => new Map(Object.entries(activeModePermissionMaps.skillPermissions)),
+  const activeModeSkillAvailability = useMemo(
+    () => new Map(Object.entries(activeModePermissionMaps.skillAvailability)),
     [activeModePermissionMaps],
   );
   const activeModeAgentPermissions = useMemo(
@@ -2791,6 +2798,7 @@ export default function Home() {
     toggleActiveChatTool,
     toggleActiveChatFileToolAutoApproval,
     setActiveChatThinkingMode,
+    setActiveChatAutoApprove,
     toggleActiveChatSkill,
     toggleActiveChatAgent,
     renameChat,
@@ -2866,6 +2874,17 @@ export default function Home() {
 
     setActiveChatThinkingMode(thinkingMode);
   }
+  function setActiveOrDraftChatAutoApprove(autoApprove: boolean) {
+    if (isNewChatDraft || !activeChat) {
+      setNewChatDraftSettings((currentSettings: NewChatDraftSettings | undefined) => ({
+        ...(currentSettings ?? {}),
+        autoApprove,
+      }));
+      return;
+    }
+
+    setActiveChatAutoApprove(autoApprove);
+  }
 
   const loadSkillFromComposerMention = useCallback(
     (skillName: string, nextDraft: string) => {
@@ -2873,11 +2892,6 @@ export default function Home() {
 
       if (!skill) {
         showError(`Skill not found: ${skillName}`);
-        return false;
-      }
-
-      if (effectiveSkillPermissions.get(skillName) === "deny") {
-        showError(`Skill is not available in this chat mode: ${skillName}`);
         return false;
       }
 
@@ -2976,7 +2990,6 @@ export default function Home() {
     [
       activeChat,
       availableSkillsByName,
-      effectiveSkillPermissions,
       activeMode.id,
       appSettings.chatFolders,
       armStickyScrollToBottom,
@@ -4185,6 +4198,8 @@ export default function Home() {
                           setIsThinkingModePickerOpen
                         }
                         onThinkingModeChange={setActiveOrDraftChatThinkingMode}
+                        autoApprove={activeOrDraftAutoApprove}
+                        onAutoApproveChange={setActiveOrDraftChatAutoApprove}
                       />
                     }
                     contentWidthClassName={chatWidthClassName}
@@ -4278,14 +4293,15 @@ export default function Home() {
               globalToolPermissions={globalToolPermissions}
               modeToolPermissions={activeModeToolPermissions}
               skills={availableSkills}
-              skillPermissions={effectiveSkillPermissions}
-              globalSkillPermissions={globalSkillPermissions}
-              modeSkillPermissions={activeModeSkillPermissions}
+              skillAvailability={effectiveSkillAvailability}
+              globalSkillAvailability={globalSkillAvailability}
+              modeSkillAvailability={activeModeSkillAvailability}
               agents={availableAgents}
               agentPermissions={effectiveAgentPermissions}
               globalAgentPermissions={globalAgentPermissions}
               modeAgentPermissions={activeModeAgentPermissions}
               modeName={activeMode.name || "Default"}
+              autoApprove={activeOrDraftAutoApprove}
               onClose={() => setIsChatCapabilitiesSidebarOpen(false)}
             />
           ) : (

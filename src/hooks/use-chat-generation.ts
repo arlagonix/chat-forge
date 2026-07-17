@@ -56,7 +56,7 @@ import {
   type ActiveGeneration,
   type ActiveProcessStepRef,
 } from "@/lib/ai-chat/generation-metadata";
-import { resolveModeForChat } from "@/lib/ai-chat/modes";
+import { FEATURE_PERMISSION_KEY, resolveModeForChat } from "@/lib/ai-chat/modes";
 import {
   buildAssistantContinuationContext,
   getAssistantContinuationPrompt,
@@ -65,7 +65,6 @@ import type { ProjectInstructionsSnapshot } from "@/lib/ai-chat/project-instruct
 import {
   buildSystemPromptWithActiveSkills,
   createUnavailableToolCallMessage,
-  getEffectiveSkillPermission,
   getEffectiveToolPermission,
   getEffectiveWorkspaceRoots,
   getEnabledAgentsForChat,
@@ -247,7 +246,7 @@ function parseAgentStartCommand(content: string): StartCommand | null {
 }
 
 function parseSkillStartCommand(content: string): StartCommand | null {
-  const match = /^\s*\/(?:skill|s):([A-Za-z0-9_-]+)(?:\s+([\s\S]*))?$/.exec(
+  const match = /^\s*\/(?:skill|s)\/([A-Za-z0-9_-]+)(?:\s+([\s\S]*))?$/.exec(
     content,
   );
   if (!match) return null;
@@ -949,20 +948,6 @@ export function useChatGeneration({
     }
   }
 
-  function getLoadSkillToolCallPermission(
-    toolCall: ChatToolCall,
-    chat: ChatSession | undefined,
-  ) {
-    const skillName = getLoadSkillNameFromToolCall(toolCall);
-    if (!skillName) return "allow" as Permission;
-    return getEffectiveSkillPermission({
-      skillName,
-      skillsSettings,
-      mode: chat ? getModeForChat(chat) : undefined,
-      modeCapabilityContext,
-    });
-  }
-
   function createLoadSkillApprovalRequest(
     toolCall: ChatToolCall,
   ): ToolApprovalRequest {
@@ -1015,14 +1000,15 @@ export function useChatGeneration({
     chat: ChatSession | undefined,
   ) {
     if (toolCall.function.name === LOAD_SKILL_TOOL_NAME) {
-      const loaderPermission = getEffectiveToolPermission({
-        toolName: LOAD_SKILL_TOOL_NAME,
-        toolsSettings,
-        mode: chat ? getModeForChat(chat) : undefined,
-        modeCapabilityContext,
-      });
-      if (loaderPermission === "ask") return true;
-      return getLoadSkillToolCallPermission(toolCall, chat) === "ask";
+      return (
+        getEffectiveToolPermission({
+          toolName: LOAD_SKILL_TOOL_NAME,
+          toolsSettings,
+          mode: chat ? getModeForChat(chat) : undefined,
+          modeCapabilityContext,
+          autoApprove: chat?.autoApprove,
+        }) === "ask"
+      );
     }
 
     return requiresToolApproval(toolCall.function.name, tool);
@@ -1035,6 +1021,20 @@ export function useChatGeneration({
   ) {
     if (!tool) return undefined;
     if (toolCall.function.name !== LOAD_SKILL_TOOL_NAME) return tool;
+
+    const skillName = getLoadSkillNameFromToolCall(toolCall);
+    const parameters = tool.parameters as
+      | { properties?: { name?: { enum?: unknown[] } } }
+      | undefined;
+    const selectableSkillNames = parameters?.properties?.name?.enum;
+    if (
+      skillName &&
+      Array.isArray(selectableSkillNames) &&
+      !selectableSkillNames.includes(skillName)
+    ) {
+      return undefined;
+    }
+
     return requiresApprovalForToolCall(toolCall, tool, chat)
       ? { ...tool, requiresApproval: true }
       : { ...tool, requiresApproval: false };
@@ -1606,6 +1606,7 @@ export function useChatGeneration({
       toolsSettings,
       mode,
       modeCapabilityContext,
+      autoApprove: chat.autoApprove,
     });
     const skillToolBase = createLoadSkillTool(enabledSkillsForChat);
     const skillTool =
@@ -1625,6 +1626,7 @@ export function useChatGeneration({
         toolsSettings,
         mode,
         modeCapabilityContext,
+        autoApprove: chat.autoApprove,
       });
       if (callAgentPermission === "deny") return toolsWithSkillTool;
       const callAgentTool = createCallAgentTool(enabledAgentsForChat);
@@ -1640,31 +1642,6 @@ export function useChatGeneration({
     })();
 
     return toolsWithAgentTool;
-  }
-
-  function canUseLoadSkillTool(chat: ChatSession) {
-    const mode = getModeForChat(chat);
-    if ((chat.disabledToolNames ?? []).includes(LOAD_SKILL_TOOL_NAME)) {
-      return false;
-    }
-    return (
-      getEffectiveToolPermission({
-        toolName: LOAD_SKILL_TOOL_NAME,
-        toolsSettings,
-        mode,
-        modeCapabilityContext,
-      }) !== "deny"
-    );
-  }
-
-  function validateManualSkillLoadForChat(
-    chat: ChatSession,
-    skillNames: string[],
-  ) {
-    if (skillNames.length === 0) return true;
-    if (canUseLoadSkillTool(chat)) return true;
-    showError("Skill loading is disabled for this chat or mode.");
-    return false;
   }
 
   function getActiveSkillNamesForRun(
@@ -2199,11 +2176,43 @@ export function useChatGeneration({
     });
   }
 
-  function getCustomAgentAvailableSkills(agent: LoadedAgentInfo) {
-    const availableSkillNames = new Set(agent.availableSkillNames ?? []);
-    return [...availableSkillNames]
-      .map((skillName) => availableSkillsByName.get(skillName))
-      .filter((skill): skill is LoadedSkillInfo => Boolean(skill));
+  function getCustomAgentAvailableSkills(
+    agent: LoadedAgentInfo,
+    chat: ChatSession | undefined,
+  ) {
+    if (agent.skillAvailabilityModelVersion !== 1) {
+      const legacyNames = new Set(agent.availableSkillNames ?? []);
+      return [...availableSkillsByName.values()].filter((skill: LoadedSkillInfo) =>
+        legacyNames.has(skill.name),
+      );
+    }
+
+    const chatForSkills = chat ?? activeChat;
+    const parentEnabledNames = new Set(
+      chatForSkills
+        ? getEnabledSkillsForChat({
+            chat: chatForSkills,
+            globalEnabledSkills,
+            availableSkillsByName,
+            mode: getModeForChat(chatForSkills),
+            modeCapabilityContext,
+            skillsSettings,
+          }).map((skill: LoadedSkillInfo) => skill.name)
+        : globalEnabledSkills.map((skill: LoadedSkillInfo) => skill.name),
+    );
+    const availability = agent.skillAvailability ?? {};
+    const master = availability[FEATURE_PERMISSION_KEY] ?? "global";
+
+    return [...availableSkillsByName.values()].filter((skill: LoadedSkillInfo) => {
+      if (master === "on") return true;
+      if (master === "off") return false;
+      if (master === "global") return parentEnabledNames.has(skill.name);
+
+      const item = availability[skill.name] ?? "global";
+      if (item === "on") return true;
+      if (item === "off") return false;
+      return parentEnabledNames.has(skill.name);
+    });
   }
 
   function getAgentPromptSkills({
@@ -2221,7 +2230,7 @@ export function useChatGeneration({
     if (!hasSkillTool) return [];
 
     if (!isBuiltInAgentName(agent.name)) {
-      return getCustomAgentAvailableSkills(agent);
+      return getCustomAgentAvailableSkills(agent, chat);
     }
 
     const chatForSkills =
@@ -2249,11 +2258,13 @@ export function useChatGeneration({
     depth,
     inheritedToolsForRun,
     chatEnabledAgents,
+    chat,
   }: {
     agent: LoadedAgentInfo;
     depth: number;
     inheritedToolsForRun: LoadedToolInfo[];
     chatEnabledAgents: LoadedAgentInfo[];
+    chat: ChatSession | undefined;
   }) {
     const canCallAllowedAgents = agentsSettings.enabled;
 
@@ -2278,15 +2289,36 @@ export function useChatGeneration({
     );
     const allowedToolNames = new Set<string>(agent.allowedToolNames ?? []);
     const tools = [...allowedToolNames]
-      .map((toolName) => inheritedToolsByName.get(toolName))
-      .map((tool) => {
-        if (!tool || tool.name !== LOAD_SKILL_TOOL_NAME) return tool;
+      .map((toolName) => {
+        if (toolName !== LOAD_SKILL_TOOL_NAME) {
+          return inheritedToolsByName.get(toolName);
+        }
+
         const skillTool = createLoadSkillTool(
-          getCustomAgentAvailableSkills(agent),
+          getCustomAgentAvailableSkills(agent, chat),
         );
-        return skillTool
-          ? { ...skillTool, requiresApproval: tool.requiresApproval }
-          : undefined;
+        if (!skillTool) return undefined;
+
+        const inheritedSkillTool = inheritedToolsByName.get(
+          LOAD_SKILL_TOOL_NAME,
+        );
+        if (inheritedSkillTool) {
+          return {
+            ...skillTool,
+            requiresApproval: inheritedSkillTool.requiresApproval,
+          };
+        }
+
+        const skillPermission = getEffectiveToolPermission({
+          toolName: LOAD_SKILL_TOOL_NAME,
+          toolsSettings,
+          mode: chat ? getModeForChat(chat) : undefined,
+          modeCapabilityContext,
+          autoApprove: chat?.autoApprove,
+        });
+        return skillPermission === "deny"
+          ? undefined
+          : { ...skillTool, requiresApproval: skillPermission === "ask" };
       })
       .filter((tool): tool is LoadedToolInfo => {
         if (!tool) return false;
@@ -2407,7 +2439,7 @@ export function useChatGeneration({
     const provider = resolveProviderForAgent(agent, parentProvider);
     const initialAgentActiveSkillNames: string[] = isBuiltInAgentName(agent.name)
       ? [...new Set<string>(inheritedActiveSkillNames)]
-      : [...new Set<string>(agent.availableSkillNames ?? [])];
+      : [];
     const agentWorkspaceRoots = getEffectiveWorkspaceRootsForChat(
       getCurrentChatSnapshot(chatId),
       initialAgentActiveSkillNames,
@@ -2481,6 +2513,7 @@ export function useChatGeneration({
       depth,
       inheritedToolsForRun: initialInheritedToolsForRun,
       chatEnabledAgents,
+      chat: chatForAgentCall,
     });
     const initialAgentPromptSkills = getAgentPromptSkills({
       agent,
@@ -2693,6 +2726,7 @@ export function useChatGeneration({
           depth,
           inheritedToolsForRun: currentInheritedToolsForRun,
           chatEnabledAgents,
+          chat: chatSnapshot ?? chatForAgentCall,
         });
 
         const currentAgentPromptSkills = getAgentPromptSkills({
@@ -4633,10 +4667,6 @@ export function useChatGeneration({
       userMessageId,
       attachments,
     );
-    if (!validateManualSkillLoadForChat(chatForRun, oneShotSkillNames)) {
-      return false;
-    }
-
     const projectInstructionsForRun = await ensureProjectInstructionsForChat(
       chatForRun,
       { force: true },
@@ -4775,8 +4805,6 @@ export function useChatGeneration({
       userMessageSource.id,
       userAttachments,
     );
-    if (!validateManualSkillLoadForChat(chatForRun, oneShotSkillNames)) return;
-
     const contextMessages = chatForRun.messages.slice(0, userIndex);
     const retainedMessages = chatForRun.messages.slice(0, userIndex + 1);
     const discardedMessages = chatForRun.messages.slice(userIndex + 1);
@@ -4996,10 +5024,6 @@ export function useChatGeneration({
       currentMessage.id,
       finalAttachments,
     );
-    if (!validateManualSkillLoadForChat(chatForRun, oneShotSkillNames)) {
-      return false;
-    }
-
     const contextMessages = chatForRun.messages.slice(0, userIndex);
     const projectInstructionsForRun = await ensureProjectInstructionsForChat(
       chatForRun,

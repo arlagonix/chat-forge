@@ -471,7 +471,7 @@ export const McpDialog = memo(function McpDialog({
 
           <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden md:grid-cols-[400px_minmax(0,1fr)]">
             <aside className="flex min-h-0 flex-col border-b bg-card/70 md:border-b-0 md:border-r">
-              <div className="shrink-0 border-b bg-card/90 p-2">
+              <div className="shrink-0 bg-card/90 p-2">
                 <div className="relative">
                   <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
                   <Input
@@ -496,36 +496,34 @@ export const McpDialog = memo(function McpDialog({
               </div>
 
               <div className="min-h-0 flex-1 overflow-y-auto">
-                <div className="border-b">
-                  <div
-                    role="button"
-                    tabIndex={0}
-                    className="flex cursor-pointer items-center justify-between gap-3 bg-transparent px-2 py-2 text-base outline-none transition-colors hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-ring"
-                    onClick={() => updateGlobalEnabled(!mcpEnabled)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter" || event.key === " ") {
-                        event.preventDefault();
-                        updateGlobalEnabled(!mcpEnabled);
-                      }
-                    }}
-                  >
-                    <span className="min-w-0">
-                      <span className="flex items-center gap-1.5 font-medium select-none min-h-8">
-                        Enable MCP globally
-                        <InfoTooltip label="Enable MCP globally">
-                          Master switch for MCP. When disabled, all server
-                          switches appear off and all MCP tools stay out of
-                          model context, but saved values are preserved.
-                        </InfoTooltip>
-                      </span>
+                <div
+                  role="button"
+                  tabIndex={0}
+                  className="flex cursor-pointer items-center justify-between gap-3 border-y border-border bg-transparent px-2 py-2 text-base outline-none transition-colors hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-ring"
+                  onClick={() => updateGlobalEnabled(!mcpEnabled)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      updateGlobalEnabled(!mcpEnabled);
+                    }
+                  }}
+                >
+                  <span className="min-w-0">
+                    <span className="flex items-center gap-1.5 font-medium select-none min-h-8">
+                      Enable MCP globally
+                      <InfoTooltip label="Enable MCP globally">
+                        Master switch for MCP. When disabled, all server
+                        switches appear off and all MCP tools stay out of model
+                        context, but saved values are preserved.
+                      </InfoTooltip>
                     </span>
-                    <Switch
-                      checked={mcpEnabled}
-                      onClick={(event) => event.stopPropagation()}
-                      onCheckedChange={updateGlobalEnabled}
-                      className="shrink-0 cursor-pointer"
-                    />
-                  </div>
+                  </span>
+                  <Switch
+                    checked={mcpEnabled}
+                    onClick={(event) => event.stopPropagation()}
+                    onCheckedChange={updateGlobalEnabled}
+                    className="shrink-0 cursor-pointer"
+                  />
                 </div>
 
                 <div>

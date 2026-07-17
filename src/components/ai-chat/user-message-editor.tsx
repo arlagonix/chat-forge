@@ -58,7 +58,9 @@ function findActiveMention(
   cursorIndex: number,
 ): ActiveMention | null {
   const prefix = content.slice(0, cursorIndex);
-  const match = /^\s*\/(skill|s|agent|a):?([A-Za-z0-9_-]*)$/.exec(prefix);
+  const skillMatch = /^\s*\/(skill|s)\/?([A-Za-z0-9_-]*)$/.exec(prefix);
+  const agentMatch = /^\s*\/(agent|a):?([A-Za-z0-9_-]*)$/.exec(prefix);
+  const match = skillMatch ?? agentMatch;
 
   if (!match) return null;
 
@@ -66,7 +68,7 @@ function findActiveMention(
   if (slashIndex < 0) return null;
 
   const command = match[1] as "skill" | "s" | "agent" | "a";
-  const type = command === "agent" || command === "a" ? "agent" : "skill";
+  const type = skillMatch ? "skill" : "agent";
   const query = match[2] ?? "";
   const startIndex = slashIndex;
 
@@ -268,7 +270,8 @@ export const UserMessageEditor = memo(function UserMessageEditor({
 
     const suffix = content.slice(activeMention.endIndex);
     const shouldAddTrailingSpace = suffix.length === 0 || !/^\s/.test(suffix);
-    const mentionText = `/${activeMention.command}:${name}${
+    const separator = activeMention.type === "skill" ? "/" : ":";
+    const mentionText = `/${activeMention.command}${separator}${name}${
       shouldAddTrailingSpace ? " " : ""
     }`;
     const nextContent = `${content.slice(0, activeMention.startIndex)}${mentionText}${suffix}`;

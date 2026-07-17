@@ -36,6 +36,7 @@ export type NewChatDraftSettings = {
   workspaceRoots?: ChatWorkspaceRoot[];
   fileToolAutoApproval?: ChatFileToolAutoApproval;
   thinkingMode?: ChatThinkingMode;
+  autoApprove?: boolean;
 };
 
 function cloneStringArray(values?: string[]) {
@@ -64,6 +65,7 @@ export function buildNewChatDraftSettings(
       ? { ...sourceChat.fileToolAutoApproval }
       : undefined,
     thinkingMode: sourceChat.thinkingMode,
+    autoApprove: sourceChat.autoApprove === true,
   };
 }
 
@@ -100,6 +102,7 @@ export function applyNewChatDraftSettings({
       ? { ...draftSettings.fileToolAutoApproval }
       : { ...fileToolAutoApprovalDefaults },
     thinkingMode: draftSettings?.thinkingMode,
+    autoApprove: draftSettings?.autoApprove === true,
   };
 }
 
@@ -203,6 +206,7 @@ function cloneChatConfiguration(
         ? { ...fileToolAutoApprovalFallback }
         : undefined,
     thinkingMode: sourceChat.thinkingMode,
+    autoApprove: sourceChat.autoApprove === true,
   };
 }
 

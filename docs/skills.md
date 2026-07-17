@@ -23,7 +23,7 @@ The skill name comes from the `name` field inside `SKILL.md` frontmatter. The na
 
 Skill names must be unique across global skills and must use 1–64 letters, numbers, underscores, or hyphens. `skill` is reserved for the built-in loader tool. Name validation appears directly under the readonly name preview because `SKILL.md` is the source of truth.
 
-Newly created skills are allowed by default because loading a skill only injects instructions into the model context.
+Newly created skills are visible to models by default.
 
 ## Editing skills
 
@@ -55,12 +55,15 @@ Skills reload silently when the Skills settings dialog opens. Manual reload is a
 
 The selected skill shows a level-one file structure preview so users can see which files are present beside `SKILL.md`.
 
-## Permissions
+## Availability and manual loading
 
-The Skills master permission controls the whole skill category. Individual skills can be set to:
+The global Skills switch and each skill's On/Off switch control whether models can discover that skill by default. Modes and custom agents may override global availability with their own Global, Custom, On, or Off settings.
 
-- **Allow**: load without asking.
-- **Ask**: ask the user before loading that skill.
-- **Deny**: hide/block that skill.
+Skill availability is separate from approval. Model-initiated loading uses the built-in `skill` tool, whose normal Allow/Ask/Deny permission controls whether the model may load any visible skill.
 
-Missing per-skill permission entries default to **Allow**. Skill approval requests show only the requested skill name, source, and short description, not the full `SKILL.md` body.
+Users can always load any discovered skill directly, regardless of model visibility or the `skill` tool permission, with either command:
+
+- `/s/skill-name`
+- `/skill/skill-name`
+
+Manual commands use the slash form; the old colon form is not supported.

@@ -3,6 +3,8 @@ import {
   normalizeFeaturePermission,
   normalizeModesState,
   normalizePermissionMap,
+  normalizeSkillAvailabilityMap,
+  permissionToSkillAvailability,
   serializeModesState,
 } from "./modes";
 import { defaultProvider } from "./provider-presets";
@@ -385,31 +387,39 @@ function normalizeToolsSettings(
 function normalizeSkillsSettings(
   value: Partial<SkillsSettings> | undefined,
 ): SkillsSettings {
-  const permissionModelVersion =
-    (value as Record<string, unknown> | undefined)?.permissionModelVersion === 2
-      ? 2
-      : undefined;
-  const skillsPermission: FeaturePermission =
-    permissionModelVersion === 2
-      ? normalizeFeaturePermission(
-          (value as Record<string, unknown> | undefined)?.skillsPermission,
-          "custom",
-        )
-      : "custom";
-  const skillsEnabled =
-    permissionModelVersion === 2
-      ? skillsPermission !== "deny"
-      : typeof value?.enabled === "boolean"
-        ? value.enabled
-        : true;
+  const source = value as Record<string, unknown> | undefined;
+  if (source?.availabilityModelVersion === 1) {
+    return {
+      enabled: typeof source.enabled === "boolean" ? source.enabled : true,
+      skillAvailability: normalizeSkillAvailabilityMap(
+        source.skillAvailability,
+      ),
+      availabilityModelVersion: 1,
+    };
+  }
+
+  const legacyPermissions = normalizePermissionMap(source?.skillPermissions);
+  const legacyMaster = normalizeFeaturePermission(
+    source?.skillsPermission,
+    "custom",
+  );
+  const skillAvailability = Object.fromEntries(
+    Object.entries(legacyPermissions).map(([name, permission]) => [
+      name,
+      permissionToSkillAvailability(permission),
+    ]),
+  );
+
+  const hasLegacyPermissionModel = source?.permissionModelVersion === 2;
 
   return {
-    enabled: skillsEnabled,
-    skillsPermission,
-    skillPermissions: normalizePermissionMap(
-      (value as Record<string, unknown> | undefined)?.skillPermissions,
-    ),
-    permissionModelVersion: 2,
+    enabled: hasLegacyPermissionModel
+      ? legacyMaster !== "deny"
+      : typeof source?.enabled === "boolean"
+        ? source.enabled
+        : true,
+    skillAvailability,
+    availabilityModelVersion: 1,
   };
 }
 
@@ -478,7 +488,10 @@ function normalizeChatFolderWorkspaceRoots(
       if (!path) return undefined;
 
       const kind: ChatWorkspaceRoot["kind"] =
-        root.kind === "chat" || root.kind === "manual" || root.kind === "skill" || root.kind === "system"
+        root.kind === "chat" ||
+        root.kind === "manual" ||
+        root.kind === "skill" ||
+        root.kind === "system"
           ? root.kind
           : undefined;
       const pathKind: ChatWorkspaceRoot["pathKind"] =

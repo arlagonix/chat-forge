@@ -1,4 +1,7 @@
-import { isBuiltInToolName, isValidToolName } from "@/lib/ai-chat/builtin-tools";
+import {
+  isBuiltInToolName,
+  isValidToolName,
+} from "@/lib/ai-chat/builtin-tools";
 import type {
   LoadedAgentInfo,
   LoadedModeInfo,
@@ -12,6 +15,12 @@ import type {
   ModeFeaturePermission,
   PermissionMap,
   ModePermissionMap,
+  SkillAvailability,
+  SkillFeatureAvailability,
+  ModeSkillAvailability,
+  ModeSkillFeatureAvailability,
+  SkillAvailabilityMap,
+  ModeSkillAvailabilityMap,
 } from "@/lib/ai-chat/types";
 
 export const DEFAULT_MODE_ID = "default";
@@ -32,21 +41,55 @@ export type ModeCapabilityNames = {
 };
 
 export const PERMISSION_VALUES: Permission[] = ["allow", "ask", "deny"];
-export const FEATURE_PERMISSION_VALUES: FeaturePermission[] = ["custom", "allow", "ask", "deny"];
-export const MODE_PERMISSION_VALUES: ModePermission[] = ["global", "allow", "ask", "deny"];
-export const MODE_FEATURE_PERMISSION_VALUES: ModeFeaturePermission[] = ["custom", "global", "allow", "ask", "deny"];
+export const FEATURE_PERMISSION_VALUES: FeaturePermission[] = [
+  "custom",
+  "allow",
+  "ask",
+  "deny",
+];
+export const MODE_PERMISSION_VALUES: ModePermission[] = [
+  "global",
+  "allow",
+  "ask",
+  "deny",
+];
+export const MODE_FEATURE_PERMISSION_VALUES: ModeFeaturePermission[] = [
+  "custom",
+  "global",
+  "allow",
+  "ask",
+  "deny",
+];
 export const DEFAULT_PERMISSION: Permission = "ask";
 export const FEATURE_PERMISSION_KEY = "__feature__";
+export const SKILL_AVAILABILITY_VALUES: SkillAvailability[] = ["on", "off"];
+export const SKILL_FEATURE_AVAILABILITY_VALUES: SkillFeatureAvailability[] = [
+  "custom",
+  "on",
+  "off",
+];
+export const MODE_SKILL_AVAILABILITY_VALUES: ModeSkillAvailability[] = [
+  "global",
+  "on",
+  "off",
+];
+export const MODE_SKILL_FEATURE_AVAILABILITY_VALUES: ModeSkillFeatureAvailability[] =
+  ["custom", "global", "on", "off"];
 
 export function isPermission(value: unknown): value is Permission {
   return value === "allow" || value === "ask" || value === "deny";
 }
 
-export function normalizePermission(value: unknown, fallback: Permission = DEFAULT_PERMISSION): Permission {
+export function normalizePermission(
+  value: unknown,
+  fallback: Permission = DEFAULT_PERMISSION,
+): Permission {
   return isPermission(value) ? value : fallback;
 }
 
-export function isFeaturePermission(value: unknown): value is FeaturePermission {
+export function isFeaturePermission(
+  value: unknown,
+): value is FeaturePermission {
   return value === "custom" || isPermission(value);
 }
 
@@ -73,7 +116,9 @@ export function isModePermission(value: unknown): value is ModePermission {
   return value === "global" || isPermission(value);
 }
 
-export function isModeFeaturePermission(value: unknown): value is ModeFeaturePermission {
+export function isModeFeaturePermission(
+  value: unknown,
+): value is ModeFeaturePermission {
   return value === "custom" || isModePermission(value);
 }
 
@@ -94,6 +139,84 @@ export function normalizeModePermissionMap(value: unknown): ModePermissionMap {
   return permissions;
 }
 
+export function isSkillAvailability(
+  value: unknown,
+): value is SkillAvailability {
+  return value === "on" || value === "off";
+}
+
+export function isSkillFeatureAvailability(
+  value: unknown,
+): value is SkillFeatureAvailability {
+  return value === "custom" || isSkillAvailability(value);
+}
+
+export function isModeSkillAvailability(
+  value: unknown,
+): value is ModeSkillAvailability {
+  return value === "global" || isSkillAvailability(value);
+}
+
+export function isModeSkillFeatureAvailability(
+  value: unknown,
+): value is ModeSkillFeatureAvailability {
+  return value === "custom" || isModeSkillAvailability(value);
+}
+
+export function normalizeSkillAvailabilityMap(
+  value: unknown,
+): SkillAvailabilityMap {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const availability: SkillAvailabilityMap = {};
+  for (const [name, state] of Object.entries(value)) {
+    const normalizedName = name.trim();
+    if (!normalizedName || !isValidToolName(normalizedName)) continue;
+    if (!isSkillAvailability(state)) continue;
+    availability[normalizedName] = state;
+  }
+  return availability;
+}
+
+export function normalizeModeSkillAvailabilityMap(
+  value: unknown,
+): ModeSkillAvailabilityMap {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const availability: ModeSkillAvailabilityMap = {};
+  for (const [name, state] of Object.entries(value)) {
+    const normalizedName = name.trim();
+    if (!normalizedName || !isValidToolName(normalizedName)) continue;
+    if (!isModeSkillFeatureAvailability(state)) continue;
+    if (normalizedName === FEATURE_PERMISSION_KEY) {
+      availability[normalizedName] = state;
+      continue;
+    }
+    if (state === "global" || state === "custom") continue;
+    availability[normalizedName] = state;
+  }
+  return availability;
+}
+
+export function permissionToSkillAvailability(
+  value: unknown,
+): SkillAvailability {
+  return value === "deny" || value === "off" ? "off" : "on";
+}
+
+export function modePermissionToSkillAvailability(
+  value: unknown,
+): ModeSkillFeatureAvailability | undefined {
+  if (
+    value === "custom" ||
+    value === "global" ||
+    value === "on" ||
+    value === "off"
+  )
+    return value;
+  if (value === "allow" || value === "ask") return "on";
+  if (value === "deny") return "off";
+  return undefined;
+}
+
 export function resolvePermission({
   name,
   globalPermissions,
@@ -107,12 +230,17 @@ export function resolvePermission({
 }): Permission {
   const globalPermission = globalPermissions?.[name] ?? defaultPermission;
   const modePermission = modePermissions?.[name];
-  return modePermission && modePermission !== "global" && modePermission !== "custom"
+  return modePermission &&
+    modePermission !== "global" &&
+    modePermission !== "custom"
     ? modePermission
     : globalPermission;
 }
 
-export function permissionFromLegacyEnabled(enabled: boolean | undefined, fallback: Permission = DEFAULT_PERMISSION): Permission {
+export function permissionFromLegacyEnabled(
+  enabled: boolean | undefined,
+  fallback: Permission = DEFAULT_PERMISSION,
+): Permission {
   if (enabled === true) return fallback;
   if (enabled === false) return "deny";
   return fallback;
@@ -130,7 +258,10 @@ function normalizeNameList(names: unknown): string[] {
   ];
 }
 
-function namesToPermissionMap(names: string[], permission: Permission = "allow") {
+function namesToPermissionMap(
+  names: string[],
+  permission: Permission = "allow",
+) {
   const result: ModePermissionMap = {};
   for (const name of normalizeNameList(names)) {
     if (isValidToolName(name)) result[name] = permission;
@@ -155,15 +286,17 @@ export function getBuiltInModeDefaults(builtIn: ModeBuiltInId): LoadedModeInfo {
       usesDefaultCapabilities: true,
       name: "Minimal",
       enabled: true,
-      description: "Minimal mode with tools, skills, and agents denied by default.",
+      description:
+        "Minimal mode with tools, skills, and agents denied by default.",
       instructions: "",
       allowedToolNames: [],
       allowedSkillNames: [],
       allowedAgentNames: [],
       toolPermissions: { [FEATURE_PERMISSION_KEY]: "deny" },
-      skillPermissions: { [FEATURE_PERMISSION_KEY]: "deny" },
+      skillAvailability: { [FEATURE_PERMISSION_KEY]: "off" },
       agentPermissions: { [FEATURE_PERMISSION_KEY]: "deny" },
       permissionModelVersion: 2,
+      skillAvailabilityModelVersion: 1,
     };
   }
 
@@ -173,20 +306,26 @@ export function getBuiltInModeDefaults(builtIn: ModeBuiltInId): LoadedModeInfo {
     usesDefaultCapabilities: true,
     name: "Default",
     enabled: true,
-    description: "Default app behavior that follows global permissions unless customized.",
+    description:
+      "Default app behavior that follows global permissions unless customized.",
     instructions: "",
     allowedToolNames: [],
     allowedSkillNames: [],
     allowedAgentNames: [],
     toolPermissions: { [FEATURE_PERMISSION_KEY]: "global" },
-    skillPermissions: { [FEATURE_PERMISSION_KEY]: "global" },
+    skillAvailability: { [FEATURE_PERMISSION_KEY]: "global" },
     agentPermissions: { [FEATURE_PERMISSION_KEY]: "global" },
     permissionModelVersion: 2,
+    skillAvailabilityModelVersion: 1,
   };
 }
 
-export function createCustomMode(existingModes: LoadedModeInfo[] = []): LoadedModeInfo {
-  const existingNames = new Set(existingModes.map((mode) => mode.name.trim().toLowerCase()));
+export function createCustomMode(
+  existingModes: LoadedModeInfo[] = [],
+): LoadedModeInfo {
+  const existingNames = new Set(
+    existingModes.map((mode) => mode.name.trim().toLowerCase()),
+  );
   let name = "New mode";
   for (let index = 2; existingNames.has(name.toLowerCase()); index += 1) {
     name = `New mode ${index}`;
@@ -201,9 +340,10 @@ export function createCustomMode(existingModes: LoadedModeInfo[] = []): LoadedMo
     allowedSkillNames: [],
     allowedAgentNames: [],
     toolPermissions: {},
-    skillPermissions: {},
+    skillAvailability: {},
     agentPermissions: {},
     permissionModelVersion: 2,
+    skillAvailabilityModelVersion: 1,
   };
 }
 
@@ -215,9 +355,15 @@ export function getDefaultModeCapabilities({
   return {
     toolNames: availableTools
       .map((tool) => tool.name)
-      .filter((toolName) => isValidToolName(toolName) && isBuiltInToolName(toolName)),
-    skillNames: availableSkills.map((skill) => skill.name).filter((skillName) => isValidToolName(skillName)),
-    agentNames: availableAgents.map((agent) => agent.name).filter((agentName) => isValidToolName(agentName)),
+      .filter(
+        (toolName) => isValidToolName(toolName) && isBuiltInToolName(toolName),
+      ),
+    skillNames: availableSkills
+      .map((skill) => skill.name)
+      .filter((skillName) => isValidToolName(skillName)),
+    agentNames: availableAgents
+      .map((agent) => agent.name)
+      .filter((agentName) => isValidToolName(agentName)),
   };
 }
 
@@ -229,29 +375,40 @@ export function getBuiltInModeDefaultCapabilities(
   builtIn: ModeBuiltInId,
   context: ModeCapabilityContext,
 ): ModeCapabilityNames {
-  return builtIn === "minimal" ? getMinimalModeCapabilities() : getDefaultModeCapabilities(context);
+  return builtIn === "minimal"
+    ? getMinimalModeCapabilities()
+    : getDefaultModeCapabilities(context);
 }
 
 export function getModePermissionMaps(
   mode: LoadedModeInfo | undefined,
   context: ModeCapabilityContext,
-): { toolPermissions: ModePermissionMap; skillPermissions: ModePermissionMap; agentPermissions: ModePermissionMap } {
+): {
+  toolPermissions: ModePermissionMap;
+  skillAvailability: ModeSkillAvailabilityMap;
+  agentPermissions: ModePermissionMap;
+} {
   void context;
-  if (!mode) return { toolPermissions: {}, skillPermissions: {}, agentPermissions: {}, };
+  if (!mode)
+    return { toolPermissions: {}, skillAvailability: {}, agentPermissions: {} };
 
   if (mode.builtIn && mode.usesDefaultCapabilities !== false) {
     const masterPermission: ModeFeaturePermission =
       mode.builtIn === "default" ? "global" : "deny";
     return {
       toolPermissions: { [FEATURE_PERMISSION_KEY]: masterPermission },
-      skillPermissions: { [FEATURE_PERMISSION_KEY]: masterPermission },
+      skillAvailability: {
+        [FEATURE_PERMISSION_KEY]: mode.builtIn === "default" ? "global" : "off",
+      },
       agentPermissions: { [FEATURE_PERMISSION_KEY]: masterPermission },
     };
   }
 
   return {
     toolPermissions: normalizeModePermissionMap(mode.toolPermissions),
-    skillPermissions: normalizeModePermissionMap(mode.skillPermissions),
+    skillAvailability: normalizeModeSkillAvailabilityMap(
+      mode.skillAvailability,
+    ),
     agentPermissions: normalizeModePermissionMap(mode.agentPermissions),
   };
 }
@@ -271,13 +428,9 @@ export function getModeCapabilityNames(
           p !== "custom",
       )
       .map(([name]) => name),
-    skillNames: Object.entries(permissions.skillPermissions)
+    skillNames: Object.entries(permissions.skillAvailability)
       .filter(
-        ([name, p]) =>
-          name !== FEATURE_PERMISSION_KEY &&
-          p !== "deny" &&
-          p !== "global" &&
-          p !== "custom",
+        ([name, state]) => name !== FEATURE_PERMISSION_KEY && state === "on",
       )
       .map(([name]) => name),
     agentNames: Object.entries(permissions.agentPermissions)
@@ -303,8 +456,11 @@ function normalizeBuiltIn(value: unknown): ModeBuiltInId | undefined {
   return value === "default" || value === "minimal" ? value : undefined;
 }
 
-function normalizeModeDefinition(candidate: unknown): LoadedModeInfo | undefined {
-  if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return undefined;
+function normalizeModeDefinition(
+  candidate: unknown,
+): LoadedModeInfo | undefined {
+  if (!candidate || typeof candidate !== "object" || Array.isArray(candidate))
+    return undefined;
   const source = candidate as Record<string, unknown>;
   const builtIn = normalizeBuiltIn(source.builtIn);
   const fallback = builtIn ? getBuiltInModeDefaults(builtIn) : undefined;
@@ -315,7 +471,8 @@ function normalizeModeDefinition(candidate: unknown): LoadedModeInfo | undefined
   const legacySkillNames = normalizeNameList(source.allowedSkillNames);
   const legacyAgentNames = normalizeNameList(source.allowedAgentNames);
 
-  const permissionModelVersion = source.permissionModelVersion === 2 ? 2 : undefined;
+  const permissionModelVersion =
+    source.permissionModelVersion === 2 ? 2 : undefined;
   const usesDefaultCapabilities =
     typeof source.usesDefaultCapabilities === "boolean"
       ? source.usesDefaultCapabilities
@@ -326,7 +483,10 @@ function normalizeModeDefinition(candidate: unknown): LoadedModeInfo | undefined
     builtIn && usesDefaultCapabilities !== false
       ? getBuiltInModeDefaults(builtIn)
       : undefined;
-  const normalizeStoredModePermissions = (rawPermissions: unknown, legacyNames: string[]) => {
+  const normalizeStoredModePermissions = (
+    rawPermissions: unknown,
+    legacyNames: string[],
+  ) => {
     const normalized = normalizeModePermissionMap(rawPermissions);
     if (permissionModelVersion !== 2) delete normalized[FEATURE_PERMISSION_KEY];
     return {
@@ -335,27 +495,50 @@ function normalizeModeDefinition(candidate: unknown): LoadedModeInfo | undefined
     };
   };
 
+  const normalizeStoredSkillAvailability = () => {
+    if (source.skillAvailabilityModelVersion === 1) {
+      return normalizeModeSkillAvailabilityMap(source.skillAvailability);
+    }
+    const legacyPermissions = normalizeModePermissionMap(
+      source.skillPermissions,
+    );
+    const migrated: ModeSkillAvailabilityMap = {};
+    for (const name of legacySkillNames) migrated[name] = "on";
+    for (const [name, permission] of Object.entries(legacyPermissions)) {
+      const state = modePermissionToSkillAvailability(permission);
+      if (!state) continue;
+      if (name === FEATURE_PERMISSION_KEY) migrated[name] = state;
+      else if (state === "on" || state === "off") migrated[name] = state;
+    }
+    return migrated;
+  };
+
   return {
     id,
     ...(builtIn ? { builtIn } : {}),
     usesDefaultCapabilities,
     name: normalizeModeName(source.name, fallback?.name ?? "Mode"),
     enabled: typeof source.enabled === "boolean" ? source.enabled : true,
-    description: typeof source.description === "string" ? source.description : fallback?.description ?? "",
-    instructions: typeof source.instructions === "string" ? source.instructions : "",
+    description:
+      typeof source.description === "string"
+        ? source.description
+        : (fallback?.description ?? ""),
+    instructions:
+      typeof source.instructions === "string" ? source.instructions : "",
     allowedToolNames: legacyToolNames,
     allowedSkillNames: legacySkillNames,
     allowedAgentNames: legacyAgentNames,
     toolPermissions:
       builtInDefaultPermissions?.toolPermissions ??
       normalizeStoredModePermissions(source.toolPermissions, legacyToolNames),
-    skillPermissions:
-      builtInDefaultPermissions?.skillPermissions ??
-      normalizeStoredModePermissions(source.skillPermissions, legacySkillNames),
+    skillAvailability:
+      builtInDefaultPermissions?.skillAvailability ??
+      normalizeStoredSkillAvailability(),
     agentPermissions:
       builtInDefaultPermissions?.agentPermissions ??
       normalizeStoredModePermissions(source.agentPermissions, legacyAgentNames),
     permissionModelVersion: 2,
+    skillAvailabilityModelVersion: 1,
   };
 }
 
@@ -367,16 +550,24 @@ function ensureBuiltInModes(modes: LoadedModeInfo[]) {
     mergedModes.unshift(getBuiltInModeDefaults(builtIn));
   }
   return mergedModes.sort((left, right) => {
-    const leftIndex = BUILT_IN_MODE_IDS.indexOf(left.id as (typeof BUILT_IN_MODE_IDS)[number]);
-    const rightIndex = BUILT_IN_MODE_IDS.indexOf(right.id as (typeof BUILT_IN_MODE_IDS)[number]);
+    const leftIndex = BUILT_IN_MODE_IDS.indexOf(
+      left.id as (typeof BUILT_IN_MODE_IDS)[number],
+    );
+    const rightIndex = BUILT_IN_MODE_IDS.indexOf(
+      right.id as (typeof BUILT_IN_MODE_IDS)[number],
+    );
     if (leftIndex >= 0 || rightIndex >= 0) {
-      return (leftIndex >= 0 ? leftIndex : 99) - (rightIndex >= 0 ? rightIndex : 99);
+      return (
+        (leftIndex >= 0 ? leftIndex : 99) - (rightIndex >= 0 ? rightIndex : 99)
+      );
     }
     return left.name.localeCompare(right.name);
   });
 }
 
-export function normalizeModesState(value: Partial<ModesState> | undefined): ModesState {
+export function normalizeModesState(
+  value: Partial<ModesState> | undefined,
+): ModesState {
   const rawModes = Array.isArray(value?.modes) ? value.modes : [];
   const modesById = new Map<string, LoadedModeInfo>();
   for (const rawMode of rawModes) {
@@ -386,7 +577,8 @@ export function normalizeModesState(value: Partial<ModesState> | undefined): Mod
   }
   const modes = ensureBuiltInModes([...modesById.values()]);
   if (!modes.some((mode) => mode.enabled)) {
-    const defaultMode = modes.find((mode) => mode.id === DEFAULT_MODE_ID) ?? modes[0];
+    const defaultMode =
+      modes.find((mode) => mode.id === DEFAULT_MODE_ID) ?? modes[0];
     defaultMode.enabled = true;
   }
   return { modes };
@@ -396,7 +588,10 @@ export function getEnabledModes(modesState: ModesState) {
   return normalizeModesState(modesState).modes.filter((mode) => mode.enabled);
 }
 
-export function resolveModeForChat(modeId: string | undefined, modesState: ModesState): LoadedModeInfo {
+export function resolveModeForChat(
+  modeId: string | undefined,
+  modesState: ModesState,
+): LoadedModeInfo {
   const normalized = normalizeModesState(modesState);
   const enabledModes = normalized.modes.filter((mode) => mode.enabled);
   const mode = enabledModes.find((candidate) => candidate.id === modeId);
@@ -408,13 +603,20 @@ export function getModeInstructionsBlock(mode: LoadedModeInfo | undefined) {
   const instructions = mode.instructions?.trim() ?? "";
   return [
     `<mode_instructions name="${mode.name.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")}">`,
-    mode.description.trim() ? `Mode description: ${mode.description.trim()}` : "",
+    mode.description.trim()
+      ? `Mode description: ${mode.description.trim()}`
+      : "",
     instructions,
     `</mode_instructions>`,
-  ].filter(Boolean).join("\n");
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
-export function updateBuiltInModeWithReset(mode: LoadedModeInfo, context: ModeCapabilityContext): LoadedModeInfo {
+export function updateBuiltInModeWithReset(
+  mode: LoadedModeInfo,
+  context: ModeCapabilityContext,
+): LoadedModeInfo {
   if (!mode.builtIn) return mode;
   const defaults = getBuiltInModeDefaults(mode.builtIn);
   void context;
@@ -422,6 +624,7 @@ export function updateBuiltInModeWithReset(mode: LoadedModeInfo, context: ModeCa
     ...defaults,
     enabled: mode.enabled,
     permissionModelVersion: 2,
+    skillAvailabilityModelVersion: 1,
   };
 }
 

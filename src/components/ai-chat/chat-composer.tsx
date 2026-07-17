@@ -177,7 +177,7 @@ function findActiveMention(
   cursorIndex: number,
 ): ActiveMention | null {
   const prefix = content.slice(0, cursorIndex);
-  const match = /(^|[\s([{])\/(skill|s):?([A-Za-z0-9_-]*)$/.exec(prefix);
+  const match = /(^|[\s([{])\/(skill|s)\/?([A-Za-z0-9_-]*)$/.exec(prefix);
 
   if (!match) return null;
 

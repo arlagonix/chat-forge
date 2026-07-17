@@ -525,6 +525,15 @@ export function useChatActions({
     });
   }
 
+  function setActiveChatAutoApprove(autoApprove: boolean) {
+    if (!activeChat) return;
+
+    updateChat(activeChat.id, (chat) => ({
+      ...chat,
+      autoApprove,
+    }));
+  }
+
   function setActiveChatThinkingMode(thinkingMode: ChatThinkingMode) {
     if (!activeChat) return;
 
@@ -645,6 +654,7 @@ export function useChatActions({
     toggleActiveChatTool,
     toggleActiveChatFileToolAutoApproval,
     setActiveChatThinkingMode,
+    setActiveChatAutoApprove,
     toggleActiveChatSkill,
     toggleActiveChatAgent,
     renameChat,

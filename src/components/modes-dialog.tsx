@@ -52,12 +52,13 @@ import {
   FEATURE_PERMISSION_KEY,
   getBuiltInModeDefaults,
   normalizeModePermissionMap,
+  normalizeModeSkillAvailabilityMap,
   normalizeModesState,
   updateBuiltInModeWithReset,
 } from "@/lib/ai-chat/modes";
 import {
   getEffectiveGlobalAgentPermission,
-  getEffectiveGlobalSkillPermission,
+  getEffectiveGlobalSkillAvailability,
   getEffectiveGlobalToolPermission,
 } from "@/lib/ai-chat/request-builder";
 import { groupToolsBySource } from "@/lib/ai-chat/tool-groups";
@@ -71,8 +72,12 @@ import type {
   ModeFeaturePermission,
   ModePermission,
   ModePermissionMap,
+  ModeSkillAvailability,
+  ModeSkillAvailabilityMap,
+  ModeSkillFeatureAvailability,
   ModesState,
   Permission,
+  SkillAvailability,
   SkillsSettings,
   ToolsSettings,
 } from "@/lib/ai-chat/types";
@@ -102,7 +107,7 @@ type ModeDraft = {
   builtIn?: ModeBuiltInId;
   usesDefaultCapabilities?: boolean;
   toolPermissions: ModePermissionMap;
-  skillPermissions: ModePermissionMap;
+  skillAvailability: ModeSkillAvailabilityMap;
   agentPermissions: ModePermissionMap;
 };
 
@@ -132,7 +137,7 @@ function createBlankModeDraft(): ModeDraft {
     instructions: "",
     usesDefaultCapabilities: false,
     toolPermissions: {},
-    skillPermissions: {},
+    skillAvailability: {},
     agentPermissions: {},
   };
 }
@@ -147,7 +152,9 @@ function modeToDraft(mode: LoadedModeInfo): ModeDraft {
     builtIn: mode.builtIn,
     usesDefaultCapabilities: mode.usesDefaultCapabilities,
     toolPermissions: normalizeModePermissionMap(mode.toolPermissions),
-    skillPermissions: normalizeModePermissionMap(mode.skillPermissions),
+    skillAvailability: normalizeModeSkillAvailabilityMap(
+      mode.skillAvailability,
+    ),
     agentPermissions: normalizeModePermissionMap(mode.agentPermissions),
   };
 }
@@ -175,13 +182,9 @@ function draftToMode(
           p !== "custom",
       )
       .map(([name]) => name),
-    allowedSkillNames: Object.entries(draft.skillPermissions)
+    allowedSkillNames: Object.entries(draft.skillAvailability)
       .filter(
-        ([name, p]) =>
-          name !== FEATURE_PERMISSION_KEY &&
-          p !== "deny" &&
-          p !== "global" &&
-          p !== "custom",
+        ([name, state]) => name !== FEATURE_PERMISSION_KEY && state === "on",
       )
       .map(([name]) => name),
     allowedAgentNames: Object.entries(draft.agentPermissions)
@@ -194,9 +197,10 @@ function draftToMode(
       )
       .map(([name]) => name),
     toolPermissions: draft.toolPermissions,
-    skillPermissions: draft.skillPermissions,
+    skillAvailability: draft.skillAvailability,
     agentPermissions: draft.agentPermissions,
     permissionModelVersion: 2,
+    skillAvailabilityModelVersion: 1,
   };
 }
 
@@ -221,11 +225,11 @@ function hasDraftChanges(
     return (
       Boolean(
         current.name.trim() ||
-        current.description.trim() ||
-        current.instructions.trim(),
+          current.description.trim() ||
+          current.instructions.trim(),
       ) ||
       Object.keys(current.toolPermissions).length > 0 ||
-      Object.keys(current.skillPermissions).length > 0 ||
+      Object.keys(current.skillAvailability).length > 0 ||
       Object.keys(current.agentPermissions).length > 0
     );
   }
@@ -338,6 +342,111 @@ function getDisplayedModePermission(
     itemPermission === "global"
     ? itemPermission
     : "global";
+}
+
+function SkillAvailabilitySelect({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: ModeSkillAvailability;
+  onChange: (value: ModeSkillAvailability) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <Select
+      value={value}
+      onValueChange={(next: string) =>
+        onChange(next as ModeSkillAvailability)
+      }
+      disabled={disabled}
+    >
+      <SelectTrigger className="h-8 w-27 shrink-0">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value="global">Global</SelectItem>
+        <SelectItem value="on">On</SelectItem>
+        <SelectItem value="off">Off</SelectItem>
+      </SelectContent>
+    </Select>
+  );
+}
+
+function SkillFeatureAvailabilitySelect({
+  value,
+  onChange,
+}: {
+  value: ModeSkillFeatureAvailability;
+  onChange: (value: ModeSkillFeatureAvailability) => void;
+}) {
+  return (
+    <Select
+      value={value}
+      onValueChange={(next: string) =>
+        onChange(next as ModeSkillFeatureAvailability)
+      }
+    >
+      <SelectTrigger className="h-8 w-27 shrink-0">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value="custom">Custom</SelectItem>
+        <SelectItem value="global">Global</SelectItem>
+        <SelectItem value="on">On</SelectItem>
+        <SelectItem value="off">Off</SelectItem>
+      </SelectContent>
+    </Select>
+  );
+}
+
+function formatSkillAvailability(value: SkillAvailability) {
+  return value === "on" ? "On" : "Off";
+}
+
+function formatModeSkillFeatureAvailability(
+  value: ModeSkillFeatureAvailability,
+) {
+  if (value === "custom") return "Custom";
+  if (value === "global") return "Global";
+  return formatSkillAvailability(value);
+}
+
+function getDisplayedModeSkillAvailability(
+  availability: ModeSkillAvailabilityMap,
+  skillName: string,
+): ModeSkillAvailability {
+  const master = availability[FEATURE_PERMISSION_KEY] ?? "custom";
+  if (master === "global") return "global";
+  if (master === "on" || master === "off") return master;
+  const item = availability[skillName];
+  return item === "on" || item === "off" || item === "global" ? item : "global";
+}
+
+function getModeSkillSourceText({
+  modeName,
+  modeAvailability,
+  globalAvailability,
+  masterAvailability,
+}: {
+  modeName: string;
+  modeAvailability: ModeSkillAvailability | undefined;
+  globalAvailability: SkillAvailability;
+  masterAvailability: ModeSkillFeatureAvailability;
+}) {
+  if (masterAvailability === "global") {
+    return `Mode "${modeName}" master uses global: ${formatSkillAvailability(globalAvailability)}`;
+  }
+  if (masterAvailability === "on" || masterAvailability === "off") {
+    return `Mode "${modeName}" master forces: ${formatSkillAvailability(masterAvailability)}`;
+  }
+  if (!modeAvailability || modeAvailability === "global") {
+    return `Uses global setting: ${formatSkillAvailability(globalAvailability)}`;
+  }
+  if (modeAvailability === globalAvailability) {
+    return `Mode "${modeName}" matches global: ${formatSkillAvailability(globalAvailability)}`;
+  }
+  return `Mode "${modeName}" overrides global: ${formatSkillAvailability(globalAvailability)} → ${formatSkillAvailability(modeAvailability)}`;
 }
 
 function PermissionSourceTooltip({ text }: { text: string }) {
@@ -498,6 +607,119 @@ function PermissionRows({
   );
 }
 
+function SkillAvailabilityRows({
+  items,
+  availability,
+  globalAvailabilityFor,
+  modeName,
+  onChange,
+  onReset,
+}: {
+  items: Array<{ name: string; description?: string }>;
+  availability: ModeSkillAvailabilityMap;
+  globalAvailabilityFor: (name: string) => SkillAvailability;
+  modeName: string;
+  onChange: (name: string, value: ModeSkillFeatureAvailability) => void;
+  onReset: () => void;
+}) {
+  const masterAvailability = availability[FEATURE_PERMISSION_KEY] ?? "custom";
+  const childAvailabilityLocked = masterAvailability !== "custom";
+
+  return (
+    <section className="grid gap-2">
+      <div className="flex items-center justify-between gap-3">
+        <Label className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
+          Skills
+        </Label>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-8 px-2 text-sm"
+          onClick={onReset}
+        >
+          Reset
+        </Button>
+      </div>
+      <div className="grid gap-1.5">
+        <div className="flex min-w-0 items-start gap-3 rounded-sm border bg-card px-3 py-2">
+          <div className="min-w-0 flex-1">
+            <div className="flex min-w-0 items-center gap-1.5">
+              <div className="truncate text-base font-medium leading-6">
+                Skills
+              </div>
+              <PermissionSourceTooltip
+                text={
+                  masterAvailability === "custom"
+                    ? "Child availability is custom."
+                    : `Child availability is forced to ${formatModeSkillFeatureAvailability(masterAvailability)}.`
+                }
+              />
+            </div>
+            <div className="mt-0.5 line-clamp-2 text-sm leading-5 text-muted-foreground">
+              Controls which skills models can discover in this mode.
+            </div>
+          </div>
+          <SkillFeatureAvailabilitySelect
+            value={masterAvailability}
+            onChange={(value) => onChange(FEATURE_PERMISSION_KEY, value)}
+          />
+        </div>
+
+        {items.length > 0 ? (
+          items.map((item) => {
+            const globalAvailability = globalAvailabilityFor(item.name);
+            const modeAvailability = availability[item.name];
+            const value = getDisplayedModeSkillAvailability(
+              availability,
+              item.name,
+            );
+            return (
+              <div
+                key={item.name}
+                className="flex min-w-0 items-start gap-3 rounded-sm border bg-card px-3 py-2"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="flex min-w-0 items-center gap-1.5">
+                    <div className="truncate text-base font-medium leading-6">
+                      {item.name}
+                    </div>
+                    <PermissionSourceTooltip
+                      text={getModeSkillSourceText({
+                        modeName,
+                        modeAvailability:
+                          modeAvailability === "global" ||
+                          modeAvailability === "on" ||
+                          modeAvailability === "off"
+                            ? modeAvailability
+                            : undefined,
+                        globalAvailability,
+                        masterAvailability,
+                      })}
+                    />
+                  </div>
+                  <div className="mt-0.5 line-clamp-2 text-sm leading-5 text-muted-foreground">
+                    {item.description || "No description."}
+                  </div>
+                </div>
+                <SkillAvailabilitySelect
+                  value={value}
+                  disabled={childAvailabilityLocked}
+                  onChange={(next) => onChange(item.name, next)}
+                />
+              </div>
+            );
+          })
+        ) : (
+          <div className="rounded-sm border border-dashed px-3 py-4 text-sm text-muted-foreground">
+            No skills available.
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
 export const ModesDialog = memo(function ModesDialog({
   open,
   onOpenChange,
@@ -519,9 +741,7 @@ export const ModesDialog = memo(function ModesDialog({
   const [modeSearchQuery, setModeSearchQuery] = useState("");
   const [unsavedChangesDialogOpen, setUnsavedChangesDialogOpen] =
     useState(false);
-  const [pendingAction, setPendingAction] = useState<(() => void) | null>(
-    null,
-  );
+  const [pendingAction, setPendingAction] = useState<(() => void) | null>(null);
 
   const modes = useMemo(() => normalizeModesForState(modesState), [modesState]);
   const selectedMode = useMemo(
@@ -679,17 +899,12 @@ export const ModesDialog = memo(function ModesDialog({
   }
 
   function updatePermission(
-    kind: "tool" | "skill" | "agent",
+    kind: "tool" | "agent",
     name: string,
     permission: ModeFeaturePermission,
   ) {
     if (!modeDraft) return;
-    const key =
-      kind === "tool"
-        ? "toolPermissions"
-        : kind === "skill"
-          ? "skillPermissions"
-          : "agentPermissions";
+    const key = kind === "tool" ? "toolPermissions" : "agentPermissions";
     const nextPermissions = { ...(modeDraft[key] ?? {}) };
     if (name === FEATURE_PERMISSION_KEY) {
       nextPermissions[name] = permission;
@@ -704,14 +919,27 @@ export const ModesDialog = memo(function ModesDialog({
     } as Partial<ModeDraft>);
   }
 
-  function resetPermissionSection(kind: "tool" | "skill" | "agent") {
-    const key =
-      kind === "tool"
-        ? "toolPermissions"
-        : kind === "skill"
-          ? "skillPermissions"
-          : "agentPermissions";
-    const resetSource = modeDraft?.builtIn
+  function updateSkillAvailability(
+    name: string,
+    value: ModeSkillFeatureAvailability,
+  ) {
+    if (!modeDraft) return;
+    const nextAvailability = { ...modeDraft.skillAvailability };
+    if (name === FEATURE_PERMISSION_KEY) {
+      nextAvailability[name] = value;
+    } else if (value === "global") {
+      delete nextAvailability[name];
+    } else if (value !== "custom") {
+      nextAvailability[name] = value;
+    }
+    updateModeDraft({
+      usesDefaultCapabilities: false,
+      skillAvailability: nextAvailability,
+    });
+  }
+
+  function getResetDraft() {
+    return modeDraft?.builtIn
       ? modeToDraft(
           updateBuiltInModeWithReset(
             {
@@ -724,9 +952,21 @@ export const ModesDialog = memo(function ModesDialog({
       : isCreatingMode
         ? createBlankModeDraft()
         : savedDraft;
+  }
+
+  function resetPermissionSection(kind: "tool" | "agent") {
+    const key = kind === "tool" ? "toolPermissions" : "agentPermissions";
+    const resetSource = getResetDraft();
     updateModeDraft({
       [key]: resetSource?.[key] ?? {},
     } as Partial<ModeDraft>);
+  }
+
+  function resetSkillAvailabilitySection() {
+    const resetSource = getResetDraft();
+    updateModeDraft({
+      skillAvailability: resetSource?.skillAvailability ?? {},
+    });
   }
 
   function createNewModeDraft() {
@@ -878,9 +1118,7 @@ export const ModesDialog = memo(function ModesDialog({
                   <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
                   <Input
                     value={modeSearchQuery}
-                    onChange={(event) =>
-                      setModeSearchQuery(event.target.value)
-                    }
+                    onChange={(event) => setModeSearchQuery(event.target.value)}
                     placeholder="Search modes"
                     aria-label="Search modes by name or description"
                     autoFocus={false}
@@ -994,7 +1232,9 @@ export const ModesDialog = memo(function ModesDialog({
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end" className="w-44">
-                            <DropdownMenuItem onSelect={requestCloneCurrentMode}>
+                            <DropdownMenuItem
+                              onSelect={requestCloneCurrentMode}
+                            >
                               <Copy className="size-4" />
                               Clone
                             </DropdownMenuItem>
@@ -1088,27 +1328,18 @@ export const ModesDialog = memo(function ModesDialog({
                             "Master permission for the whole tools feature.",
                         }}
                       />
-                      <PermissionRows
-                        title="Skills"
+                      <SkillAvailabilityRows
                         items={skillItems}
-                        permissions={modeDraft.skillPermissions}
-                        globalPermissionFor={(name) =>
-                          getEffectiveGlobalSkillPermission(
+                        availability={modeDraft.skillAvailability}
+                        globalAvailabilityFor={(name) =>
+                          getEffectiveGlobalSkillAvailability(
                             name,
                             skillsSettings,
                           )
                         }
                         modeName={modeDraft.name || "Mode"}
-                        onChange={(name, permission) =>
-                          updatePermission("skill", name, permission)
-                        }
-                        onReset={() => resetPermissionSection("skill")}
-                        featureRow={{
-                          key: FEATURE_PERMISSION_KEY,
-                          label: "Skills",
-                          description:
-                            "Master permission for the whole skills feature.",
-                        }}
+                        onChange={updateSkillAvailability}
+                        onReset={resetSkillAvailabilitySection}
                       />
                       <PermissionRows
                         title="Agents"
