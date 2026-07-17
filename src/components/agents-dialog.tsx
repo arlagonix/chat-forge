@@ -243,7 +243,7 @@ function CapabilitySourceSelect({
       value={value}
       onValueChange={(next) => onChange(next as AgentCapabilitySource)}
     >
-      <SelectTrigger className="h-8 w-24 shrink-0">
+      <SelectTrigger className="h-8 w-28 shrink-0">
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
@@ -563,8 +563,15 @@ export const AgentsDialog = memo(function AgentsDialog({
   );
 
   const builtInAgents = useMemo(
-    () => createBuiltInAgents(agentsSettings.builtInAgentMaxNestingDepths),
-    [agentsSettings.builtInAgentMaxNestingDepths],
+    () =>
+      createBuiltInAgents(
+        agentsSettings.builtInAgentMaxNestingDepths,
+        agentsSettings.builtInAgentModels,
+      ),
+    [
+      agentsSettings.builtInAgentMaxNestingDepths,
+      agentsSettings.builtInAgentModels,
+    ],
   );
   const displayedAgents = useMemo(
     () => [
@@ -685,13 +692,28 @@ export const AgentsDialog = memo(function AgentsDialog({
           ? Math.min(Math.max(Math.round(rawDepth), 1), 8)
           : DEFAULT_AGENT_MAX_NESTING_DEPTH;
 
-        onAgentsSettingsChange((current) => ({
-          ...current,
-          builtInAgentMaxNestingDepths: {
-            ...(current.builtInAgentMaxNestingDepths ?? {}),
-            [selectedAgent.name]: maxNestingDepth,
-          },
-        }));
+        onAgentsSettingsChange((current) => {
+          const builtInAgentModels = {
+            ...(current.builtInAgentModels ?? {}),
+          };
+          if (agentDraft.providerId && agentDraft.model) {
+            builtInAgentModels[selectedAgent.name] = {
+              providerId: agentDraft.providerId,
+              model: agentDraft.model,
+            };
+          } else {
+            delete builtInAgentModels[selectedAgent.name];
+          }
+
+          return {
+            ...current,
+            builtInAgentMaxNestingDepths: {
+              ...(current.builtInAgentMaxNestingDepths ?? {}),
+              [selectedAgent.name]: maxNestingDepth,
+            },
+            builtInAgentModels,
+          };
+        });
         setAgentDraft({
           ...agentDraft,
           maxNestingDepth: String(maxNestingDepth),
@@ -1133,14 +1155,6 @@ export const AgentsDialog = memo(function AgentsDialog({
 
         {source === "inherit" ? null : source === "global" ? (
           <div className="grid overflow-hidden rounded-sm border bg-muted/10">
-            <div className="border-b p-2">
-              <Input
-                value=""
-                disabled
-                placeholder="Search skills..."
-                className="h-9"
-              />
-            </div>
             <div className="grid max-h-72 gap-0.5 overflow-y-auto p-1 chat-message-scrollbar">
               {availableSkills.length > 0 ? (
                 availableSkills.map((skill) => {
@@ -2084,7 +2098,6 @@ export const AgentsDialog = memo(function AgentsDialog({
                               role="combobox"
                               aria-expanded={modelPickerOpen}
                               className="w-full justify-between px-3 text-left font-normal"
-                              disabled={selectedAgentIsBuiltIn}
                               title={
                                 agentDraft.providerId && agentDraft.model
                                   ? `${agentDraft.model}`
@@ -2223,8 +2236,8 @@ export const AgentsDialog = memo(function AgentsDialog({
                       {selectedAgentIsBuiltIn ? (
                         <div className="rounded-sm border bg-muted/25 px-3 py-2 text-sm leading-5 text-muted-foreground">
                           Built-in agents mirror the current chat's effective
-                          tools, skills, and allowed agents at runtime, so only
-                          their max nesting depth is editable here.
+                          tools, skills, and allowed agents at runtime. Their
+                          model and max nesting depth can be configured here.
                         </div>
                       ) : (
                         <>

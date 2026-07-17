@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/dialog";
 import { Spinner } from "@/components/ui/spinner";
 import { getAgentRunRenderSignature } from "@/lib/ai-chat/agent-status-label";
+import { formatAgentDisplayName } from "@/lib/ai-chat/builtin-agents";
 import {
   ASK_USER_TOOL_NAME,
   parseAskUserRequestFromToolCall,
@@ -255,7 +256,7 @@ function AgentHeaderTitle({ agentCall }: { agentCall: ChatAgentCall }) {
     <div className="min-w-0 flex-1">
       <div className="flex min-w-0 items-center gap-2 overflow-hidden text-sm font-medium text-muted-foreground">
         <span className="min-w-0 shrink-0 truncate text-muted-foreground/85">
-          {agentCall.agentName}
+          {formatAgentDisplayName(agentCall.agentName)}
         </span>
       </div>
     </div>
@@ -336,9 +337,11 @@ const AgentResultFooter = memo(function AgentResultFooter({
     agentCall.startedAt,
     agentCall.completedAt,
   );
-  const details = [generatedModelName, agentCall.agentName, duration].filter(
-    Boolean,
-  );
+  const details = [
+    generatedModelName,
+    formatAgentDisplayName(agentCall.agentName),
+    duration,
+  ].filter(Boolean);
 
   return (
     <div className="grid gap-2 text-sm leading-5 text-muted-foreground">
@@ -1002,7 +1005,7 @@ const ChildAgentBlock = memo(function ChildAgentBlock({
           }
         }}
         title="Open agent run"
-        aria-label={`Open agent run: ${child.agentName}`}
+        aria-label={`Open agent run: ${formatAgentDisplayName(child.agentName)}`}
       >
         <div className="flex min-w-0 items-center gap-2">
           <div className="min-w-0 flex-1">
@@ -1012,7 +1015,7 @@ const ChildAgentBlock = memo(function ChildAgentBlock({
                 <Maximize2 className="hidden size-3.5 group-hover:block group-focus:block" />
               </span>
               <span className="shrink-0 truncate text-muted-foreground/85">
-                {child.agentName}
+                {formatAgentDisplayName(child.agentName)}
               </span>
               {statusLabel !== "Complete" || child.status === "complete" ? (
                 <>

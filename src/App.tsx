@@ -70,6 +70,7 @@ import {
 import { estimateAttachmentsTokens } from "@/lib/ai-chat/attachment-limits";
 import {
   createBuiltInAgents,
+  formatAgentDisplayName,
   isBuiltInAgentName,
 } from "@/lib/ai-chat/builtin-agents";
 import {
@@ -1265,6 +1266,7 @@ export default function Home() {
 
     for (const agent of createBuiltInAgents(
       agentsSettings.builtInAgentMaxNestingDepths,
+      agentsSettings.builtInAgentModels,
     )) {
       byName.set(agent.name, agent);
     }
@@ -1283,7 +1285,11 @@ export default function Home() {
     return [...byName.values()].sort((left, right) =>
       left.name.localeCompare(right.name),
     );
-  }, [agentsSettings.builtInAgentMaxNestingDepths, loadedAgents]);
+  }, [
+    agentsSettings.builtInAgentMaxNestingDepths,
+    agentsSettings.builtInAgentModels,
+    loadedAgents,
+  ]);
 
   const availableAgentsByName = useMemo(() => {
     return new Map(
@@ -3608,8 +3614,9 @@ export default function Home() {
   const chatWidth = appSettings.chatWidth ?? "896";
   const chatWidthClassName = CHAT_WIDTH_CLASS_NAMES[chatWidth];
   const isViewingAgentChat = Boolean(selectedAgentChat);
-  const headerTitle =
-    selectedAgentChat?.agentName || activeChat?.title || APP_NAME;
+  const headerTitle = selectedAgentChat
+    ? formatAgentDisplayName(selectedAgentChat.agentName)
+    : activeChat?.title || APP_NAME;
   const headerContextUsage = selectedAgentChat
     ? selectedAgentContextUsage
     : latestContextUsage;

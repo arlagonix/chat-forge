@@ -57,6 +57,7 @@ import {
   collectAgentRunsFromMessages,
   type AgentRunListItem,
 } from "@/lib/ai-chat/agent-runs";
+import { formatAgentDisplayName } from "@/lib/ai-chat/builtin-agents";
 import {
   formatChatActivityDate,
   formatRelativeChatActivityDate,
@@ -692,9 +693,10 @@ export const ChatSidebar = memo(function ChatSidebar({
         const hasChildren = children.length > 0;
         const isExpanded = expandedAgentSubchatIds[agentRun.id] === true;
         const isAgentActive = agentRun.id === activeAgentCallId;
+        const displayAgentName = formatAgentDisplayName(agentRun.agentName);
         const title = agentRun.task.trim()
-          ? `${agentRun.agentName}: ${agentRun.task.trim()}`
-          : agentRun.agentName;
+          ? `${displayAgentName}: ${agentRun.task.trim()}`
+          : displayAgentName;
         const rows: ReactNode[] = [
           <button
             key={agentRun.id}
@@ -729,7 +731,7 @@ export const ChatSidebar = memo(function ChatSidebar({
               </span>
             ) : null}
             <span className="min-w-0 flex-1 truncate text-base leading-6">
-              {agentRun.task.trim() || agentRun.agentName}
+              {agentRun.task.trim() || displayAgentName}
             </span>
             <AgentStatusInline status={agentRun.status} />
           </button>,

@@ -5,6 +5,7 @@ import type { RenderAgentToolExecutionBlock } from "@/components/ai-chat/agent-c
 import { AgentStatusInline } from "@/components/ai-chat/agent-status-inline";
 import { useAgentRunRowText } from "@/components/ai-chat/use-agent-run-row-text";
 import { getAgentRunRenderSignature } from "@/lib/ai-chat/agent-status-label";
+import { formatAgentDisplayName } from "@/lib/ai-chat/builtin-agents";
 import { ASK_USER_TOOL_NAME } from "@/lib/ai-chat/builtin-tools";
 import type {
   AgentCallStatus,
@@ -180,7 +181,7 @@ function AgentCallBlockComponent({
   onOpenAgentCall: (agentCallId: string) => void;
 }) {
   const effectiveStatus = getEffectiveStatus(agentCall, status);
-  const agentName = agentCall.agentName;
+  const agentName = formatAgentDisplayName(agentCall.agentName);
   const handleOpen = useCallback(
     () => onOpenAgentCall(agentCall.id),
     [agentCall.id, onOpenAgentCall],

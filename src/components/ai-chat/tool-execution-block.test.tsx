@@ -297,7 +297,7 @@ describe("ToolExecutionBlock", () => {
     );
 
     expect(screen.getByText("Call_agent")).toBeInTheDocument();
-    expect(screen.getByText("general")).toBeInTheDocument();
+    expect(screen.getByText("General")).toBeInTheDocument();
     expect(screen.queryByText(/funniest pun/)).not.toBeInTheDocument();
   });
 

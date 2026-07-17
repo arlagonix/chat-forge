@@ -15,6 +15,7 @@ import { toast } from "sonner";
 import { MarkdownMessage } from "@/components/ai-chat/markdown-message";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
+import { formatAgentDisplayName } from "@/lib/ai-chat/builtin-agents";
 import {
   ASK_USER_TOOL,
   BASH_TOOL,
@@ -705,7 +706,7 @@ function getToolHeaderDetail(
   }
 
   if (toolCall.function.name === CALL_AGENT_TOOL_NAME) {
-    return getStringArgument(args, "agentName");
+    return formatAgentDisplayName(getStringArgument(args, "agentName"));
   }
 
   if (toolCall.function.name === TERMINAL_EXEC_TOOL_NAME) {

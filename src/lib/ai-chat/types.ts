@@ -895,6 +895,11 @@ export type SkillsSettings = {
   permissionModelVersion?: 2;
 };
 
+export type BuiltInAgentModelPreference = {
+  providerId: string;
+  model: string;
+};
+
 export type AgentsSettings = {
   /** Legacy global switch. Permission maps are the active model. */
   enabled: boolean;
@@ -902,6 +907,7 @@ export type AgentsSettings = {
   agentsPermission?: FeaturePermission;
   agentPermissions?: PermissionMap;
   builtInAgentMaxNestingDepths?: Record<string, number>;
+  builtInAgentModels?: Record<string, BuiltInAgentModelPreference>;
   /** Permission model version. Missing means legacy master values should be migrated to custom. */
   permissionModelVersion?: 2;
 };

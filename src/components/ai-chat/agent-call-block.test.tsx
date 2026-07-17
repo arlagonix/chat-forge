@@ -6,7 +6,7 @@ import type { ChatAgentCall } from "@/lib/ai-chat/types";
 
 const agentCall: ChatAgentCall = {
   id: "agent-call-1",
-  agentName: "General",
+  agentName: "general",
   task: "Inspect the project",
   status: "running",
   contextMode: "task_only",

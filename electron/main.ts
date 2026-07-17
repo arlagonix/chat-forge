@@ -327,8 +327,18 @@ type SkillsSettings = {
   permissionModelVersion?: 2;
 };
 
+type BuiltInAgentModelPreference = {
+  providerId: string;
+  model: string;
+};
+
 type AgentsSettings = {
   enabled: boolean;
+  agentsPermission?: FeaturePermission;
+  agentPermissions?: Record<string, Permission>;
+  builtInAgentMaxNestingDepths?: Record<string, number>;
+  builtInAgentModels?: Record<string, BuiltInAgentModelPreference>;
+  permissionModelVersion?: 2;
 };
 
 type ChatWidth = "720" | "768" | "896" | "1024" | "full";
@@ -465,6 +475,11 @@ const DEFAULT_SKILLS_SETTINGS: SkillsSettings = {
 };
 const DEFAULT_AGENTS_SETTINGS: AgentsSettings = {
   enabled: true,
+  agentsPermission: "custom",
+  agentPermissions: {},
+  builtInAgentMaxNestingDepths: {},
+  builtInAgentModels: {},
+  permissionModelVersion: 2,
 };
 const DEFAULT_APP_SETTINGS: AppSettings = {
   chatTitleGenerationMode: "local",
@@ -939,8 +954,53 @@ function normalizeSkillsSettings(value: unknown): SkillsSettings {
 function normalizeAgentsSettings(value: unknown): AgentsSettings {
   if (!isPlainObject(value)) return DEFAULT_AGENTS_SETTINGS;
 
+  const permissionModelVersion =
+    value.permissionModelVersion === 2 ? 2 : undefined;
+  const agentsPermission =
+    permissionModelVersion === 2
+      ? normalizeFeaturePermission(value.agentsPermission, "custom")
+      : "custom";
+  const enabled =
+    permissionModelVersion === 2
+      ? agentsPermission !== "deny"
+      : typeof value.enabled === "boolean"
+        ? value.enabled
+        : true;
+
+  const builtInAgentMaxNestingDepths: Record<string, number> = {};
+  if (isPlainObject(value.builtInAgentMaxNestingDepths)) {
+    for (const [name, rawDepth] of Object.entries(
+      value.builtInAgentMaxNestingDepths,
+    )) {
+      const depth = Number(rawDepth);
+      if (!name.trim() || !Number.isFinite(depth)) continue;
+      builtInAgentMaxNestingDepths[name] = Math.min(
+        Math.max(Math.round(depth), 1),
+        8,
+      );
+    }
+  }
+
+  const builtInAgentModels: Record<string, BuiltInAgentModelPreference> = {};
+  if (isPlainObject(value.builtInAgentModels)) {
+    for (const [name, rawPreference] of Object.entries(
+      value.builtInAgentModels,
+    )) {
+      if (!name.trim() || !isPlainObject(rawPreference)) continue;
+      const providerId = safeString(rawPreference.providerId).trim();
+      const model = safeString(rawPreference.model).trim();
+      if (!providerId || !model) continue;
+      builtInAgentModels[name] = { providerId, model };
+    }
+  }
+
   return {
-    enabled: typeof value.enabled === "boolean" ? value.enabled : true,
+    enabled,
+    agentsPermission,
+    agentPermissions: normalizePermissionMap(value.agentPermissions),
+    builtInAgentMaxNestingDepths,
+    builtInAgentModels,
+    permissionModelVersion: 2,
   };
 }
 

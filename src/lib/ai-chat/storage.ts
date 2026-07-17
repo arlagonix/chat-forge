@@ -427,16 +427,44 @@ function normalizeAgentsSettings(
   value: Partial<AgentsSettings> | undefined,
 ): AgentsSettings {
   const builtInAgentMaxNestingDepths: Record<string, number> = {};
-  const source = value?.builtInAgentMaxNestingDepths;
+  const depthSource = value?.builtInAgentMaxNestingDepths;
 
-  if (source && typeof source === "object" && !Array.isArray(source)) {
-    for (const [name, rawDepth] of Object.entries(source)) {
+  if (
+    depthSource &&
+    typeof depthSource === "object" &&
+    !Array.isArray(depthSource)
+  ) {
+    for (const [name, rawDepth] of Object.entries(depthSource)) {
       const depth = Number(rawDepth);
       if (!name.trim() || !Number.isFinite(depth)) continue;
       builtInAgentMaxNestingDepths[name] = Math.min(
         Math.max(Math.round(depth), 1),
         8,
       );
+    }
+  }
+
+  const builtInAgentModels: NonNullable<
+    AgentsSettings["builtInAgentModels"]
+  > = {};
+  const modelSource = value?.builtInAgentModels;
+  if (
+    modelSource &&
+    typeof modelSource === "object" &&
+    !Array.isArray(modelSource)
+  ) {
+    for (const [name, rawPreference] of Object.entries(modelSource)) {
+      if (
+        !name.trim() ||
+        !rawPreference ||
+        typeof rawPreference !== "object"
+      ) {
+        continue;
+      }
+      const providerId = String(rawPreference.providerId ?? "").trim();
+      const model = String(rawPreference.model ?? "").trim();
+      if (!providerId || !model) continue;
+      builtInAgentModels[name] = { providerId, model };
     }
   }
 
@@ -466,6 +494,7 @@ function normalizeAgentsSettings(
       (value as Record<string, unknown> | undefined)?.agentPermissions,
     ),
     builtInAgentMaxNestingDepths,
+    builtInAgentModels,
     permissionModelVersion: 2,
   };
 }

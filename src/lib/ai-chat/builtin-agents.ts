@@ -1,4 +1,7 @@
-import type { LoadedAgentInfo } from "@/lib/ai-chat/types";
+import type {
+  BuiltInAgentModelPreference,
+  LoadedAgentInfo,
+} from "@/lib/ai-chat/types";
 
 export const BUILTIN_GENERAL_AGENT_NAME = "general";
 export const BUILTIN_GENERAL_FULL_AGENT_NAME = "general_full";
@@ -12,6 +15,10 @@ export function isBuiltInAgentName(name: string) {
   return (BUILTIN_AGENT_NAMES as readonly string[]).includes(name);
 }
 
+export function formatAgentDisplayName(name: string) {
+  return name ? name[0].toUpperCase() + name.slice(1) : name;
+}
+
 function normalizeBuiltInAgentMaxNestingDepth(value: unknown) {
   const numberValue = Number(value);
   return Number.isFinite(numberValue)
@@ -21,6 +28,7 @@ function normalizeBuiltInAgentMaxNestingDepth(value: unknown) {
 
 export function createBuiltInAgents(
   maxNestingDepths: Partial<Record<string, number>> = {},
+  modelPreferences: Partial<Record<string, BuiltInAgentModelPreference>> = {},
 ): LoadedAgentInfo[] {
   const generalMaxNestingDepth = normalizeBuiltInAgentMaxNestingDepth(
     maxNestingDepths[BUILTIN_GENERAL_AGENT_NAME],
@@ -39,6 +47,8 @@ export function createBuiltInAgents(
       instructions:
         "Complete the delegated task directly. Use only the details included in the task unless you need tools to inspect more information.",
       contextMode: "task_only",
+      providerId: modelPreferences[BUILTIN_GENERAL_AGENT_NAME]?.providerId,
+      model: modelPreferences[BUILTIN_GENERAL_AGENT_NAME]?.model,
       maxNestingDepth: generalMaxNestingDepth,
       availableSkillNames: [],
       allowedToolNames: [],
@@ -53,6 +63,8 @@ export function createBuiltInAgents(
       instructions:
         "Complete the delegated task directly. Use the full chat context when it matters, but keep the result focused on the requested subtask.",
       contextMode: "full_chat",
+      providerId: modelPreferences[BUILTIN_GENERAL_FULL_AGENT_NAME]?.providerId,
+      model: modelPreferences[BUILTIN_GENERAL_FULL_AGENT_NAME]?.model,
       maxNestingDepth: generalFullMaxNestingDepth,
       availableSkillNames: [],
       allowedToolNames: [],

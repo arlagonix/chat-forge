@@ -87,6 +87,7 @@ export const DEFAULT_AGENTS_SETTINGS: AgentsSettings = {
   permissionModelVersion: 2,
   agentPermissions: {},
   builtInAgentMaxNestingDepths: {},
+  builtInAgentModels: {},
 };
 
 export const ASK_USER_TOOL_NAME = "ask_user";
