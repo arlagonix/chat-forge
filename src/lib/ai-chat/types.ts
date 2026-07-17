@@ -489,6 +489,7 @@ export type ModePermission = "global" | Permission;
 export type ModeFeaturePermission = "custom" | ModePermission;
 export type PermissionMap = Record<string, Permission>;
 export type ModePermissionMap = Record<string, ModeFeaturePermission>;
+export type AgentCapabilitySource = "inherit" | "global" | "custom";
 
 export type SkillAvailability = "on" | "off";
 export type SkillFeatureAvailability = "custom" | SkillAvailability;
@@ -700,6 +701,8 @@ export type ToolDefinition = {
   maxConcurrentRuns?: number;
   delayBetweenRunsMs?: number;
   requiresApproval?: boolean;
+  /** Per-target permissions used by the dynamic call_agent tool. */
+  callAgentPermissions?: PermissionMap;
   source?: "custom" | "mcp";
   displayName?: string;
   mcp?: McpToolMetadata;
@@ -757,13 +760,25 @@ export type AgentDefinition = {
   providerId?: string;
   model?: string;
   maxNestingDepth: number;
-  /** Legacy explicit skill allow-list, migrated into skillAvailability. */
+  /** Explicit custom skill allow-list. */
   availableSkillNames: string[];
-  /** Skill visibility inheritance for this custom agent. Built-in agents inherit the chat. */
+  /** Legacy skill visibility model retained for migration. */
   skillAvailability?: ModeSkillAvailabilityMap;
   skillAvailabilityModelVersion?: 1;
+  /** Legacy explicit tool and agent allow-lists retained for migration. */
   allowedToolNames: string[];
   allowedAgentNames: string[];
+  /** Capability source model used by custom agents. */
+  skillCapabilitySource?: AgentCapabilitySource;
+  toolCapabilitySource?: AgentCapabilitySource;
+  agentCapabilitySource?: AgentCapabilitySource;
+  /** Custom permissions. Missing entries are unavailable. */
+  toolPermissions?: PermissionMap;
+  agentPermissions?: PermissionMap;
+  customSkillsInitialized?: boolean;
+  customToolsInitialized?: boolean;
+  customAgentsInitialized?: boolean;
+  capabilitySourceModelVersion?: 1;
 };
 
 export type LoadedAgentInfo = AgentDefinition;

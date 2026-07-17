@@ -67,10 +67,7 @@ import {
   createBuiltInAgents,
   isBuiltInAgentName,
 } from "@/lib/ai-chat/builtin-agents";
-import {
-  FEATURE_PERMISSION_KEY,
-  normalizeModeSkillAvailabilityMap,
-} from "@/lib/ai-chat/modes";
+import { FEATURE_PERMISSION_KEY } from "@/lib/ai-chat/modes";
 import {
   createId,
   getEnabledProviderModels,
@@ -87,10 +84,16 @@ import {
   saveAgent,
 } from "@/lib/ai-chat/storage";
 import {
+  getEffectiveGlobalAgentPermission,
+  getEffectiveGlobalSkillAvailability,
+  getEffectiveGlobalToolPermission,
+} from "@/lib/ai-chat/request-builder";
+import {
   filterToolsForSearch,
   groupToolsBySource,
 } from "@/lib/ai-chat/tool-groups";
 import type {
+  AgentCapabilitySource,
   AgentContextMode,
   AgentImportResult,
   AgentsSettings,
@@ -98,11 +101,11 @@ import type {
   LoadedAgentInfo,
   LoadedSkillInfo,
   LoadedToolInfo,
-  ModeSkillAvailability,
-  ModeSkillAvailabilityMap,
-  ModeSkillFeatureAvailability,
   Permission,
+  PermissionMap,
   ProviderConfig,
+  SkillsSettings,
+  ToolsSettings,
 } from "@/lib/ai-chat/types";
 import { cn } from "@/lib/utils";
 
@@ -116,9 +119,15 @@ type AgentDraft = {
   providerId: string;
   model: string;
   maxNestingDepth: string;
-  skillAvailability: ModeSkillAvailabilityMap;
-  allowedToolNames: string[];
-  allowedAgentNames: string[];
+  skillCapabilitySource: AgentCapabilitySource;
+  toolCapabilitySource: AgentCapabilitySource;
+  agentCapabilitySource: AgentCapabilitySource;
+  availableSkillNames: string[];
+  toolPermissions: PermissionMap;
+  agentPermissions: PermissionMap;
+  customSkillsInitialized: boolean;
+  customToolsInitialized: boolean;
+  customAgentsInitialized: boolean;
 };
 
 type AgentsDialogProps = {
@@ -130,6 +139,8 @@ type AgentsDialogProps = {
   onLoadedAgentsChange: Dispatch<SetStateAction<LoadedAgentInfo[]>>;
   availableTools: LoadedToolInfo[];
   availableSkills: LoadedSkillInfo[];
+  toolsSettings: ToolsSettings;
+  skillsSettings: SkillsSettings;
   providers: ProviderConfig[];
   showSuccess: (message: string, description?: string) => void;
   showError: (message: string, description?: string) => void;
@@ -220,57 +231,57 @@ function MasterPermissionSelect({
   );
 }
 
-function AgentSkillAvailabilitySelect({
+function CapabilitySourceSelect({
   value,
   onChange,
-  disabled,
 }: {
-  value: ModeSkillAvailability;
-  onChange: (value: ModeSkillAvailability) => void;
-  disabled?: boolean;
+  value: AgentCapabilitySource;
+  onChange: (value: AgentCapabilitySource) => void;
 }) {
   return (
     <Select
       value={value}
-      onValueChange={(next: string) =>
-        onChange(next as ModeSkillAvailability)
-      }
-      disabled={disabled}
+      onValueChange={(next) => onChange(next as AgentCapabilitySource)}
     >
       <SelectTrigger className="h-8 w-24 shrink-0">
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
+        <SelectItem value="inherit">Inherit</SelectItem>
         <SelectItem value="global">Global</SelectItem>
-        <SelectItem value="on">On</SelectItem>
-        <SelectItem value="off">Off</SelectItem>
+        <SelectItem value="custom">Custom</SelectItem>
       </SelectContent>
     </Select>
   );
 }
 
-function AgentSkillFeatureAvailabilitySelect({
+function CustomPermissionSelect({
   value,
   onChange,
+  disabled,
+  includeDeny = false,
 }: {
-  value: ModeSkillFeatureAvailability;
-  onChange: (value: ModeSkillFeatureAvailability) => void;
+  value: Permission;
+  onChange: (value: Permission) => void;
+  disabled?: boolean;
+  includeDeny?: boolean;
 }) {
   return (
     <Select
       value={value}
-      onValueChange={(next: string) =>
-        onChange(next as ModeSkillFeatureAvailability)
-      }
+      onValueChange={(next) => onChange(next as Permission)}
+      disabled={disabled}
     >
-      <SelectTrigger className="h-8 w-24 shrink-0">
+      <SelectTrigger
+        className="h-8 w-[6.25rem] shrink-0"
+        onClick={(event) => event.stopPropagation()}
+      >
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
-        <SelectItem value="custom">Custom</SelectItem>
-        <SelectItem value="global">Global</SelectItem>
-        <SelectItem value="on">On</SelectItem>
-        <SelectItem value="off">Off</SelectItem>
+        <SelectItem value="allow">Allow</SelectItem>
+        <SelectItem value="ask">Ask</SelectItem>
+        {includeDeny && <SelectItem value="deny">Deny</SelectItem>}
       </SelectContent>
     </Select>
   );
@@ -287,36 +298,84 @@ function createBlankAgentDraft(): AgentDraft {
     providerId: "",
     model: "",
     maxNestingDepth: String(DEFAULT_AGENT_MAX_NESTING_DEPTH),
-    skillAvailability: { [FEATURE_PERMISSION_KEY]: "global" },
-    allowedToolNames: [],
-    allowedAgentNames: [],
+    skillCapabilitySource: "inherit",
+    toolCapabilitySource: "inherit",
+    agentCapabilitySource: "inherit",
+    availableSkillNames: [],
+    toolPermissions: {},
+    agentPermissions: {},
+    customSkillsInitialized: false,
+    customToolsInitialized: false,
+    customAgentsInitialized: false,
+  };
+}
+
+function normalizeNameList(names: string[]) {
+  return [...new Set(names.map((name) => name.trim()).filter(Boolean))];
+}
+
+function normalizeCustomPermissionMap(value: PermissionMap | undefined) {
+  return Object.fromEntries(
+    Object.entries(value ?? {}).filter(
+      ([name, permission]) =>
+        name.trim() && (permission === "allow" || permission === "ask"),
+    ),
+  ) as PermissionMap;
+}
+
+function migrateLegacySkillConfiguration(
+  agent: LoadedAgentInfo,
+  availableSkills: LoadedSkillInfo[],
+  skillsSettings: SkillsSettings,
+): { source: AgentCapabilitySource; names: string[] } {
+  const source = agent as LoadedAgentInfo & { loadedSkillNames?: string[] };
+  const legacyNames = normalizeNameList(
+    source.availableSkillNames ?? source.loadedSkillNames ?? [],
+  );
+
+  if (agent.skillAvailabilityModelVersion !== 1) {
+    return { source: "custom", names: legacyNames };
+  }
+
+  const availability = agent.skillAvailability ?? {};
+  const master = availability[FEATURE_PERMISSION_KEY] ?? "global";
+  if (master === "global") return { source: "inherit", names: legacyNames };
+  if (master === "on") {
+    return { source: "custom", names: availableSkills.map((skill) => skill.name) };
+  }
+  if (master === "off") return { source: "custom", names: [] };
+
+  return {
+    source: "custom",
+    names: availableSkills
+      .filter((skill) => {
+        const item = availability[skill.name] ?? "global";
+        if (item === "on") return true;
+        if (item === "off") return false;
+        return (
+          getEffectiveGlobalSkillAvailability(skill.name, skillsSettings) ===
+          "on"
+        );
+      })
+      .map((skill) => skill.name),
   };
 }
 
 function agentToDraft(
   agent: LoadedAgentInfo,
   availableSkills: LoadedSkillInfo[],
+  skillsSettings: SkillsSettings,
 ): AgentDraft {
-  const source = agent as LoadedAgentInfo & { loadedSkillNames?: string[] };
-  const legacySkillNames = new Set(
-    source.availableSkillNames ?? source.loadedSkillNames ?? [],
-  );
-  const normalizedSkillAvailability = normalizeModeSkillAvailabilityMap(
-    agent.skillAvailability,
-  );
-  const hasStoredSkillAvailability =
-    agent.skillAvailabilityModelVersion === 1;
-  const skillAvailability = hasStoredSkillAvailability
-    ? normalizedSkillAvailability
-    : {
-        [FEATURE_PERMISSION_KEY]: "custom" as const,
-        ...Object.fromEntries(
-          availableSkills.map((skill) => [
-            skill.name,
-            legacySkillNames.has(skill.name) ? "on" : "off",
-          ]),
-        ),
-      };
+  const hasCapabilitySources = agent.capabilitySourceModelVersion === 1;
+  const migratedSkills = hasCapabilitySources
+    ? null
+    : migrateLegacySkillConfiguration(agent, availableSkills, skillsSettings);
+  const legacyToolPermissions = Object.fromEntries(
+    normalizeNameList(agent.allowedToolNames ?? []).map((name) => [name, "allow"]),
+  ) as PermissionMap;
+  const legacyAgentPermissions = Object.fromEntries(
+    normalizeNameList(agent.allowedAgentNames ?? []).map((name) => [name, "allow"]),
+  ) as PermissionMap;
 
   return {
     id: agent.id,
@@ -330,18 +389,37 @@ function agentToDraft(
     maxNestingDepth: String(
       agent.maxNestingDepth ?? DEFAULT_AGENT_MAX_NESTING_DEPTH,
     ),
-    skillAvailability,
-    allowedToolNames: agent.allowedToolNames ?? [],
-    allowedAgentNames: agent.allowedAgentNames ?? [],
+    skillCapabilitySource:
+      agent.skillCapabilitySource ?? migratedSkills?.source ?? "inherit",
+    toolCapabilitySource: agent.toolCapabilitySource ?? "custom",
+    agentCapabilitySource: agent.agentCapabilitySource ?? "custom",
+    availableSkillNames: normalizeNameList(
+      hasCapabilitySources
+        ? agent.availableSkillNames ?? []
+        : migratedSkills?.names ?? agent.availableSkillNames ?? [],
+    ),
+    toolPermissions: hasCapabilitySources
+      ? normalizeCustomPermissionMap(agent.toolPermissions)
+      : legacyToolPermissions,
+    agentPermissions: hasCapabilitySources
+      ? normalizeCustomPermissionMap(agent.agentPermissions)
+      : legacyAgentPermissions,
+    customSkillsInitialized: hasCapabilitySources
+      ? agent.customSkillsInitialized === true
+      : true,
+    customToolsInitialized: hasCapabilitySources
+      ? agent.customToolsInitialized === true
+      : true,
+    customAgentsInitialized: hasCapabilitySources
+      ? agent.customAgentsInitialized === true
+      : true,
   };
-}
-
-function normalizeNameList(names: string[]) {
-  return [...new Set(names.map((name) => name.trim()).filter(Boolean))];
 }
 
 function draftToAgent(draft: AgentDraft): LoadedAgentInfo {
   const rawMaxNestingDepth = Number(draft.maxNestingDepth);
+  const toolPermissions = normalizeCustomPermissionMap(draft.toolPermissions);
+  const agentPermissions = normalizeCustomPermissionMap(draft.agentPermissions);
 
   return {
     id: draft.id,
@@ -355,17 +433,18 @@ function draftToAgent(draft: AgentDraft): LoadedAgentInfo {
     maxNestingDepth: Number.isFinite(rawMaxNestingDepth)
       ? Math.min(Math.max(Math.round(rawMaxNestingDepth), 1), 8)
       : DEFAULT_AGENT_MAX_NESTING_DEPTH,
-    availableSkillNames: Object.entries(draft.skillAvailability)
-      .filter(([name, availability]) =>
-        name !== FEATURE_PERMISSION_KEY && availability === "on"
-      )
-      .map(([name]) => name),
-    skillAvailability: normalizeModeSkillAvailabilityMap(
-      draft.skillAvailability,
-    ),
-    skillAvailabilityModelVersion: 1,
-    allowedToolNames: normalizeNameList(draft.allowedToolNames),
-    allowedAgentNames: normalizeNameList(draft.allowedAgentNames),
+    availableSkillNames: normalizeNameList(draft.availableSkillNames),
+    allowedToolNames: Object.keys(toolPermissions),
+    allowedAgentNames: Object.keys(agentPermissions),
+    skillCapabilitySource: draft.skillCapabilitySource,
+    toolCapabilitySource: draft.toolCapabilitySource,
+    agentCapabilitySource: draft.agentCapabilitySource,
+    toolPermissions,
+    agentPermissions,
+    customSkillsInitialized: draft.customSkillsInitialized,
+    customToolsInitialized: draft.customToolsInitialized,
+    customAgentsInitialized: draft.customAgentsInitialized,
+    capabilitySourceModelVersion: 1,
   };
 }
 
@@ -390,6 +469,10 @@ function validateAgentDraft(agent: LoadedAgentInfo) {
   if (!agent.instructions) throw new Error("Agent instructions are required.");
 }
 
+function stablePermissionEntries(value: PermissionMap) {
+  return Object.entries(value).sort(([left], [right]) => left.localeCompare(right));
+}
+
 function areAgentDraftsEqual(left: AgentDraft, right: AgentDraft) {
   return (
     left.id === right.id &&
@@ -401,20 +484,18 @@ function areAgentDraftsEqual(left: AgentDraft, right: AgentDraft) {
     left.providerId === right.providerId &&
     left.model === right.model &&
     left.maxNestingDepth === right.maxNestingDepth &&
-    JSON.stringify(
-      Object.entries(left.skillAvailability).sort(([a], [b]) =>
-        a.localeCompare(b),
-      ),
-    ) ===
-      JSON.stringify(
-        Object.entries(right.skillAvailability).sort(([a], [b]) =>
-          a.localeCompare(b),
-        ),
-      ) &&
-    JSON.stringify([...left.allowedToolNames].sort()) ===
-      JSON.stringify([...right.allowedToolNames].sort()) &&
-    JSON.stringify([...left.allowedAgentNames].sort()) ===
-      JSON.stringify([...right.allowedAgentNames].sort())
+    left.skillCapabilitySource === right.skillCapabilitySource &&
+    left.toolCapabilitySource === right.toolCapabilitySource &&
+    left.agentCapabilitySource === right.agentCapabilitySource &&
+    left.customSkillsInitialized === right.customSkillsInitialized &&
+    left.customToolsInitialized === right.customToolsInitialized &&
+    left.customAgentsInitialized === right.customAgentsInitialized &&
+    JSON.stringify([...left.availableSkillNames].sort()) ===
+      JSON.stringify([...right.availableSkillNames].sort()) &&
+    JSON.stringify(stablePermissionEntries(left.toolPermissions)) ===
+      JSON.stringify(stablePermissionEntries(right.toolPermissions)) &&
+    JSON.stringify(stablePermissionEntries(left.agentPermissions)) ===
+      JSON.stringify(stablePermissionEntries(right.agentPermissions))
   );
 }
 
@@ -453,6 +534,8 @@ export const AgentsDialog = memo(function AgentsDialog({
   onLoadedAgentsChange,
   availableTools,
   availableSkills,
+  toolsSettings,
+  skillsSettings,
   providers,
   showSuccess,
   showError,
@@ -564,9 +647,9 @@ export const AgentsDialog = memo(function AgentsDialog({
     const selected = displayedAgents.find(
       (agent) => agent.name === selectedAgentName,
     );
-    if (selected) setAgentDraft(agentToDraft(selected, availableSkills));
+    if (selected) setAgentDraft(agentToDraft(selected, availableSkills, skillsSettings));
     else if (selectedAgentName) setAgentDraft(null);
-  }, [availableSkills, displayedAgents, selectedAgentName]);
+  }, [availableSkills, displayedAgents, selectedAgentName, skillsSettings]);
 
   function updateAgentDraft(patch: Partial<AgentDraft>) {
     setAgentDraft((current) => (current ? { ...current, ...patch } : current));
@@ -577,8 +660,8 @@ export const AgentsDialog = memo(function AgentsDialog({
   }
 
   const savedAgentDraft = useMemo(
-    () => (selectedAgent ? agentToDraft(selectedAgent, availableSkills) : null),
-    [availableSkills, selectedAgent],
+    () => (selectedAgent ? agentToDraft(selectedAgent, availableSkills, skillsSettings) : null),
+    [availableSkills, selectedAgent, skillsSettings],
   );
   const isCreatingAgent = Boolean(agentDraft && !selectedAgent);
 
@@ -626,7 +709,7 @@ export const AgentsDialog = memo(function AgentsDialog({
         return next.sort((left, right) => left.name.localeCompare(right.name));
       });
       setSelectedAgentName(savedAgent.name);
-      setAgentDraft(agentToDraft(savedAgent, availableSkills));
+      setAgentDraft(agentToDraft(savedAgent, availableSkills, skillsSettings));
       showSuccess(isCreatingAgent ? "Agent created" : "Agent saved");
     } catch (error) {
       showError("Failed to save agent", labelForError(error));
@@ -722,33 +805,139 @@ export const AgentsDialog = memo(function AgentsDialog({
     setInstructionsEditorOpen(false);
   }
 
-  function updateSkillAvailability(
-    skillName: string,
-    availability: ModeSkillFeatureAvailability,
-  ) {
+  const globalToolPermissions = useMemo(
+    () =>
+      Object.fromEntries(
+        availableTools.map((tool) => [
+          tool.name,
+          getEffectiveGlobalToolPermission(tool.name, toolsSettings),
+        ]),
+      ) as PermissionMap,
+    [availableTools, toolsSettings],
+  );
+  const globalAgentPermissions = useMemo(
+    () =>
+      Object.fromEntries(
+        displayedAgents.map((agent) => [
+          agent.name,
+          getEffectiveGlobalAgentPermission(agent.name, agentsSettings),
+        ]),
+      ) as PermissionMap,
+    [agentsSettings, displayedAgents],
+  );
+  const globallyAvailableSkillNames = useMemo(
+    () =>
+      availableSkills
+        .filter(
+          (skill) =>
+            getEffectiveGlobalSkillAvailability(skill.name, skillsSettings) ===
+            "on",
+        )
+        .map((skill) => skill.name),
+    [availableSkills, skillsSettings],
+  ) as string[];
+
+  function setSkillCapabilitySource(next: AgentCapabilitySource) {
     if (!agentDraft) return;
+    const patch: Partial<AgentDraft> = { skillCapabilitySource: next };
+    if (next === "custom" && !agentDraft.customSkillsInitialized) {
+      if (agentDraft.skillCapabilitySource === "global") {
+        patch.availableSkillNames = [...globallyAvailableSkillNames];
+      }
+      patch.customSkillsInitialized = true;
+    }
+    updateAgentDraft(patch);
+  }
+
+  function setToolCapabilitySource(next: AgentCapabilitySource) {
+    if (!agentDraft) return;
+    const patch: Partial<AgentDraft> = { toolCapabilitySource: next };
+    if (next === "custom" && !agentDraft.customToolsInitialized) {
+      if (agentDraft.toolCapabilitySource === "global") {
+        patch.toolPermissions = Object.fromEntries(
+          Object.entries(globalToolPermissions).filter(
+            ([, permission]) => permission !== "deny",
+          ),
+        ) as PermissionMap;
+      }
+      patch.customToolsInitialized = true;
+    }
+    updateAgentDraft(patch);
+  }
+
+  function setAgentCapabilitySource(next: AgentCapabilitySource) {
+    if (!agentDraft) return;
+    const patch: Partial<AgentDraft> = { agentCapabilitySource: next };
+    if (next === "custom" && !agentDraft.customAgentsInitialized) {
+      if (agentDraft.agentCapabilitySource === "global") {
+        patch.agentPermissions = Object.fromEntries(
+          Object.entries(globalAgentPermissions).filter(
+            ([name, permission]) =>
+              name !== agentDraft.name && permission !== "deny",
+          ),
+        ) as PermissionMap;
+      }
+      patch.customAgentsInitialized = true;
+    }
+    updateAgentDraft(patch);
+  }
+
+  function toggleAvailableSkill(skillName: string) {
+    if (!agentDraft) return;
+    const selectedNames = new Set(agentDraft.availableSkillNames);
+    if (selectedNames.has(skillName)) selectedNames.delete(skillName);
+    else selectedNames.add(skillName);
     updateAgentDraft({
-      skillAvailability: {
-        ...agentDraft.skillAvailability,
-        [skillName]: availability,
-      },
+      availableSkillNames: [...selectedNames] as string[],
+      customSkillsInitialized: true,
     });
   }
 
   function toggleAllowedTool(toolName: string) {
     if (!agentDraft) return;
-    const selectedNames = new Set<string>(agentDraft.allowedToolNames);
-    if (selectedNames.has(toolName)) selectedNames.delete(toolName);
-    else selectedNames.add(toolName);
-    updateAgentDraft({ allowedToolNames: [...selectedNames] });
+    const nextPermissions = { ...agentDraft.toolPermissions };
+    if (nextPermissions[toolName]) delete nextPermissions[toolName];
+    else nextPermissions[toolName] = "allow";
+    updateAgentDraft({
+      toolPermissions: nextPermissions,
+      customToolsInitialized: true,
+    });
+  }
+
+  function setAllowedToolPermission(toolName: string, permission: Permission) {
+    if (!agentDraft || permission === "deny") return;
+    updateAgentDraft({
+      toolPermissions: {
+        ...agentDraft.toolPermissions,
+        [toolName]: permission,
+      },
+      customToolsInitialized: true,
+    });
   }
 
   function toggleAllowedAgent(agentName: string) {
     if (!agentDraft) return;
-    const selectedNames = new Set<string>(agentDraft.allowedAgentNames);
-    if (selectedNames.has(agentName)) selectedNames.delete(agentName);
-    else selectedNames.add(agentName);
-    updateAgentDraft({ allowedAgentNames: [...selectedNames] });
+    const nextPermissions = { ...agentDraft.agentPermissions };
+    if (nextPermissions[agentName]) delete nextPermissions[agentName];
+    else nextPermissions[agentName] = "allow";
+    updateAgentDraft({
+      agentPermissions: nextPermissions,
+      customAgentsInitialized: true,
+    });
+  }
+
+  function setAllowedAgentPermission(
+    agentName: string,
+    permission: Permission,
+  ) {
+    if (!agentDraft || permission === "deny") return;
+    updateAgentDraft({
+      agentPermissions: {
+        ...agentDraft.agentPermissions,
+        [agentName]: permission,
+      },
+      customAgentsInitialized: true,
+    });
   }
 
   const availableSkillSearchText = availableSkillSearch.trim().toLowerCase();
@@ -813,7 +1002,7 @@ export const AgentsDialog = memo(function AgentsDialog({
 
     const fallbackAgent = displayedAgents[0] ?? null;
     setSelectedAgentName(fallbackAgent?.name ?? null);
-    setAgentDraft(fallbackAgent ? agentToDraft(fallbackAgent, availableSkills) : null);
+    setAgentDraft(fallbackAgent ? agentToDraft(fallbackAgent, availableSkills, skillsSettings) : null);
     setInstructionsEditorOpen(false);
   }
 
@@ -847,7 +1036,7 @@ export const AgentsDialog = memo(function AgentsDialog({
   function cancelNewAgentDraft() {
     const fallbackAgent = displayedAgents[0] ?? null;
     setSelectedAgentName(fallbackAgent?.name ?? null);
-    setAgentDraft(fallbackAgent ? agentToDraft(fallbackAgent, availableSkills) : null);
+    setAgentDraft(fallbackAgent ? agentToDraft(fallbackAgent, availableSkills, skillsSettings) : null);
     setInstructionsEditorOpen(false);
   }
 
@@ -863,7 +1052,7 @@ export const AgentsDialog = memo(function AgentsDialog({
 
   function selectAgent(agent: LoadedAgentInfo) {
     setSelectedAgentName(agent.name);
-    setAgentDraft(agentToDraft(agent, availableSkills));
+    setAgentDraft(agentToDraft(agent, availableSkills, skillsSettings));
     setInstructionsEditorOpen(false);
   }
 
@@ -894,6 +1083,651 @@ export const AgentsDialog = memo(function AgentsDialog({
 
   function requestImportAgentFiles() {
     requestWithUnsavedCheck(() => void importAgentFiles());
+  }
+
+  function renderCapabilityHeader({
+    label,
+    description,
+    source,
+    onSourceChange,
+  }: {
+    label: string;
+    description: string;
+    source: AgentCapabilitySource;
+    onSourceChange: (source: AgentCapabilitySource) => void;
+  }) {
+    return (
+      <div className="flex items-start justify-between gap-3">
+        <div className="grid min-w-0 gap-1">
+          <Label>{label}</Label>
+          <p className="text-sm leading-5 text-muted-foreground">
+            {description}
+          </p>
+        </div>
+        <CapabilitySourceSelect value={source} onChange={onSourceChange} />
+      </div>
+    );
+  }
+
+  function renderSkillCapabilitySection() {
+    if (!agentDraft) return null;
+    const source = agentDraft.skillCapabilitySource;
+    const selectedNames = agentDraft.availableSkillNames;
+
+    return (
+      <div className="grid gap-2">
+        {renderCapabilityHeader({
+          label: "Allowed skills",
+          description:
+            source === "inherit"
+              ? "Uses the skills available to the calling chat or agent at runtime."
+              : source === "global"
+                ? "Uses the live global Skills configuration."
+                : "Uses this agent's explicit skill selections.",
+          source,
+          onSourceChange: (next) => {
+            setAvailableSkillSearch("");
+            setSkillCapabilitySource(next);
+          },
+        })}
+
+        {source === "inherit" ? null : source === "global" ? (
+          <div className="grid overflow-hidden rounded-sm border bg-muted/10">
+            <div className="border-b p-2">
+              <Input
+                value=""
+                disabled
+                placeholder="Search skills..."
+                className="h-9"
+              />
+            </div>
+            <div className="grid max-h-72 gap-0.5 overflow-y-auto p-1 chat-message-scrollbar">
+              {availableSkills.length > 0 ? (
+                availableSkills.map((skill) => {
+                  const checked = globallyAvailableSkillNames.includes(skill.name);
+                  return (
+                    <div
+                      key={skill.name}
+                      className="flex min-w-0 items-start gap-2 px-2 py-2 opacity-70"
+                      title={skill.description}
+                    >
+                      <Checkbox
+                        checked={checked}
+                        disabled
+                        className="mt-1 shrink-0"
+                      />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate font-medium">
+                          {skill.name}
+                        </span>
+                        {skill.description && (
+                          <span className="mt-0.5 line-clamp-2 text-sm leading-5 text-muted-foreground">
+                            {skill.description}
+                          </span>
+                        )}
+                      </span>
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="px-3 py-6 text-center text-base text-muted-foreground">
+                  No skills are available.
+                </div>
+              )}
+            </div>
+          </div>
+        ) : (
+          <>
+            <Popover
+              onOpenChange={(nextOpen) => {
+                if (!nextOpen) setAvailableSkillSearch("");
+              }}
+            >
+              <PopoverTrigger asChild>
+                <Button
+                  type="button"
+                  variant="outline"
+                  role="combobox"
+                  className="w-full justify-between px-3 text-left font-normal"
+                  disabled={availableSkills.length === 0}
+                >
+                  <span
+                    className={cn(
+                      "min-w-0 truncate",
+                      selectedNames.length === 0 && "text-muted-foreground",
+                    )}
+                  >
+                    {selectedNames.length > 0
+                      ? `${selectedNames.length} allowed skill${selectedNames.length === 1 ? "" : "s"}`
+                      : availableSkills.length > 0
+                        ? "Select allowed skills"
+                        : "No skills are available"}
+                  </span>
+                  <ChevronDown className="ml-2 size-4 shrink-0 opacity-50" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent
+                align="start"
+                className="w-[var(--radix-popover-trigger-width)] max-w-[var(--radix-popover-trigger-width)] p-0"
+              >
+                <div className="grid max-h-[min(24rem,var(--radix-popover-content-available-height))] min-h-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden">
+                  <div className="border-b p-2">
+                    <Input
+                      value={availableSkillSearch}
+                      onChange={(event) =>
+                        setAvailableSkillSearch(event.target.value)
+                      }
+                      placeholder="Search skills..."
+                      className="h-9"
+                    />
+                  </div>
+                  <div
+                    className="max-h-80 overflow-y-auto overscroll-contain p-1 chat-message-scrollbar"
+                    onWheelCapture={(event) => event.stopPropagation()}
+                  >
+                    {visibleAvailableSkills.length > 0 ? (
+                      visibleAvailableSkills.map((skill) => {
+                        const checked = selectedNames.includes(skill.name);
+                        return (
+                          <div
+                            key={skill.name}
+                            role="button"
+                            tabIndex={0}
+                            className="flex w-full min-w-0 cursor-pointer items-start gap-2 px-2 py-2 text-left hover:bg-accent hover:text-accent-foreground focus-visible:outline-none"
+                            onClick={() => toggleAvailableSkill(skill.name)}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter" || event.key === " ") {
+                                event.preventDefault();
+                                toggleAvailableSkill(skill.name);
+                              }
+                            }}
+                            title={skill.description}
+                          >
+                            <Checkbox
+                              checked={checked}
+                              tabIndex={-1}
+                              className="mt-1 shrink-0 pointer-events-none"
+                            />
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate font-medium">
+                                {skill.name}
+                              </span>
+                              {skill.description && (
+                                <span className="mt-0.5 line-clamp-2 text-sm leading-5 text-muted-foreground">
+                                  {skill.description}
+                                </span>
+                              )}
+                            </span>
+                          </div>
+                        );
+                      })
+                    ) : (
+                      <div className="px-3 py-6 text-center text-base text-muted-foreground">
+                        No skills found.
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </PopoverContent>
+            </Popover>
+
+            {selectedNames.length > 0 && (
+              <div className="grid max-h-56 gap-1 overflow-y-auto rounded-sm border bg-muted/10 p-2">
+                {selectedNames.map((skillName) => {
+                  const skill = availableSkills.find(
+                    (candidate) => candidate.name === skillName,
+                  );
+                  return (
+                    <div
+                      key={skillName}
+                      className="flex min-w-0 items-start gap-2 rounded-sm px-2 py-1.5 hover:bg-muted/70"
+                      title={skill?.description}
+                    >
+                      <Sparkles className="mt-1 size-4 shrink-0 text-muted-foreground" />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate font-medium">
+                          {skillName}
+                        </span>
+                        {skill?.description && (
+                          <span className="mt-0.5 line-clamp-2 text-sm leading-5 text-muted-foreground">
+                            {skill.description}
+                          </span>
+                        )}
+                      </span>
+                      <Checkbox
+                        checked
+                        onCheckedChange={() => toggleAvailableSkill(skillName)}
+                        className="mt-1 shrink-0"
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    );
+  }
+
+  function renderToolCapabilitySection() {
+    if (!agentDraft) return null;
+    const source = agentDraft.toolCapabilitySource;
+    const selectedNames = Object.keys(agentDraft.toolPermissions);
+
+    return (
+      <div className="grid gap-2">
+        {renderCapabilityHeader({
+          label: "Allowed tools",
+          description:
+            source === "inherit"
+              ? "Uses the calling chat or agent's effective tool permissions."
+              : source === "global"
+                ? "Uses the live global tool permissions and ignores the active mode."
+                : "Uses this agent's explicit Allow or Ask permissions.",
+          source,
+          onSourceChange: (next) => {
+            setToolSearch("");
+            setToolCapabilitySource(next);
+          },
+        })}
+
+        {source === "inherit" ? null : source === "global" ? (
+          <div className="grid overflow-hidden rounded-sm border bg-muted/10">
+            <div className="border-b p-2">
+              <Input value="" disabled placeholder="Search tools..." className="h-9" />
+            </div>
+            <div className="grid max-h-72 gap-0.5 overflow-y-auto p-1 chat-message-scrollbar">
+              {availableTools.map((tool) => {
+                const permission = globalToolPermissions[tool.name] ?? "deny";
+                return (
+                  <div
+                    key={tool.name}
+                    className="flex min-w-0 items-start gap-2 px-2 py-2 opacity-70"
+                    title={tool.description}
+                  >
+                    <Checkbox
+                      checked={permission !== "deny"}
+                      disabled
+                      className="mt-1 shrink-0"
+                    />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate font-medium">
+                        {tool.name}
+                      </span>
+                      {tool.description && (
+                        <span className="mt-0.5 line-clamp-2 text-sm leading-5 text-muted-foreground">
+                          {tool.description}
+                        </span>
+                      )}
+                    </span>
+                    <CustomPermissionSelect
+                      value={permission}
+                      onChange={() => undefined}
+                      disabled
+                      includeDeny
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ) : (
+          <>
+            <Popover
+              onOpenChange={(nextOpen) => {
+                if (!nextOpen) setToolSearch("");
+              }}
+            >
+              <PopoverTrigger asChild>
+                <Button
+                  type="button"
+                  variant="outline"
+                  role="combobox"
+                  className="w-full justify-between px-3 text-left font-normal"
+                  disabled={availableTools.length === 0}
+                >
+                  <span
+                    className={cn(
+                      "min-w-0 truncate",
+                      selectedNames.length === 0 && "text-muted-foreground",
+                    )}
+                  >
+                    {selectedNames.length > 0
+                      ? `${selectedNames.length} allowed tool${selectedNames.length === 1 ? "" : "s"}`
+                      : availableTools.length > 0
+                        ? "Select allowed tools"
+                        : "No tools are available"}
+                  </span>
+                  <ChevronDown className="ml-2 size-4 shrink-0 opacity-50" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent
+                align="start"
+                className="w-[var(--radix-popover-trigger-width)] max-w-[var(--radix-popover-trigger-width)] p-0"
+              >
+                <div className="grid max-h-[min(24rem,var(--radix-popover-content-available-height))] min-h-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden">
+                  <div className="border-b p-2">
+                    <Input
+                      value={toolSearch}
+                      onChange={(event) => setToolSearch(event.target.value)}
+                      placeholder="Search tools..."
+                      className="h-9"
+                    />
+                  </div>
+                  <div
+                    className="max-h-80 overflow-y-auto overscroll-contain p-1 chat-message-scrollbar"
+                    onWheelCapture={(event) => event.stopPropagation()}
+                  >
+                    {visibleToolGroups.length > 0 ? (
+                      visibleToolGroups.map((group) => (
+                        <div key={group.id} className="grid gap-0.5 py-1">
+                          <div className="px-2 py-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                            {group.title}
+                          </div>
+                          {group.tools.map((tool) => {
+                            const checked = Boolean(
+                              agentDraft.toolPermissions[tool.name],
+                            );
+                            return (
+                              <div
+                                key={tool.name}
+                                role="button"
+                                tabIndex={0}
+                                className="flex w-full min-w-0 cursor-pointer items-start gap-2 px-2 py-2 text-left hover:bg-accent hover:text-accent-foreground focus-visible:outline-none"
+                                onClick={() => toggleAllowedTool(tool.name)}
+                                onKeyDown={(event) => {
+                                  if (
+                                    event.key === "Enter" ||
+                                    event.key === " "
+                                  ) {
+                                    event.preventDefault();
+                                    toggleAllowedTool(tool.name);
+                                  }
+                                }}
+                                title={tool.description}
+                              >
+                                <Checkbox
+                                  checked={checked}
+                                  tabIndex={-1}
+                                  className="mt-1 shrink-0 pointer-events-none"
+                                />
+                                <span className="min-w-0 flex-1">
+                                  <span className="block truncate font-medium">
+                                    {tool.name}
+                                  </span>
+                                  {tool.description && (
+                                    <span className="mt-0.5 line-clamp-2 text-sm leading-5 text-muted-foreground">
+                                      {tool.description}
+                                    </span>
+                                  )}
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ))
+                    ) : (
+                      <div className="px-3 py-6 text-center text-base text-muted-foreground">
+                        No tools found.
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </PopoverContent>
+            </Popover>
+
+            {selectedNames.length > 0 && (
+              <div className="grid max-h-56 gap-1 overflow-y-auto rounded-sm border bg-muted/10 p-2">
+                {selectedNames.map((toolName) => {
+                  const tool = toolsByName.get(toolName);
+                  const permission = agentDraft.toolPermissions[toolName] ?? "allow";
+                  return (
+                    <div
+                      key={toolName}
+                      className="flex min-w-0 items-start gap-2 rounded-sm px-2 py-1.5 hover:bg-muted/70"
+                      title={tool?.description}
+                    >
+                      <Wrench className="mt-1 size-4 shrink-0 text-muted-foreground" />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate font-medium">
+                          {toolName}
+                        </span>
+                        {tool?.description && (
+                          <span className="mt-0.5 line-clamp-2 text-sm leading-5 text-muted-foreground">
+                            {tool.description}
+                          </span>
+                        )}
+                      </span>
+                      <CustomPermissionSelect
+                        value={permission}
+                        onChange={(next) =>
+                          setAllowedToolPermission(toolName, next)
+                        }
+                      />
+                      <Checkbox
+                        checked
+                        onCheckedChange={() => toggleAllowedTool(toolName)}
+                        className="mt-1 shrink-0"
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    );
+  }
+
+  function renderAgentCapabilitySection() {
+    if (!agentDraft) return null;
+    const source = agentDraft.agentCapabilitySource;
+    const selectedNames = Object.keys(agentDraft.agentPermissions);
+
+    return (
+      <div className="grid gap-2">
+        {renderCapabilityHeader({
+          label: "Allowed agents",
+          description:
+            source === "inherit"
+              ? "Uses the calling chat or agent's effective agent permissions."
+              : source === "global"
+                ? "Uses the live global agent permissions and ignores the active mode."
+                : "Uses this agent's explicit Allow or Ask permissions.",
+          source,
+          onSourceChange: (next) => {
+            setAgentSearch("");
+            setAgentCapabilitySource(next);
+          },
+        })}
+
+        {source === "inherit" ? null : source === "global" ? (
+          <div className="grid overflow-hidden rounded-sm border bg-muted/10">
+            <div className="border-b p-2">
+              <Input value="" disabled placeholder="Search agents..." className="h-9" />
+            </div>
+            <div className="grid max-h-72 gap-0.5 overflow-y-auto p-1 chat-message-scrollbar">
+              {visibleAgents.length > 0 ? (
+                visibleAgents.map((agent) => {
+                  const permission =
+                    globalAgentPermissions[agent.name] ?? "deny";
+                  return (
+                    <div
+                      key={agent.name}
+                      className="flex min-w-0 items-start gap-2 px-2 py-2 opacity-70"
+                      title={agent.description}
+                    >
+                      <Checkbox
+                        checked={permission !== "deny"}
+                        disabled
+                        className="mt-1 shrink-0"
+                      />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate font-medium">
+                          {agent.name}
+                        </span>
+                        {agent.description && (
+                          <span className="mt-0.5 line-clamp-2 text-sm leading-5 text-muted-foreground">
+                            {agent.description}
+                          </span>
+                        )}
+                      </span>
+                      <CustomPermissionSelect
+                        value={permission}
+                        onChange={() => undefined}
+                        disabled
+                        includeDeny
+                      />
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="px-3 py-6 text-center text-base text-muted-foreground">
+                  No other agents are available.
+                </div>
+              )}
+            </div>
+          </div>
+        ) : (
+          <>
+            <Popover
+              onOpenChange={(nextOpen) => {
+                if (!nextOpen) setAgentSearch("");
+              }}
+            >
+              <PopoverTrigger asChild>
+                <Button
+                  type="button"
+                  variant="outline"
+                  role="combobox"
+                  className="w-full justify-between px-3 text-left font-normal"
+                  disabled={displayedAgents.length <= 1}
+                >
+                  <span
+                    className={cn(
+                      "min-w-0 truncate",
+                      selectedNames.length === 0 && "text-muted-foreground",
+                    )}
+                  >
+                    {selectedNames.length > 0
+                      ? `${selectedNames.length} allowed agent${selectedNames.length === 1 ? "" : "s"}`
+                      : displayedAgents.length > 1
+                        ? "Select allowed agents"
+                        : "No other agents are available"}
+                  </span>
+                  <ChevronDown className="ml-2 size-4 shrink-0 opacity-50" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent
+                align="start"
+                className="w-[var(--radix-popover-trigger-width)] max-w-[var(--radix-popover-trigger-width)] p-0"
+              >
+                <div className="grid max-h-[min(24rem,var(--radix-popover-content-available-height))] min-h-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden">
+                  <div className="border-b p-2">
+                    <Input
+                      value={agentSearch}
+                      onChange={(event) => setAgentSearch(event.target.value)}
+                      placeholder="Search agents..."
+                      className="h-9"
+                    />
+                  </div>
+                  <div
+                    className="max-h-80 overflow-y-auto overscroll-contain p-1 chat-message-scrollbar"
+                    onWheelCapture={(event) => event.stopPropagation()}
+                  >
+                    {visibleAgents.length > 0 ? (
+                      visibleAgents.map((agent) => {
+                        const checked = Boolean(
+                          agentDraft.agentPermissions[agent.name],
+                        );
+                        return (
+                          <div
+                            key={agent.name}
+                            role="button"
+                            tabIndex={0}
+                            className="flex w-full min-w-0 cursor-pointer items-start gap-2 px-2 py-2 text-left hover:bg-accent hover:text-accent-foreground focus-visible:outline-none"
+                            onClick={() => toggleAllowedAgent(agent.name)}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter" || event.key === " ") {
+                                event.preventDefault();
+                                toggleAllowedAgent(agent.name);
+                              }
+                            }}
+                            title={agent.description}
+                          >
+                            <Checkbox
+                              checked={checked}
+                              tabIndex={-1}
+                              className="mt-1 shrink-0 pointer-events-none"
+                            />
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate font-medium">
+                                {agent.name}
+                              </span>
+                              {agent.description && (
+                                <span className="mt-0.5 line-clamp-2 text-sm leading-5 text-muted-foreground">
+                                  {agent.description}
+                                </span>
+                              )}
+                            </span>
+                          </div>
+                        );
+                      })
+                    ) : (
+                      <div className="px-3 py-6 text-center text-base text-muted-foreground">
+                        No agents found.
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </PopoverContent>
+            </Popover>
+
+            {selectedNames.length > 0 && (
+              <div className="grid max-h-56 gap-1 overflow-y-auto rounded-sm border bg-muted/10 p-2">
+                {selectedNames.map((agentName) => {
+                  const agent = agentsByName.get(agentName);
+                  const permission =
+                    agentDraft.agentPermissions[agentName] ?? "allow";
+                  return (
+                    <div
+                      key={agentName}
+                      className="flex min-w-0 items-start gap-2 rounded-sm px-2 py-1.5 hover:bg-muted/70"
+                      title={agent?.description}
+                    >
+                      <Bot className="mt-1 size-4 shrink-0 text-muted-foreground" />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate font-medium">
+                          {agentName}
+                        </span>
+                        {agent?.description && (
+                          <span className="mt-0.5 line-clamp-2 text-sm leading-5 text-muted-foreground">
+                            {agent.description}
+                          </span>
+                        )}
+                      </span>
+                      <CustomPermissionSelect
+                        value={permission}
+                        onChange={(next) =>
+                          setAllowedAgentPermission(agentName, next)
+                        }
+                      />
+                      <Checkbox
+                        checked
+                        onCheckedChange={() => toggleAllowedAgent(agentName)}
+                        className="mt-1 shrink-0"
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    );
   }
 
   return (
@@ -1394,388 +2228,9 @@ export const AgentsDialog = memo(function AgentsDialog({
                         </div>
                       ) : (
                         <>
-                          <div className="grid gap-2">
-                            <div className="grid gap-1">
-                              <Label>Available skills</Label>
-                              <p className="text-sm leading-5 text-muted-foreground">
-                                Controls which skills this agent can discover.
-                                Global follows the parent chat and active mode.
-                              </p>
-                            </div>
-                            <div className="flex items-center justify-between gap-3 rounded-sm border bg-card px-3 py-2">
-                              <div className="min-w-0 flex-1">
-                                <div className="font-medium">Skills</div>
-                                <div className="text-sm text-muted-foreground">
-                                  Set all skills or configure them individually.
-                                </div>
-                              </div>
-                              <AgentSkillFeatureAvailabilitySelect
-                                value={
-                                  agentDraft.skillAvailability[
-                                    FEATURE_PERMISSION_KEY
-                                  ] ?? "global"
-                                }
-                                onChange={(value) =>
-                                  updateSkillAvailability(
-                                    FEATURE_PERMISSION_KEY,
-                                    value,
-                                  )
-                                }
-                              />
-                            </div>
-                            <Input
-                              value={availableSkillSearch}
-                              onChange={(event) =>
-                                setAvailableSkillSearch(event.target.value)
-                              }
-                              placeholder="Search skills..."
-                              className="h-9"
-                            />
-                            <div className="grid max-h-72 gap-1 overflow-y-auto chat-message-scrollbar">
-                              {visibleAvailableSkills.length > 0 ? (
-                                visibleAvailableSkills.map((skill) => {
-                                  const master =
-                                    agentDraft.skillAvailability[
-                                      FEATURE_PERMISSION_KEY
-                                    ] ?? "global";
-                                  const childLocked = master !== "custom";
-                                  const value = childLocked
-                                    ? master === "global"
-                                      ? "global"
-                                      : master
-                                    : (agentDraft.skillAvailability[
-                                        skill.name
-                                      ] ?? "global");
-                                  return (
-                                    <div
-                                      key={skill.name}
-                                      className="flex min-w-0 items-start gap-3 rounded-sm border bg-card px-3 py-2"
-                                    >
-                                      <div className="min-w-0 flex-1">
-                                        <div className="truncate font-medium">
-                                          {skill.name}
-                                        </div>
-                                        <div className="mt-0.5 line-clamp-2 text-sm leading-5 text-muted-foreground">
-                                          {skill.description ||
-                                            "No description."}
-                                        </div>
-                                      </div>
-                                      <AgentSkillAvailabilitySelect
-                                        value={value}
-                                        disabled={childLocked}
-                                        onChange={(next) =>
-                                          updateSkillAvailability(
-                                            skill.name,
-                                            next,
-                                          )
-                                        }
-                                      />
-                                    </div>
-                                  );
-                                })
-                              ) : (
-                                <div className="rounded-sm border border-dashed px-3 py-4 text-sm text-muted-foreground">
-                                  No skills found.
-                                </div>
-                              )}
-                            </div>
-                          </div>
-
-                          <div className="grid gap-2">
-                            <Label>Allowed tools</Label>
-                            <Popover
-                              onOpenChange={(nextOpen) => {
-                                if (!nextOpen) setToolSearch("");
-                              }}
-                            >
-                              <PopoverTrigger asChild>
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  role="combobox"
-                                  className="w-full justify-between px-3 text-left font-normal"
-                                  disabled={availableTools.length === 0}
-                                >
-                                  <span
-                                    className={cn(
-                                      "min-w-0 truncate",
-                                      agentDraft.allowedToolNames.length ===
-                                        0 && "text-muted-foreground",
-                                    )}
-                                  >
-                                    {agentDraft.allowedToolNames.length > 0
-                                      ? `${agentDraft.allowedToolNames.length} allowed tool${agentDraft.allowedToolNames.length === 1 ? "" : "s"}`
-                                      : availableTools.length > 0
-                                        ? "Select allowed tools"
-                                        : "No tools are available"}
-                                  </span>
-                                  <ChevronDown className="ml-2 size-4 shrink-0 opacity-50" />
-                                </Button>
-                              </PopoverTrigger>
-                              <PopoverContent
-                                align="start"
-                                className="w-[var(--radix-popover-trigger-width)] max-w-[var(--radix-popover-trigger-width)] p-0"
-                              >
-                                <div className="grid max-h-[min(24rem,var(--radix-popover-content-available-height))] min-h-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden">
-                                  <div className="border-b p-2">
-                                    <Input
-                                      value={toolSearch}
-                                      onChange={(event) =>
-                                        setToolSearch(event.target.value)
-                                      }
-                                      placeholder="Search tools..."
-                                      className="h-9"
-                                    />
-                                  </div>
-                                  <div
-                                    className="max-h-80 overflow-y-auto overscroll-contain p-1 chat-message-scrollbar"
-                                    onWheelCapture={(event) =>
-                                      event.stopPropagation()
-                                    }
-                                  >
-                                    {visibleToolGroups.length > 0 ? (
-                                      visibleToolGroups.map((group) => (
-                                        <div
-                                          key={group.id}
-                                          className="grid gap-0.5 py-1"
-                                        >
-                                          <div className="px-2 py-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                                            {group.title}
-                                          </div>
-                                          {group.tools.map((tool) => {
-                                            const checked =
-                                              agentDraft.allowedToolNames.includes(
-                                                tool.name,
-                                              );
-                                            return (
-                                              <div
-                                                key={tool.name}
-                                                role="button"
-                                                tabIndex={0}
-                                                className="flex w-full min-w-0 cursor-pointer items-start gap-2 px-2 py-2 text-left hover:bg-accent hover:text-accent-foreground focus-visible:outline-none"
-                                                onClick={() =>
-                                                  toggleAllowedTool(tool.name)
-                                                }
-                                                onKeyDown={(event) => {
-                                                  if (
-                                                    event.key === "Enter" ||
-                                                    event.key === " "
-                                                  ) {
-                                                    event.preventDefault();
-                                                    toggleAllowedTool(
-                                                      tool.name,
-                                                    );
-                                                  }
-                                                }}
-                                                title={tool.description}
-                                              >
-                                                <Checkbox
-                                                  checked={checked}
-                                                  tabIndex={-1}
-                                                  className="mt-1 shrink-0 pointer-events-none"
-                                                />
-                                                <span className="min-w-0 flex-1">
-                                                  <span className="block truncate font-medium">
-                                                    {tool.name}
-                                                  </span>
-                                                  {tool.description && (
-                                                    <span className="mt-0.5 line-clamp-2 text-sm leading-5 text-muted-foreground">
-                                                      {tool.description}
-                                                    </span>
-                                                  )}
-                                                </span>
-                                              </div>
-                                            );
-                                          })}
-                                        </div>
-                                      ))
-                                    ) : (
-                                      <div className="px-3 py-6 text-center text-base text-muted-foreground">
-                                        No tools found.
-                                      </div>
-                                    )}
-                                  </div>
-                                </div>
-                              </PopoverContent>
-                            </Popover>
-
-                            {agentDraft.allowedToolNames.length > 0 && (
-                              <div className="grid max-h-56 gap-1 overflow-y-auto rounded-sm border bg-muted/10 p-2">
-                                {agentDraft.allowedToolNames.map((toolName) => {
-                                  const tool = toolsByName.get(toolName);
-                                  return (
-                                    <div
-                                      key={toolName}
-                                      className="flex min-w-0 items-start gap-2 rounded-sm px-2 py-1.5 hover:bg-muted/70"
-                                      title={tool?.description}
-                                    >
-                                      <Wrench className="mt-1 size-4 shrink-0 text-muted-foreground" />
-                                      <span className="min-w-0 flex-1">
-                                        <span className="block truncate font-medium">
-                                          {toolName}
-                                        </span>
-                                        {tool?.description && (
-                                          <span className="mt-0.5 line-clamp-2 text-sm leading-5 text-muted-foreground">
-                                            {tool.description}
-                                          </span>
-                                        )}
-                                      </span>
-                                      <Checkbox
-                                        checked
-                                        onCheckedChange={() =>
-                                          toggleAllowedTool(toolName)
-                                        }
-                                        className="mt-1 shrink-0"
-                                      />
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            )}
-                          </div>
-
-                          <div className="grid gap-2">
-                            <Label>Allowed agents</Label>
-                            <Popover
-                              onOpenChange={(nextOpen) => {
-                                if (!nextOpen) setAgentSearch("");
-                              }}
-                            >
-                              <PopoverTrigger asChild>
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  role="combobox"
-                                  className="w-full justify-between px-3 text-left font-normal"
-                                  disabled={displayedAgents.length <= 1}
-                                >
-                                  <span
-                                    className={cn(
-                                      "min-w-0 truncate",
-                                      agentDraft.allowedAgentNames.length ===
-                                        0 && "text-muted-foreground",
-                                    )}
-                                  >
-                                    {agentDraft.allowedAgentNames.length > 0
-                                      ? `${agentDraft.allowedAgentNames.length} allowed agent${agentDraft.allowedAgentNames.length === 1 ? "" : "s"}`
-                                      : displayedAgents.length > 1
-                                        ? "Select allowed agents"
-                                        : "No other agents are available"}
-                                  </span>
-                                  <ChevronDown className="ml-2 size-4 shrink-0 opacity-50" />
-                                </Button>
-                              </PopoverTrigger>
-                              <PopoverContent
-                                align="start"
-                                className="w-[var(--radix-popover-trigger-width)] max-w-[var(--radix-popover-trigger-width)] p-0"
-                              >
-                                <div className="grid max-h-[min(24rem,var(--radix-popover-content-available-height))] min-h-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden">
-                                  <div className="border-b p-2">
-                                    <Input
-                                      value={agentSearch}
-                                      onChange={(event) =>
-                                        setAgentSearch(event.target.value)
-                                      }
-                                      placeholder="Search agents..."
-                                      className="h-9"
-                                    />
-                                  </div>
-                                  <div
-                                    className="max-h-80 overflow-y-auto overscroll-contain p-1 chat-message-scrollbar"
-                                    onWheelCapture={(event) =>
-                                      event.stopPropagation()
-                                    }
-                                  >
-                                    {visibleAgents.length > 0 ? (
-                                      visibleAgents.map((agent) => {
-                                        const checked =
-                                          agentDraft.allowedAgentNames.includes(
-                                            agent.name,
-                                          );
-                                        return (
-                                          <div
-                                            key={agent.name}
-                                            role="button"
-                                            tabIndex={0}
-                                            className="flex w-full min-w-0 cursor-pointer items-start gap-2 px-2 py-2 text-left hover:bg-accent hover:text-accent-foreground focus-visible:outline-none"
-                                            onClick={() =>
-                                              toggleAllowedAgent(agent.name)
-                                            }
-                                            onKeyDown={(event) => {
-                                              if (
-                                                event.key === "Enter" ||
-                                                event.key === " "
-                                              ) {
-                                                event.preventDefault();
-                                                toggleAllowedAgent(agent.name);
-                                              }
-                                            }}
-                                            title={agent.description}
-                                          >
-                                            <Checkbox
-                                              checked={checked}
-                                              tabIndex={-1}
-                                              className="mt-1 shrink-0 pointer-events-none"
-                                            />
-                                            <span className="min-w-0 flex-1">
-                                              <span className="block truncate font-medium">
-                                                {agent.name}
-                                              </span>
-                                              {agent.description && (
-                                                <span className="mt-0.5 line-clamp-2 text-sm leading-5 text-muted-foreground">
-                                                  {agent.description}
-                                                </span>
-                                              )}
-                                            </span>
-                                          </div>
-                                        );
-                                      })
-                                    ) : (
-                                      <div className="px-3 py-6 text-center text-base text-muted-foreground">
-                                        No agents found.
-                                      </div>
-                                    )}
-                                  </div>
-                                </div>
-                              </PopoverContent>
-                            </Popover>
-
-                            {agentDraft.allowedAgentNames.length > 0 && (
-                              <div className="grid max-h-56 gap-1 overflow-y-auto rounded-sm border bg-muted/10 p-2">
-                                {agentDraft.allowedAgentNames.map(
-                                  (agentName) => {
-                                    const agent = agentsByName.get(agentName);
-                                    return (
-                                      <div
-                                        key={agentName}
-                                        className="flex min-w-0 items-start gap-2 rounded-sm px-2 py-1.5 hover:bg-muted/70"
-                                        title={agent?.description}
-                                      >
-                                        <Bot className="mt-1 size-4 shrink-0 text-muted-foreground" />
-                                        <span className="min-w-0 flex-1">
-                                          <span className="block truncate font-medium">
-                                            {agentName}
-                                          </span>
-                                          {agent?.description && (
-                                            <span className="mt-0.5 line-clamp-2 text-sm leading-5 text-muted-foreground">
-                                              {agent.description}
-                                            </span>
-                                          )}
-                                        </span>
-                                        <Checkbox
-                                          checked
-                                          onCheckedChange={() =>
-                                            toggleAllowedAgent(agentName)
-                                          }
-                                          className="mt-1 shrink-0"
-                                        />
-                                      </div>
-                                    );
-                                  },
-                                )}
-                              </div>
-                            )}
-                          </div>
+                          {renderSkillCapabilitySection()}
+                          {renderToolCapabilitySection()}
+                          {renderAgentCapabilitySection()}
                         </>
                       )}
                     </div>

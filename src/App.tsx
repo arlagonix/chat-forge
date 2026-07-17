@@ -4412,6 +4412,8 @@ export default function Home() {
         onLoadedAgentsChange={setLoadedAgents}
         availableTools={availableTools}
         availableSkills={availableSkills}
+        toolsSettings={toolsSettings}
+        skillsSettings={skillsSettings}
         providers={providers}
         showSuccess={stableShowSuccess}
         showError={stableShowError}

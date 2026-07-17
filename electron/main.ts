@@ -273,12 +273,22 @@ type AgentDefinition = {
   skillAvailabilityModelVersion?: 1;
   allowedToolNames: string[];
   allowedAgentNames: string[];
+  skillCapabilitySource?: AgentCapabilitySource;
+  toolCapabilitySource?: AgentCapabilitySource;
+  agentCapabilitySource?: AgentCapabilitySource;
+  toolPermissions?: Record<string, Permission>;
+  agentPermissions?: Record<string, Permission>;
+  customSkillsInitialized?: boolean;
+  customToolsInitialized?: boolean;
+  customAgentsInitialized?: boolean;
+  capabilitySourceModelVersion?: 1;
 };
 
 type PublicAgentDefinition = AgentDefinition;
 
 type Permission = "allow" | "ask" | "deny";
 type FeaturePermission = "custom" | Permission;
+type AgentCapabilitySource = "inherit" | "global" | "custom";
 type SkillAvailability = "on" | "off";
 type ModeSkillFeatureAvailability = "custom" | "global" | SkillAvailability;
 type ModeSkillAvailabilityMap = Record<string, ModeSkillFeatureAvailability>;
@@ -1203,6 +1213,15 @@ function normalizeAgentContextMode(value: unknown): AgentContextMode {
   return value === "full_chat" ? "full_chat" : "task_only";
 }
 
+function normalizeAgentCapabilitySource(
+  value: unknown,
+  fallback: AgentCapabilitySource,
+): AgentCapabilitySource {
+  return value === "inherit" || value === "global" || value === "custom"
+    ? value
+    : fallback;
+}
+
 function normalizeAgentDefinition(candidate: unknown): AgentDefinition {
   const source = isPlainObject(candidate) ? candidate : {};
   const id =
@@ -1245,6 +1264,28 @@ function normalizeAgentDefinition(candidate: unknown): AgentDefinition {
     allowedAgentNames: safeStringArray(source.allowedAgentNames)
       .map((item) => item.trim())
       .filter(Boolean),
+    ...(source.capabilitySourceModelVersion === 1
+      ? {
+          skillCapabilitySource: normalizeAgentCapabilitySource(
+            source.skillCapabilitySource,
+            "inherit",
+          ),
+          toolCapabilitySource: normalizeAgentCapabilitySource(
+            source.toolCapabilitySource,
+            "inherit",
+          ),
+          agentCapabilitySource: normalizeAgentCapabilitySource(
+            source.agentCapabilitySource,
+            "inherit",
+          ),
+          toolPermissions: normalizePermissionMap(source.toolPermissions),
+          agentPermissions: normalizePermissionMap(source.agentPermissions),
+          customSkillsInitialized: source.customSkillsInitialized === true,
+          customToolsInitialized: source.customToolsInitialized === true,
+          customAgentsInitialized: source.customAgentsInitialized === true,
+          capabilitySourceModelVersion: 1 as const,
+        }
+      : {}),
   };
 }
 

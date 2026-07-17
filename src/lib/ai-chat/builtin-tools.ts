@@ -27,6 +27,7 @@ import type {
   LoadedAgentInfo,
   LoadedSkillInfo,
   LoadedToolInfo,
+  PermissionMap,
   SkillsSettings,
   ToolsSettings,
 } from "@/lib/ai-chat/types";
@@ -666,6 +667,7 @@ export const FILE_SEARCH_TOOL: LoadedToolInfo = {
 
 export function createCallAgentTool(
   agents: LoadedAgentInfo[],
+  callAgentPermissions?: PermissionMap,
 ): LoadedToolInfo | null {
   const enabledAgentList = agents
     .filter((agent) => agent.enabled && agent.name.trim())
@@ -710,6 +712,7 @@ export function createCallAgentTool(
     args: [],
     input: "none",
     timeoutMs: 0,
+    ...(callAgentPermissions ? { callAgentPermissions } : {}),
   };
 }
 

@@ -57,7 +57,7 @@ The selected skill shows a level-one file structure preview so users can see whi
 
 ## Availability and manual loading
 
-The global Skills switch and each skill's On/Off switch control whether models can discover that skill by default. Modes and custom agents may override global availability with their own Global, Custom, On, or Off settings.
+The global Skills switch and each skill's On/Off switch control whether models can discover that skill by default. Modes may override global availability with their own Global, Custom, On, or Off settings. Custom agents choose a Skills source: Inherit uses the immediate caller's visible skills, Global follows the live global configuration, and Custom uses the agent's explicit skill selections.
 
 Skill availability is separate from approval. Model-initiated loading uses the built-in `skill` tool, whose normal Allow/Ask/Deny permission controls whether the model may load any visible skill.
 
