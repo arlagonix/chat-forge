@@ -4031,6 +4031,7 @@ export default function Home() {
               <SettingsDialog
                 embedded
                 open
+                appVersionLabel={APP_VERSION_LABEL}
                 onOpenChange={() => {}}
                 chatTitleGenerationMode={appSettings.chatTitleGenerationMode}
                 titleGenerationModelValue={resolvedTitleGenerationModelValue}
@@ -4082,6 +4083,7 @@ export default function Home() {
                     chatWidth: nextChatWidth,
                   }))
                 }
+                onRestoreDefaults={handleRestoreGeneralDefaults}
                 onOpenProviders={() => openSettingsSection("providers")}
                 onOpenTools={() => openSettingsSection("tools")}
                 onOpenSkills={() => openSettingsSection("skills")}
@@ -4102,7 +4104,6 @@ export default function Home() {
       <main className="relative flex h-dvh min-h-0 overflow-hidden bg-background text-foreground">
         <SettingsSidebar
           appName={APP_NAME}
-          appVersionLabel={APP_VERSION_LABEL}
           activeSection={settingsSection}
           collapsed={isSettingsSidebarCollapsed}
           onCollapsedChange={setIsSettingsSidebarCollapsed}
@@ -4132,17 +4133,6 @@ export default function Home() {
             <span className="ml-2 text-base font-medium text-foreground">
               {SETTINGS_SECTION_LABELS[settingsSection as SettingsSection]}
             </span>
-            {settingsSection === "general" ? (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="app-region-no-drag ml-auto h-8 px-3 text-xs"
-                onClick={handleRestoreGeneralDefaults}
-              >
-                Restore defaults
-              </Button>
-            ) : null}
           </div>
           <div className="min-h-0 flex-1 overflow-hidden">{settingsPage}</div>
         </section>
@@ -4176,7 +4166,6 @@ export default function Home() {
       />
       <ChatSidebar
         appName={APP_NAME}
-        appVersionLabel={APP_VERSION_LABEL}
         chats={sortedChats}
         folders={appSettings.chatFolders}
         activeChatId={activeChat?.id}

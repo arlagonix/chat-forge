@@ -9,7 +9,6 @@ function renderSidebar(
 ) {
   const props: ComponentProps<typeof SettingsSidebar> = {
     appName: "Molten Forge",
-    appVersionLabel: "1.16.9",
     activeSection: "general",
     collapsed: false,
     onCollapsedChange: vi.fn(),
@@ -31,7 +30,7 @@ describe("SettingsSidebar", () => {
     renderSidebar();
 
     expect(screen.getByText("Molten Forge")).toBeInTheDocument();
-    expect(screen.getByText("1.16.9")).toBeInTheDocument();
+    expect(screen.queryByText("1.16.9")).not.toBeInTheDocument();
     expect(screen.queryByText("AI Configuration")).not.toBeInTheDocument();
     expect(screen.queryByText("Capabilities")).not.toBeInTheDocument();
     expect(screen.queryByText("Integrations")).not.toBeInTheDocument();
@@ -76,7 +75,6 @@ describe("SettingsSidebar", () => {
     const { container } = render(
       <SettingsSidebar
         appName="Molten Forge"
-        appVersionLabel="1.16.9"
         activeSection="general"
         collapsed
         onCollapsedChange={vi.fn()}

@@ -6,11 +6,13 @@ import {
   Brain,
   Cpu,
   FileText,
+  Info,
   Layers3,
   Maximize2,
   MessageSquareText,
   Moon,
   Network,
+  RotateCcw,
   SlidersHorizontal,
   Sun,
   Type as TypeIcon,
@@ -192,6 +194,66 @@ function SettingsGroupedSelectRow({
   );
 }
 
+function SettingsTextRow({
+  icon,
+  title,
+  description,
+  value,
+}: {
+  icon: ReactNode;
+  title: string;
+  description: string;
+  value: string;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-4 border-b p-3">
+      <div className="flex min-w-0 items-start gap-3">
+        <div className="mt-[5px] text-muted-foreground">{icon}</div>
+        <div className="min-w-0">
+          <div className="text-base font-medium leading-6">{title}</div>
+          <div className="text-sm leading-5 text-muted-foreground">
+            {description}
+          </div>
+        </div>
+      </div>
+      <span className="shrink-0 text-sm font-medium text-foreground">
+        {value}
+      </span>
+    </div>
+  );
+}
+
+function SettingsButtonRow({
+  icon,
+  title,
+  description,
+  buttonLabel,
+  onClick,
+}: {
+  icon: ReactNode;
+  title: string;
+  description: string;
+  buttonLabel: string;
+  onClick: () => void;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-4 p-3">
+      <div className="flex min-w-0 items-start gap-3">
+        <div className="mt-[5px] text-muted-foreground">{icon}</div>
+        <div className="min-w-0">
+          <div className="text-base font-medium leading-6">{title}</div>
+          <div className="text-sm leading-5 text-muted-foreground">
+            {description}
+          </div>
+        </div>
+      </div>
+      <Button type="button" variant="outline" onClick={onClick}>
+        {buttonLabel}
+      </Button>
+    </div>
+  );
+}
+
 function SettingsActionRow({
   icon,
   title,
@@ -227,6 +289,7 @@ type SettingsDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   embedded?: boolean;
+  appVersionLabel: string;
   chatTitleGenerationMode: ChatTitleGenerationMode;
   titleGenerationModelValue: string;
   titleGenerationDefaultModelOption: { value: string; label: string };
@@ -248,6 +311,7 @@ type SettingsDialogProps = {
   onThinkingAutoCollapseChange: (checked: boolean) => void;
   onRenderMarkdownWhileStreamingChange: (checked: boolean) => void;
   onChatWidthChange: (chatWidth: ChatWidth) => void;
+  onRestoreDefaults: () => void;
   onOpenProviders: () => void;
   onOpenTools: () => void;
   onOpenSkills: () => void;
@@ -261,6 +325,7 @@ export const SettingsDialog = memo(function SettingsDialog({
   open,
   onOpenChange,
   embedded = false,
+  appVersionLabel,
   chatTitleGenerationMode,
   titleGenerationModelValue,
   titleGenerationDefaultModelOption,
@@ -278,6 +343,7 @@ export const SettingsDialog = memo(function SettingsDialog({
   onThinkingAutoCollapseChange,
   onRenderMarkdownWhileStreamingChange,
   onChatWidthChange,
+  onRestoreDefaults,
   onOpenProviders,
   onOpenTools,
   onOpenSkills,
@@ -361,7 +427,7 @@ export const SettingsDialog = memo(function SettingsDialog({
 
             <section className="grid gap-3">
               <GroupHeading className="mt-0">General</GroupHeading>
-              <div className="overflow-hidden rounded-lg border bg-card/80">
+              <div className="overflow-hidden rounded-lg border bg-card">
                 <SettingsSelectRow
                   icon={
                     resolvedTheme === "light" ? (
@@ -447,6 +513,25 @@ export const SettingsDialog = memo(function SettingsDialog({
                   defaultOption={titleGenerationDefaultModelOption}
                   groups={titleGenerationModelGroups}
                   triggerClassName="h-8 w-[14rem] shrink-0"
+                />
+              </div>
+            </section>
+
+            <section className="grid gap-3">
+              <GroupHeading className="mt-0">About</GroupHeading>
+              <div className="overflow-hidden rounded-lg border bg-card/80">
+                <SettingsTextRow
+                  icon={<Info className="size-4" />}
+                  title="Version"
+                  description="Current version of the app"
+                  value={appVersionLabel}
+                />
+                <SettingsButtonRow
+                  icon={<RotateCcw className="size-4" />}
+                  title="Restore defaults"
+                  description="Restore the default settings."
+                  buttonLabel="Restore defaults"
+                  onClick={onRestoreDefaults}
                 />
               </div>
             </section>

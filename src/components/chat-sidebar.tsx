@@ -95,7 +95,6 @@ type DeleteFolderMode = "move" | "delete";
 
 type ChatSidebarProps = {
   appName: string;
-  appVersionLabel: string;
   chats: ChatSession[];
   folders: ChatFolder[];
   activeChatId?: string;
@@ -234,7 +233,6 @@ const NewFolderDraftRow = memo(function NewFolderDraftRow({
 
 export const ChatSidebar = memo(function ChatSidebar({
   appName,
-  appVersionLabel,
   chats,
   folders,
   activeChatId,
@@ -1342,11 +1340,8 @@ export const ChatSidebar = memo(function ChatSidebar({
             </Button>
 
             <div className="flex min-w-0 flex-1 items-center gap-2">
-              <h1 className="flex min-w-0 items-baseline gap-1 truncate text-base font-semibold leading-6">
+              <h1 className="min-w-0 truncate text-base font-semibold leading-6">
                 <span className="molten-forge-title truncate">{appName}</span>
-                <span className="shrink-0 text-muted-foreground">
-                  {appVersionLabel}
-                </span>
               </h1>
             </div>
 
