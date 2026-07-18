@@ -1122,8 +1122,8 @@ export const ModesDialog = memo(function ModesDialog({
           ) : null}
 
           <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden md:grid-cols-[400px_minmax(0,1fr)]">
-            <aside className="flex min-h-0 flex-col border-b bg-card/70 md:border-b-0 md:border-r">
-              <div className="shrink-0 border-b bg-card/90 p-2">
+            <aside className="flex min-h-0 flex-col border-b bg-card md:border-b-0 md:border-r">
+              <div className="shrink-0 border-b bg-card p-2">
                 <div className="relative">
                   <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
                   <Input
@@ -1203,7 +1203,7 @@ export const ModesDialog = memo(function ModesDialog({
                 </div>
               </div>
 
-              <div className="flex shrink-0 border-t bg-card/90 p-2">
+              <div className="flex shrink-0 border-t bg-card p-2">
                 <Button
                   type="button"
                   variant="secondary"

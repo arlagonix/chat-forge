@@ -68,7 +68,7 @@ const codeEditorTheme = EditorView.theme({
     padding: "0 0.75rem",
   },
   ".cm-gutters": {
-    backgroundColor: "color-mix(in oklab, var(--muted) 38%, transparent)",
+    backgroundColor: "var(--card)",
     color: "var(--muted-foreground)",
     borderRight: "1px solid var(--border)",
   },

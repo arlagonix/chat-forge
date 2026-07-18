@@ -1311,7 +1311,7 @@ export const ChatSidebar = memo(function ChatSidebar({
         data-sidebar
         style={width ? { width } : undefined}
         className={cn(
-          "relative shrink-0 flex-col border-r bg-card/80",
+          "relative shrink-0 flex-col border-r bg-card",
           !width && "w-80",
           isCollapsed ? "flex md:hidden" : "flex",
         )}

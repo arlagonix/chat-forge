@@ -470,7 +470,7 @@ export const ChatCapabilitiesSidebar = memo(function ChatCapabilitiesSidebar({
       className="z-20 flex h-dvh min-w-[560px] shrink-0 flex-col border-l bg-background text-base leading-6 shadow-xl"
       style={{ width: width ?? 680 }}
     >
-      <div className="flex min-w-0 items-center border-b">
+      <div className="flex min-w-0 items-center border-b bg-card">
         <div
           data-right-sidebar-titlebar
           className="app-region-drag flex min-w-0 flex-1 select-none items-center gap-3 py-1 pl-4 pr-2"

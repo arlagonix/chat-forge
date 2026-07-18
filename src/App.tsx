@@ -3860,7 +3860,7 @@ export default function Home() {
           <div className="app-region-drag min-w-0 flex-1" aria-hidden="true" />
         </div>
         <WindowControls
-          className="fixed right-0 top-1 z-[100] bg-background/85 backdrop-blur-sm"
+          className="fixed right-0 top-1 z-[100] bg-card"
         />
         <div className="flex flex-col items-center gap-4 text-center">
           <div
@@ -4116,7 +4116,7 @@ export default function Home() {
         />
 
         <section className="relative flex min-h-0 min-w-0 flex-1 flex-col bg-background">
-          <div className="app-region-drag flex h-[41px] shrink-0 items-center border-b px-2 pr-[100px]">
+          <div className="app-region-drag flex h-[41px] shrink-0 items-center border-b bg-card px-2 pr-[100px]">
             {isSettingsSidebarCollapsed ? (
               <Button
                 type="button"
@@ -4138,7 +4138,7 @@ export default function Home() {
         </section>
 
         <WindowControls
-          className="fixed right-0 top-1 z-[100] bg-background/85 backdrop-blur-sm"
+          className="fixed right-0 top-1 z-[100] bg-card"
           onCloseRequest={requestWindowClose}
         />
 
@@ -4161,7 +4161,7 @@ export default function Home() {
   return (
     <main className="relative flex h-dvh min-h-0 overflow-hidden bg-background text-foreground">
       <WindowControls
-        className="fixed right-0 top-1 z-[100] bg-background/85 backdrop-blur-sm"
+        className="fixed right-0 top-1 z-[100] bg-card"
         onCloseRequest={requestWindowClose}
       />
       <ChatSidebar
@@ -4225,7 +4225,7 @@ export default function Home() {
       />
 
       <section className="relative flex min-h-0 flex-1 flex-col bg-background px-4">
-        <div className="-mx-4 flex min-w-0 items-center border-b">
+        <div className="-mx-4 flex min-w-0 items-center border-b bg-card">
           <div
             data-main-titlebar
             data-sidebar-collapsed={isSidebarCollapsed ? "true" : "false"}

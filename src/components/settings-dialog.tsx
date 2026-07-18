@@ -496,7 +496,7 @@ export const SettingsDialog = memo(function SettingsDialog({
 
             <section className="grid gap-3">
               <GroupHeading className="mt-0">Title</GroupHeading>
-              <div className="overflow-hidden rounded-lg border bg-card/80">
+              <div className="overflow-hidden rounded-lg border bg-card">
                 <SettingsSwitchRow
                   icon={<SlidersHorizontal className="size-4" />}
                   title="Generate title"
@@ -519,7 +519,7 @@ export const SettingsDialog = memo(function SettingsDialog({
 
             <section className="grid gap-3">
               <GroupHeading className="mt-0">About</GroupHeading>
-              <div className="overflow-hidden rounded-lg border bg-card/80">
+              <div className="overflow-hidden rounded-lg border bg-card">
                 <SettingsTextRow
                   icon={<Info className="size-4" />}
                   title="Version"
