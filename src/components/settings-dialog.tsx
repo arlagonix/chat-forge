@@ -226,6 +226,7 @@ function SettingsActionRow({
 type SettingsDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  embedded?: boolean;
   chatTitleGenerationMode: ChatTitleGenerationMode;
   titleGenerationModelValue: string;
   titleGenerationDefaultModelOption: { value: string; label: string };
@@ -259,6 +260,7 @@ type SettingsDialogProps = {
 export const SettingsDialog = memo(function SettingsDialog({
   open,
   onOpenChange,
+  embedded = false,
   chatTitleGenerationMode,
   titleGenerationModelValue,
   titleGenerationDefaultModelOption,
@@ -285,64 +287,76 @@ export const SettingsDialog = memo(function SettingsDialog({
   onOpenSystemPrompt,
 }: SettingsDialogProps) {
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="grid h-[min(1000px,calc(100dvh-2rem))] grid-rows-[auto_1fr] gap-0 p-0 sm:max-w-3xl">
-        <DialogHeader className="border-b px-4 py-4">
-          <DialogTitle>Settings</DialogTitle>
-        </DialogHeader>
+    <Dialog embedded={embedded} open={open} onOpenChange={onOpenChange}>
+      <DialogContent
+        className={
+          embedded
+            ? "grid h-[min(1000px,calc(100dvh-2rem))] grid-rows-[1fr] gap-0 p-0 sm:max-w-3xl"
+            : "grid h-[min(1000px,calc(100dvh-2rem))] grid-rows-[auto_1fr] gap-0 p-0 sm:max-w-3xl"
+        }
+      >
+        {!embedded ? (
+          <DialogHeader className="border-b px-4 py-4">
+            <DialogTitle>Settings</DialogTitle>
+          </DialogHeader>
+        ) : null}
 
         <div className="min-h-0 overflow-y-auto p-4 chat-scrollbar">
           <div className="grid gap-6">
-            <section className="grid gap-3">
-              <GroupHeading className="mt-0">Configuration</GroupHeading>
-              <div className="grid gap-2">
-                <SettingsActionRow
-                  icon={<Cpu className="size-4" />}
-                  title="Providers"
-                  description="Manage OpenAI-compatible providers and model settings."
-                  onClick={onOpenProviders}
-                />
-                <SettingsActionRow
-                  icon={<Wrench className="size-4" />}
-                  title="Tools"
-                  description="Manage callable tools and their global availability."
-                  onClick={onOpenTools}
-                />
-                <SettingsActionRow
-                  icon={<BookOpen className="size-4" />}
-                  title="Skills"
-                  description="Manage reusable context and instructions."
-                  onClick={onOpenSkills}
-                />
-                <SettingsActionRow
-                  icon={<Bot className="size-4" />}
-                  title="Agents"
-                  description="Manage delegated agent profiles and permissions."
-                  onClick={onOpenAgents}
-                />
-                <SettingsActionRow
-                  icon={<Layers3 className="size-4" />}
-                  title="Modes"
-                  description="Manage chat modes, instructions, and default capabilities."
-                  onClick={onOpenModes}
-                />
-                <SettingsActionRow
-                  icon={<Network className="size-4" />}
-                  title="MCP"
-                  description="Connect MCP servers and expose their tools to the model."
-                  onClick={onOpenMcp}
-                />
-                <SettingsActionRow
-                  icon={<MessageSquareText className="size-4" />}
-                  title="System prompt"
-                  description="Edit the global default instructions used by the assistant."
-                  onClick={onOpenSystemPrompt}
-                />
-              </div>
-            </section>
+            {!embedded ? (
+              <section className="grid gap-3">
+                <GroupHeading className="mt-0">Configuration</GroupHeading>
+                <div className="grid gap-2">
+                  <SettingsActionRow
+                    icon={<Cpu className="size-4" />}
+                    title="Providers"
+                    description="Manage OpenAI-compatible providers and model settings."
+                    onClick={onOpenProviders}
+                  />
+                  <SettingsActionRow
+                    icon={<Wrench className="size-4" />}
+                    title="Tools"
+                    description="Manage callable tools and their global availability."
+                    onClick={onOpenTools}
+                  />
+                  <SettingsActionRow
+                    icon={<BookOpen className="size-4" />}
+                    title="Skills"
+                    description="Manage reusable context and instructions."
+                    onClick={onOpenSkills}
+                  />
+                  <SettingsActionRow
+                    icon={<Bot className="size-4" />}
+                    title="Agents"
+                    description="Manage delegated agent profiles and permissions."
+                    onClick={onOpenAgents}
+                  />
+                  <SettingsActionRow
+                    icon={<Layers3 className="size-4" />}
+                    title="Modes"
+                    description="Manage chat modes, instructions, and default capabilities."
+                    onClick={onOpenModes}
+                  />
+                  <SettingsActionRow
+                    icon={<Network className="size-4" />}
+                    title="MCP"
+                    description="Connect MCP servers and expose their tools to the model."
+                    onClick={onOpenMcp}
+                  />
+                  <SettingsActionRow
+                    icon={<MessageSquareText className="size-4" />}
+                    title="System prompt"
+                    description="Edit the global default instructions used by the assistant."
+                    onClick={onOpenSystemPrompt}
+                  />
+                </div>
+              </section>
+            ) : null}
 
             <section className="grid gap-3">
-              <GroupHeading className="mt-0">General</GroupHeading>
+              {!embedded ? (
+                <GroupHeading className="mt-0">General</GroupHeading>
+              ) : null}
               <div className="grid gap-2">
                 <SettingsSelectRow
                   icon={

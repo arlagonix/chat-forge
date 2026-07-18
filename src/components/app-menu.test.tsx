@@ -98,4 +98,23 @@ describe("AppMenu", () => {
     fireEvent.click(await screen.findByRole("menuitem", { name: /Reload/ }));
     expect(executeMenuCommand).toHaveBeenCalledWith("reload");
   });
+
+  it("uses a guarded close callback when one is provided", async () => {
+    const { closeWindow } = installDesktopMock();
+    const onCloseWindow = vi.fn();
+    const user = userEvent.setup();
+
+    render(
+      <AppMenu onCreateNewChat={vi.fn()} onCloseWindow={onCloseWindow} />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "App menu" }));
+    await user.hover(screen.getByRole("menuitem", { name: "File" }));
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: /Close window/ }),
+    );
+
+    expect(onCloseWindow).toHaveBeenCalledTimes(1);
+    expect(closeWindow).not.toHaveBeenCalled();
+  });
 });

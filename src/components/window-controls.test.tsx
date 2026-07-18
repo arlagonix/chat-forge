@@ -77,6 +77,41 @@ describe("WindowControls", () => {
     });
   });
 
+  it("uses a guarded close callback when one is provided", async () => {
+    const closeWindow = vi.fn().mockResolvedValue(undefined);
+    const onCloseRequest = vi.fn();
+
+    Object.defineProperty(window, "moltenForgeDesktop", {
+      configurable: true,
+      writable: true,
+      value: {
+        platform: "win32",
+        usesCustomWindowControls: true,
+        executeMenuCommand: vi.fn().mockResolvedValue(undefined),
+        minimizeWindow: vi.fn().mockResolvedValue(undefined),
+        toggleMaximizeWindow: vi
+          .fn()
+          .mockResolvedValue({ maximized: false, fullscreen: false }),
+        closeWindow,
+        getWindowState: vi
+          .fn()
+          .mockResolvedValue({ maximized: false, fullscreen: false }),
+        setThemeSource: vi.fn().mockResolvedValue({
+          source: "system",
+          resolved: "dark",
+        }),
+        onWindowStateChange: vi.fn(() => vi.fn()),
+      } satisfies NonNullable<Window["moltenForgeDesktop"]>,
+    });
+
+    render(<WindowControls onCloseRequest={onCloseRequest} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Close" }));
+
+    expect(onCloseRequest).toHaveBeenCalledTimes(1);
+    expect(closeWindow).not.toHaveBeenCalled();
+  });
+
   it("does not render custom controls when the platform keeps native controls", () => {
     Object.defineProperty(window, "moltenForgeDesktop", {
       configurable: true,

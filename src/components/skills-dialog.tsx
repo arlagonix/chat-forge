@@ -87,6 +87,8 @@ type SkillsDialogProps = {
   workspaceRoots?: ChatWorkspaceRoot[];
   showSuccess: (message: string, description?: string) => void;
   showError: (message: string, description?: string) => void;
+  embedded?: boolean;
+  onDirtyChange?: (dirty: boolean) => void;
 };
 
 type SkillDraftMode = "existing" | "new";
@@ -434,6 +436,8 @@ export const SkillsDialog = memo(function SkillsDialog({
   workspaceRoots = [],
   showSuccess,
   showError,
+  embedded = false,
+  onDirtyChange,
 }: SkillsDialogProps) {
   const [selectedSkillKey, setSelectedSkillKey] = useState<string | null>(null);
   const [draftMode, setDraftMode] = useState<SkillDraftMode>("existing");
@@ -567,6 +571,10 @@ export const SkillsDialog = memo(function SkillsDialog({
     setDraftContent(content);
     setSavedDraftContent(content);
   }, []);
+  useEffect(() => {
+    onDirtyChange?.(hasChanges);
+  }, [hasChanges, onDirtyChange]);
+
 
   useEffect(() => {
     if (draftMode !== "existing") return;
@@ -905,7 +913,7 @@ export const SkillsDialog = memo(function SkillsDialog({
 
   return (
     <>
-      <Dialog open={open} onOpenChange={requestClose}>
+      <Dialog embedded={embedded} open={open} onOpenChange={requestClose}>
         <DialogContent
           className="flex h-[min(1000px,calc(100dvh-2rem))] max-h-none flex-col gap-0 overflow-hidden p-0 outline-none focus:outline-none focus-visible:ring-0 sm:max-w-6xl"
           onOpenAutoFocus={(event) => event.preventDefault()}
@@ -916,9 +924,11 @@ export const SkillsDialog = memo(function SkillsDialog({
             }
           }}
         >
-          <DialogHeader className="shrink-0 border-b p-4 pr-12">
-            <DialogTitle>Skills</DialogTitle>
-          </DialogHeader>
+          {!embedded ? (
+            <DialogHeader className="shrink-0 border-b p-4 pr-12">
+              <DialogTitle>Skills</DialogTitle>
+            </DialogHeader>
+          ) : null}
 
           <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden md:grid-cols-[400px_minmax(0,1fr)]">
             <aside className="flex min-h-0 flex-col border-b bg-card/70 md:border-b-0 md:border-r">

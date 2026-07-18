@@ -57,6 +57,12 @@ const codeEditorTheme = EditorView.theme({
   ".cm-content": {
     minHeight: "100%",
     padding: "0.75rem 0",
+    caretColor: "var(--foreground)",
+  },
+  ".cm-content ::selection": {
+    backgroundColor:
+      "color-mix(in oklab, var(--foreground) 28%, var(--background))",
+    color: "var(--foreground)",
   },
   ".cm-line": {
     padding: "0 0.75rem",
@@ -73,8 +79,28 @@ const codeEditorTheme = EditorView.theme({
   ".cm-activeLine": {
     backgroundColor: "color-mix(in oklab, var(--accent) 22%, transparent)",
   },
+  ".cm-cursor, .cm-dropCursor": {
+    borderLeftColor: "var(--foreground)",
+  },
   ".cm-selectionBackground, &.cm-focused .cm-selectionBackground": {
-    backgroundColor: "color-mix(in oklab, var(--primary) 22%, transparent)",
+    backgroundColor:
+      "color-mix(in oklab, var(--foreground) 28%, var(--background))",
+  },
+  ".cm-selectionMatch": {
+    backgroundColor:
+      "color-mix(in oklab, var(--foreground) 14%, var(--background))",
+    outline:
+      "1px solid color-mix(in oklab, var(--foreground) 24%, var(--background))",
+  },
+  ".cm-searchMatch": {
+    backgroundColor:
+      "color-mix(in oklab, var(--foreground) 18%, var(--background))",
+    outline:
+      "1px solid color-mix(in oklab, var(--foreground) 30%, var(--background))",
+  },
+  ".cm-searchMatch.cm-searchMatch-selected": {
+    backgroundColor:
+      "color-mix(in oklab, var(--foreground) 32%, var(--background))",
   },
   ".cm-placeholder": {
     color: "var(--muted-foreground)",
@@ -166,7 +192,7 @@ function CodeMirrorEditor({
   const extensions = useMemo(
     () => [
       lineNumbers(),
-      highlightActiveLineGutter(),
+      readOnly ? [] : highlightActiveLineGutter(),
       highlightSpecialChars(),
       history(),
       foldGutter(),
@@ -178,7 +204,7 @@ function CodeMirrorEditor({
       bracketMatching(),
       rectangularSelection(),
       crosshairCursor(),
-      highlightActiveLine(),
+      readOnly ? [] : highlightActiveLine(),
       highlightSelectionMatches(),
       language === "markdown" ? markdown() : [],
       EditorView.lineWrapping,

@@ -108,6 +108,8 @@ type ProviderSettingsDialogProps = {
   onDeleteProvider: (providerId: string) => void;
   onSave: (providersStateOverride?: ProvidersState) => void;
   showSuccess: (message: string, description?: string) => void;
+  embedded?: boolean;
+  onDirtyChange?: (dirty: boolean) => void;
 };
 
 function modelConfigWithPatch(
@@ -412,6 +414,8 @@ export const ProviderSettingsDialog = memo(function ProviderSettingsDialog({
   onDeleteProvider,
   onSave,
   showSuccess,
+  embedded = false,
+  onDirtyChange,
 }: ProviderSettingsDialogProps) {
   const [isApiKeyVisible, setIsApiKeyVisible] = useState(false);
   const [isLoadingModels, setIsLoadingModels] = useState(false);
@@ -464,6 +468,10 @@ export const ProviderSettingsDialog = memo(function ProviderSettingsDialog({
         providerDraftKey(newProviderInitialDraft)
     : providerDraftKey(editingProviderDraft) !==
       providerDraftKey(activeProvider);
+  useEffect(() => {
+    onDirtyChange?.(hasDraftChanges);
+  }, [hasDraftChanges, onDirtyChange]);
+
   const duplicateProvider = useMemo(() => {
     const draftName = providerUniqueName(editingProvider);
     if (!draftName) return undefined;
@@ -1108,14 +1116,16 @@ export const ProviderSettingsDialog = memo(function ProviderSettingsDialog({
 
   return (
     <>
-      <Dialog open={open} onOpenChange={requestOpenChange}>
+      <Dialog embedded={embedded} open={open} onOpenChange={requestOpenChange}>
         <DialogContent
           className="flex h-[min(1000px,calc(100dvh-2rem))] max-h-none flex-col gap-0 overflow-hidden p-0 outline-none focus:outline-none focus-visible:ring-0 sm:max-w-6xl"
           onOpenAutoFocus={(event) => event.preventDefault()}
         >
-          <DialogHeader className="shrink-0 border-b p-4 pr-12">
-            <DialogTitle>Providers</DialogTitle>
-          </DialogHeader>
+          {!embedded ? (
+            <DialogHeader className="shrink-0 border-b p-4 pr-12">
+              <DialogTitle>Providers</DialogTitle>
+            </DialogHeader>
+          ) : null}
 
           <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden md:grid-cols-[400px_minmax(0,1fr)]">
             <aside className="flex min-h-0 flex-col border-b bg-card/70 md:border-b-0 md:border-r">

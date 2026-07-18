@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -21,6 +20,8 @@ type SystemPromptDialogProps = {
   onValueChange: (value: string) => void;
   showSuccess: (message: string) => void;
   showError: (title: string, description?: string) => void;
+  embedded?: boolean;
+  onDirtyChange?: (dirty: boolean) => void;
 };
 
 export const SystemPromptDialog = memo(function SystemPromptDialog({
@@ -30,6 +31,8 @@ export const SystemPromptDialog = memo(function SystemPromptDialog({
   onValueChange,
   showSuccess,
   showError,
+  embedded = false,
+  onDirtyChange,
 }: SystemPromptDialogProps) {
   const [draftValue, setDraftValue] = useState(value);
   const [unsavedChangesDialogOpen, setUnsavedChangesDialogOpen] =
@@ -42,6 +45,10 @@ export const SystemPromptDialog = memo(function SystemPromptDialog({
   useEffect(() => {
     if (open) setDraftValue(value);
   }, [open, value]);
+
+  useEffect(() => {
+    onDirtyChange?.(hasChanges);
+  }, [hasChanges, onDirtyChange]);
 
   function requestOpenChange(nextOpen: boolean) {
     if (nextOpen) {
@@ -66,15 +73,13 @@ export const SystemPromptDialog = memo(function SystemPromptDialog({
 
   return (
     <>
-      <Dialog open={open} onOpenChange={requestOpenChange}>
+      <Dialog embedded={embedded} open={open} onOpenChange={requestOpenChange}>
         <DialogContent className="flex h-[min(1000px,calc(100dvh-2rem))] max-h-none flex-col gap-0 overflow-hidden p-0 sm:max-w-6xl">
-          <DialogHeader className="shrink-0 border-b px-5 py-4 pr-12">
-            <DialogTitle>System prompt</DialogTitle>
-            <DialogDescription>
-              Define the instruction sent before every chat message. Leave it
-              empty to send no system prompt.
-            </DialogDescription>
-          </DialogHeader>
+          {!embedded ? (
+            <DialogHeader className="shrink-0 border-b px-5 py-4 pr-12">
+              <DialogTitle>System prompt</DialogTitle>
+            </DialogHeader>
+          ) : null}
 
           <div className="flex min-h-0 flex-1 flex-col">
             <CodeEditor
@@ -85,7 +90,7 @@ export const SystemPromptDialog = memo(function SystemPromptDialog({
             />
           </div>
 
-          <DialogFooter className="shrink-0 border-t px-5 py-3">
+          <DialogFooter className="shrink-0 border-t px-4 py-2">
             <Button
               type="button"
               variant="secondary"
@@ -102,7 +107,7 @@ export const SystemPromptDialog = memo(function SystemPromptDialog({
                   await saveSystemPrompt(draftValue);
                   onValueChange(draftValue);
                   showSuccess("System prompt saved.");
-                  onOpenChange(false);
+                  if (!embedded) onOpenChange(false);
                 } catch (error) {
                   console.error("Failed to save system prompt:", error);
                   showError(

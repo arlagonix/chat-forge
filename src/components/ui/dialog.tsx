@@ -6,10 +6,44 @@ import * as React from "react";
 
 import { cn } from "@/lib/utils";
 
-function Dialog({
-  ...props
-}: React.ComponentProps<typeof DialogPrimitive.Root>) {
-  return <DialogPrimitive.Root data-slot="dialog" {...props} />;
+const DialogPresentationContext = React.createContext<"dialog" | "embedded">(
+  "dialog",
+);
+
+type DialogProps = React.ComponentProps<typeof DialogPrimitive.Root> & {
+  embedded?: boolean;
+};
+
+function isWindowControlsInteraction(event: {
+  target: EventTarget | null;
+  detail?: unknown;
+}) {
+  const directTarget = event.target as HTMLElement | null;
+  if (directTarget?.closest?.("[data-window-controls]")) return true;
+
+  const detail = event.detail as
+    | { originalEvent?: { target?: EventTarget | null } }
+    | undefined;
+  const originalTarget = detail?.originalEvent?.target as HTMLElement | null;
+  return Boolean(originalTarget?.closest?.("[data-window-controls]"));
+}
+
+function Dialog({ embedded = false, children, ...props }: DialogProps) {
+  if (embedded) {
+    return (
+      <DialogPresentationContext.Provider value="embedded">
+        {children}
+      </DialogPresentationContext.Provider>
+    );
+  }
+
+  return (
+    <DialogPresentationContext.Provider value="dialog">
+      <DialogPrimitive.Root data-slot="dialog" {...props}>
+        {children}
+      </DialogPrimitive.Root>
+    </DialogPresentationContext.Provider>
+  );
 }
 
 function DialogTrigger({
@@ -27,6 +61,8 @@ function DialogPortal({
 function DialogClose({
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Close>) {
+  const presentation = React.useContext(DialogPresentationContext);
+  if (presentation === "embedded") return null;
   return <DialogPrimitive.Close data-slot="dialog-close" {...props} />;
 }
 
@@ -58,6 +94,22 @@ function DialogContent({
   overlayStyle?: React.CSSProperties;
   overlayClassName?: string;
 }) {
+  const presentation = React.useContext(DialogPresentationContext);
+
+  if (presentation === "embedded") {
+    return (
+      <div
+        data-slot="dialog-content"
+        className={cn(
+          className,
+          "relative inset-auto top-auto left-auto z-auto h-full max-h-none min-h-0 w-full max-w-none translate-x-0 translate-y-0 overflow-hidden rounded-none border-0 bg-background p-0 shadow-none sm:max-w-none",
+        )}
+      >
+        {children}
+      </div>
+    );
+  }
+
   return (
     <DialogPortal data-slot="dialog-portal">
       <DialogOverlay className={overlayClassName} style={overlayStyle} />
@@ -68,6 +120,18 @@ function DialogContent({
           className,
         )}
         {...props}
+        onPointerDownOutside={(event) => {
+          if (isWindowControlsInteraction(event)) {
+            event.preventDefault();
+          }
+          props.onPointerDownOutside?.(event);
+        }}
+        onInteractOutside={(event) => {
+          if (isWindowControlsInteraction(event)) {
+            event.preventDefault();
+          }
+          props.onInteractOutside?.(event);
+        }}
       >
         {children}
         {showCloseButton && (
@@ -108,27 +172,59 @@ function DialogFooter({ className, ...props }: React.ComponentProps<"div">) {
 
 function DialogTitle({
   className,
+  children,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Title>) {
+  const presentation = React.useContext(DialogPresentationContext);
+
+  if (presentation === "embedded") {
+    return (
+      <h1
+        data-slot="dialog-title"
+        className={cn("text-lg leading-none font-semibold", className)}
+      >
+        {children}
+      </h1>
+    );
+  }
+
   return (
     <DialogPrimitive.Title
       data-slot="dialog-title"
       className={cn("text-lg leading-none font-semibold", className)}
       {...props}
-    />
+    >
+      {children}
+    </DialogPrimitive.Title>
   );
 }
 
 function DialogDescription({
   className,
+  children,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Description>) {
+  const presentation = React.useContext(DialogPresentationContext);
+
+  if (presentation === "embedded") {
+    return (
+      <p
+        data-slot="dialog-description"
+        className={cn("text-muted-foreground text-base", className)}
+      >
+        {children}
+      </p>
+    );
+  }
+
   return (
     <DialogPrimitive.Description
       data-slot="dialog-description"
       className={cn("text-muted-foreground text-base", className)}
       {...props}
-    />
+    >
+      {children}
+    </DialogPrimitive.Description>
   );
 }
 

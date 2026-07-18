@@ -144,6 +144,8 @@ type AgentsDialogProps = {
   providers: ProviderConfig[];
   showSuccess: (message: string, description?: string) => void;
   showError: (message: string, description?: string) => void;
+  embedded?: boolean;
+  onDirtyChange?: (dirty: boolean) => void;
 };
 
 const DEFAULT_AGENT_MAX_NESTING_DEPTH = 2;
@@ -539,6 +541,8 @@ export const AgentsDialog = memo(function AgentsDialog({
   providers,
   showSuccess,
   showError,
+  embedded = false,
+  onDirtyChange,
 }: AgentsDialogProps) {
   const [agentLoadErrors, setAgentLoadErrors] = useState<
     Array<{ source: string; message: string }>
@@ -680,6 +684,10 @@ export const AgentsDialog = memo(function AgentsDialog({
     }
     return !areAgentDraftsEqual(agentDraft, savedAgentDraft);
   }, [savedAgentDraft, agentDraft]);
+
+  useEffect(() => {
+    onDirtyChange?.(hasAgentDraftChanges);
+  }, [hasAgentDraftChanges, onDirtyChange]);
 
   async function saveCurrentAgentDraft() {
     if (!agentDraft) return;
@@ -1746,7 +1754,7 @@ export const AgentsDialog = memo(function AgentsDialog({
 
   return (
     <>
-      <Dialog open={open} onOpenChange={requestClose}>
+      <Dialog embedded={embedded} open={open} onOpenChange={requestClose}>
         <DialogContent
           className="flex h-[min(1000px,calc(100dvh-2rem))] max-h-none flex-col gap-0 overflow-hidden p-0 outline-none focus:outline-none focus-visible:ring-0 sm:max-w-6xl"
           onOpenAutoFocus={(event) => event.preventDefault()}
@@ -1757,9 +1765,11 @@ export const AgentsDialog = memo(function AgentsDialog({
             }
           }}
         >
-          <DialogHeader className="shrink-0 border-b p-4 pr-12">
-            <DialogTitle>Agents</DialogTitle>
-          </DialogHeader>
+          {!embedded ? (
+            <DialogHeader className="shrink-0 border-b p-4 pr-12">
+              <DialogTitle>Agents</DialogTitle>
+            </DialogHeader>
+          ) : null}
 
           <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden md:grid-cols-[400px_minmax(0,1fr)]">
             <aside className="flex min-h-0 flex-col border-b bg-card/70 md:border-b-0 md:border-r">

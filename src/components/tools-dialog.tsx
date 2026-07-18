@@ -23,6 +23,7 @@ import type { Dispatch, SetStateAction } from "react";
 import { memo, useEffect, useMemo, useState } from "react";
 
 import { MarkdownMessage } from "@/components/ai-chat/markdown-message";
+import { CodeEditor } from "@/components/code-editor";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -646,6 +647,8 @@ type ToolsDialogProps = {
   callAgentEnabled: boolean;
   showSuccess: (message: string, description?: string) => void;
   showError: (message: string, description?: string) => void;
+  embedded?: boolean;
+  onDirtyChange?: (dirty: boolean) => void;
 };
 
 function getToolsBridge() {
@@ -1127,6 +1130,8 @@ export const ToolsDialog = memo(function ToolsDialog({
   callAgentEnabled,
   showSuccess,
   showError,
+  embedded = false,
+  onDirtyChange,
 }: ToolsDialogProps) {
   const [toolLoadErrors, setToolLoadErrors] = useState<
     Array<{ source: string; message: string }>
@@ -1454,6 +1459,10 @@ export const ToolsDialog = memo(function ToolsDialog({
   );
   const hasUnsavedToolChanges =
     hasToolDraftChanges || hasBuiltInToolDraftChanges;
+  useEffect(() => {
+    onDirtyChange?.(hasUnsavedToolChanges);
+  }, [hasUnsavedToolChanges, onDirtyChange]);
+
   const isCreatingTool = Boolean(toolDraft && !selectedTool);
 
   async function saveCurrentToolDraft() {
@@ -1885,7 +1894,7 @@ export const ToolsDialog = memo(function ToolsDialog({
 
   return (
     <>
-      <Dialog open={open} onOpenChange={requestClose}>
+      <Dialog embedded={embedded} open={open} onOpenChange={requestClose}>
         <DialogContent
           className="flex h-[min(1000px,calc(100dvh-2rem))] max-h-none flex-col gap-0 overflow-hidden p-0 outline-none focus:outline-none focus-visible:ring-0 sm:max-w-6xl"
           onOpenAutoFocus={(event) => event.preventDefault()}
@@ -1896,9 +1905,11 @@ export const ToolsDialog = memo(function ToolsDialog({
             }
           }}
         >
-          <DialogHeader className="shrink-0 border-b p-4 pr-12">
-            <DialogTitle>Tools</DialogTitle>
-          </DialogHeader>
+          {!embedded ? (
+            <DialogHeader className="shrink-0 border-b p-4 pr-12">
+              <DialogTitle>Tools</DialogTitle>
+            </DialogHeader>
+          ) : null}
 
           <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden md:grid-cols-[400px_minmax(0,1fr)]">
             <aside className="flex min-h-0 flex-col border-b bg-card/70 md:border-b-0 md:border-r">
@@ -2096,8 +2107,8 @@ export const ToolsDialog = memo(function ToolsDialog({
           <main className="min-h-0 flex flex-col overflow-hidden">
             {isAskUserToolSelected ? (
               <>
-                <div className="z-20 flex min-h-[49px] shrink-0 items-center border-b bg-background px-4 py-[10px]">
-                  <div className="flex w-full items-center justify-between gap-4">
+                <div className="z-20 flex min-h-[50px] shrink-0 items-center border-b bg-background px-4 py-[10px]">
+                  <div className="flex min-h-[32px] w-full items-center justify-between gap-4">
                     <Label className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
                       Built-in tool
                     </Label>
@@ -2164,8 +2175,8 @@ export const ToolsDialog = memo(function ToolsDialog({
               </>
             ) : isTaskToolsSelected ? (
               <>
-                <div className="z-20 flex min-h-[49px] shrink-0 items-center border-b bg-background px-4 py-[10px]">
-                  <div className="flex w-full items-center justify-between gap-4">
+                <div className="z-20 flex min-h-[50px] shrink-0 items-center border-b bg-background px-4 py-[10px]">
+                  <div className="flex min-h-[32px] w-full items-center justify-between gap-4">
                     <Label className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
                       Built-in tool
                     </Label>
@@ -2235,8 +2246,8 @@ export const ToolsDialog = memo(function ToolsDialog({
               </>
             ) : isLoadSkillToolSelected ? (
               <>
-                <div className="z-20 flex min-h-[49px] shrink-0 items-center border-b bg-background px-4 py-[10px]">
-                  <div className="flex w-full items-center justify-between gap-4">
+                <div className="z-20 flex min-h-[50px] shrink-0 items-center border-b bg-background px-4 py-[10px]">
+                  <div className="flex min-h-[32px] w-full items-center justify-between gap-4">
                     <Label className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
                       Built-in tool
                     </Label>
@@ -2297,8 +2308,8 @@ export const ToolsDialog = memo(function ToolsDialog({
               </>
             ) : isCallAgentToolSelected ? (
               <>
-                <div className="z-20 flex min-h-[49px] shrink-0 items-center border-b bg-background px-4 py-[10px]">
-                  <div className="flex w-full items-center justify-between gap-4">
+                <div className="z-20 flex min-h-[50px] shrink-0 items-center border-b bg-background px-4 py-[10px]">
+                  <div className="flex min-h-[32px] w-full items-center justify-between gap-4">
                     <Label className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
                       Built-in tool
                     </Label>
@@ -2360,8 +2371,8 @@ export const ToolsDialog = memo(function ToolsDialog({
               </>
             ) : isWebFetchToolSelected ? (
               <>
-                <div className="z-20 flex min-h-[49px] shrink-0 items-center border-b bg-background px-4 py-[10px]">
-                  <div className="flex w-full items-center justify-between gap-4">
+                <div className="z-20 flex min-h-[50px] shrink-0 items-center border-b bg-background px-4 py-[10px]">
+                  <div className="flex min-h-[32px] w-full items-center justify-between gap-4">
                     <Label className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
                       Built-in tool
                     </Label>
@@ -2425,8 +2436,8 @@ export const ToolsDialog = memo(function ToolsDialog({
               </>
             ) : selectedFileToolInfo ? (
               <>
-                <div className="z-20 flex min-h-[49px] shrink-0 items-center border-b bg-background px-4 py-[10px]">
-                  <div className="flex w-full items-center justify-between gap-4">
+                <div className="z-20 flex min-h-[50px] shrink-0 items-center border-b bg-background px-4 py-[10px]">
+                  <div className="flex min-h-[32px] w-full items-center justify-between gap-4">
                     <Label className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
                       Built-in tool
                     </Label>
@@ -2492,7 +2503,7 @@ export const ToolsDialog = memo(function ToolsDialog({
               </>
             ) : toolDraft ? (
               <>
-                <div className="z-20 flex min-h-[49px] shrink-0 items-center border-b bg-background px-4 py-[10px]">
+                <div className="z-20 flex min-h-[50px] shrink-0 items-center border-b bg-background px-4 py-[10px]">
                   <div className="flex w-full items-center justify-between gap-4">
                     <Label className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
                       {selectedTool ? "Edit tool" : "New tool"}
@@ -2582,19 +2593,14 @@ export const ToolsDialog = memo(function ToolsDialog({
                     </div>
 
                     <div className="grid gap-2">
-                      <Label htmlFor="tool-schema">
-                        Parameters JSON schema
-                      </Label>
-                      <Textarea
-                        id="tool-schema"
+                      <Label>Parameters JSON schema</Label>
+                      <CodeEditor
                         value={toolDraft.parametersText}
-                        onChange={(event) =>
-                          updateToolDraft({
-                            parametersText: event.target.value,
-                          })
+                        onChange={(value) =>
+                          updateToolDraft({ parametersText: value })
                         }
-                        className="min-h-64 resize-y font-mono text-sm"
-                        spellCheck={false}
+                        className="h-72 max-h-[45dvh]"
+                        ariaLabel="Tool parameters JSON schema"
                       />
                     </div>
 

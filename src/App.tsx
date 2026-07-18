@@ -16,6 +16,7 @@ import {
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
+  type ReactNode,
 } from "react";
 
 import { AgentsDialog } from "@/components/agents-dialog";
@@ -53,9 +54,15 @@ import { McpDialog } from "@/components/mcp-dialog";
 import { ModesDialog } from "@/components/modes-dialog";
 import { ProviderSettingsDialog } from "@/components/provider-settings-dialog";
 import { SettingsDialog } from "@/components/settings-dialog";
+import {
+  SETTINGS_SECTION_LABELS,
+  SettingsSidebar,
+  type SettingsSection,
+} from "@/components/settings/settings-sidebar";
 import { SkillsDialog } from "@/components/skills-dialog";
 import { ToolsDialog } from "@/components/tools-dialog";
 import { Button } from "@/components/ui/button";
+import { UnsavedChangesDialog } from "@/components/unsaved-changes-dialog";
 import { WindowControls } from "@/components/window-controls";
 import { useChatActions } from "@/hooks/use-chat-actions";
 import { useChatAutoscroll } from "@/hooks/use-chat-autoscroll";
@@ -642,14 +649,41 @@ export default function Home() {
   const [chatSkillSearchValue, setChatSkillSearchValue] = useState("");
   const [isChatAgentPickerOpen, setIsChatAgentPickerOpen] = useState(false);
   const [chatAgentSearchValue, setChatAgentSearchValue] = useState("");
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [providerSettingsOpen, setProviderSettingsOpen] = useState(false);
-  const [toolsOpen, setToolsOpen] = useState(false);
-  const [mcpOpen, setMcpOpen] = useState(false);
-  const [modesOpen, setModesOpen] = useState(false);
-  const [skillsOpen, setSkillsOpen] = useState(false);
-  const [agentsOpen, setAgentsOpen] = useState(false);
-  const [systemPromptOpen, setSystemPromptOpen] = useState(false);
+  const [appView, setAppView] = useState<"chat" | "settings">("chat");
+  const [settingsSection, setSettingsSection] =
+    useState<SettingsSection>("general");
+  const [isSettingsSidebarCollapsed, setIsSettingsSidebarCollapsed] =
+    useState(false);
+  const [settingsPageDirty, setSettingsPageDirty] = useState(false);
+  const [settingsDiscardDialogOpen, setSettingsDiscardDialogOpen] =
+    useState(false);
+  const [pendingSettingsNavigation, setPendingSettingsNavigation] = useState<
+    SettingsSection | "chat" | "new-chat" | "close" | null
+  >(null);
+
+  const openSettingsSection = useCallback((section: SettingsSection) => {
+    setSettingsSection(section);
+    setSettingsPageDirty(false);
+    setIsSettingsSidebarCollapsed(false);
+    setAppView("settings");
+  }, []);
+
+  const setSettingsOpen = useCallback(
+    (nextValue: boolean | ((current: boolean) => boolean)) => {
+      const currentOpen = appView === "settings";
+      const nextOpen =
+        typeof nextValue === "function"
+          ? nextValue(currentOpen)
+          : nextValue;
+      if (nextOpen) {
+        setIsSettingsSidebarCollapsed(false);
+        setAppView("settings");
+      } else {
+        setAppView("chat");
+      }
+    },
+    [appView],
+  );
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
     if (typeof window === "undefined") return false;
 
@@ -732,7 +766,7 @@ export default function Home() {
         !event.altKey &&
         event.code === "KeyF";
 
-      if (!isFindShortcut) return;
+      if (!isFindShortcut || appView !== "chat") return;
 
       event.preventDefault();
 
@@ -753,7 +787,7 @@ export default function Home() {
     return () => {
       document.removeEventListener("keydown", handleFindShortcut);
     };
-  }, []);
+  }, [appView]);
 
   useEffect(() => {
     if (!findBarOpen) {
@@ -1591,11 +1625,24 @@ export default function Home() {
       if (event.code === "KeyN") {
         event.preventDefault();
         event.stopPropagation();
+
+        if (appView === "settings") {
+          if (settingsPageDirty) {
+            setPendingSettingsNavigation("new-chat");
+            setSettingsDiscardDialogOpen(true);
+          } else {
+            createNewChatWithEmptyDraftState();
+            setAppView("chat");
+            setIsSettingsSidebarCollapsed(false);
+          }
+          return;
+        }
+
         createNewChatWithEmptyDraftState();
         return;
       }
 
-      if (event.code === "Delete") {
+      if (event.code === "Delete" && appView === "chat") {
         event.preventDefault();
         event.stopPropagation();
         if (activeChatId) void clearChat(activeChatId);
@@ -1611,7 +1658,7 @@ export default function Home() {
         capture: true,
       });
     };
-  }, [activeChat, isSending]);
+  }, [activeChat, appView, isSending, settingsPageDirty]);
 
   useEffect(() => {
     if (!didHydrateRef.current) return;
@@ -3752,13 +3799,68 @@ export default function Home() {
   const activeComposerEditState =
     composerEditState?.chatId === activeChat?.id ? composerEditState : null;
 
+  const commitSettingsNavigation = useCallback(
+    (target: SettingsSection | "chat" | "new-chat" | "close") => {
+      setSettingsPageDirty(false);
+      setPendingSettingsNavigation(null);
+      setSettingsDiscardDialogOpen(false);
+
+      if (target === "close") {
+        void window.moltenForgeDesktop?.closeWindow();
+        return;
+      }
+
+      if (target === "chat" || target === "new-chat") {
+        if (target === "new-chat") createNewChatWithEmptyDraftState();
+        setAppView("chat");
+        setIsSettingsSidebarCollapsed(false);
+        return;
+      }
+
+      setSettingsSection(target);
+    },
+    [createNewChatWithEmptyDraftState],
+  );
+
+  const requestSettingsNavigation = useCallback(
+    (target: SettingsSection | "chat" | "new-chat" | "close") => {
+      if (
+        target !== "chat" &&
+        target !== "new-chat" &&
+        target !== "close" &&
+        target === settingsSection
+      ) {
+        return;
+      }
+
+      if (settingsPageDirty) {
+        setPendingSettingsNavigation(target);
+        setSettingsDiscardDialogOpen(true);
+        return;
+      }
+
+      commitSettingsNavigation(target);
+    },
+    [commitSettingsNavigation, settingsPageDirty, settingsSection],
+  );
+
+  const requestWindowClose = useCallback(() => {
+    if (appView === "settings" && settingsPageDirty) {
+      requestSettingsNavigation("close");
+      return;
+    }
+    void window.moltenForgeDesktop?.closeWindow();
+  }, [appView, requestSettingsNavigation, settingsPageDirty]);
+
   if (!mounted) {
     return (
       <main className="relative flex h-dvh items-center justify-center bg-background text-foreground">
-        <div className="absolute inset-x-0 top-0 flex h-10 items-center">
+        <div className="absolute inset-x-0 top-0 flex h-10 items-center pr-[100px]">
           <div className="app-region-drag min-w-0 flex-1" aria-hidden="true" />
-          <WindowControls />
         </div>
+        <WindowControls
+          className="fixed right-0 top-1 z-[100] bg-background/85 backdrop-blur-sm"
+        />
         <div className="flex flex-col items-center gap-4 text-center">
           <div
             className="molten-forge-loading-text text-muted-foreground"
@@ -3769,8 +3871,273 @@ export default function Home() {
     );
   }
 
+  if (appView === "settings") {
+    let settingsPage: ReactNode;
+
+    switch (settingsSection) {
+      case "providers":
+        settingsPage = (
+          <ProviderSettingsDialog
+            embedded
+            open
+            onOpenChange={() => {}}
+            onDirtyChange={setSettingsPageDirty}
+            providers={providers}
+            activeProvider={activeProvider}
+            onProvidersStateChange={handleProvidersStateChange}
+            onProviderSettingChange={handleProviderSettingChange}
+            onAddProvider={handleAddProvider}
+            onDuplicateProvider={handleDuplicateProvider}
+            onDeleteProvider={handleDeleteProvider}
+            onSave={handleSaveSettingsChanges}
+            showSuccess={stableShowSuccess}
+          />
+        );
+        break;
+      case "modes":
+        settingsPage = (
+          <ModesDialog
+            embedded
+            open
+            onOpenChange={() => {}}
+            onDirtyChange={setSettingsPageDirty}
+            modesState={modesState}
+            onModesStateChange={setModesState}
+            availableTools={availableTools}
+            availableSkills={availableSkills}
+            availableAgents={availableAgents}
+            toolsSettings={toolsSettings}
+            skillsSettings={skillsSettings}
+            agentsSettings={agentsSettings}
+            showSuccess={stableShowSuccess}
+            showError={stableShowError}
+          />
+        );
+        break;
+      case "system-prompt":
+        settingsPage = (
+          <SystemPromptDialog
+            embedded
+            open
+            value={systemPrompt}
+            onOpenChange={() => {}}
+            onDirtyChange={setSettingsPageDirty}
+            onValueChange={setSystemPrompt}
+            showSuccess={stableShowSuccess}
+            showError={stableShowError}
+          />
+        );
+        break;
+      case "tools":
+        settingsPage = (
+          <ToolsDialog
+            embedded
+            open
+            onOpenChange={() => {}}
+            onDirtyChange={setSettingsPageDirty}
+            toolsSettings={toolsSettings}
+            onToolsSettingsChange={setToolsSettings}
+            availableTools={availableTools}
+            loadedTools={loadedTools}
+            onLoadedToolsChange={setLoadedTools}
+            callAgentEnabled={availableAgents.some(
+              (agent) => effectiveAgentPermissions.get(agent.name) !== "deny",
+            )}
+            showSuccess={stableShowSuccess}
+            showError={stableShowError}
+          />
+        );
+        break;
+      case "skills":
+        settingsPage = (
+          <SkillsDialog
+            embedded
+            open
+            onOpenChange={() => {}}
+            onDirtyChange={setSettingsPageDirty}
+            skillsSettings={skillsSettings}
+            onSkillsSettingsChange={setSkillsSettings}
+            loadedSkills={loadedSkills}
+            onLoadedSkillsChange={setLoadedSkills}
+            availableTools={availableTools}
+            workspaceRoots={[]}
+            showSuccess={stableShowSuccess}
+            showError={stableShowError}
+          />
+        );
+        break;
+      case "agents":
+        settingsPage = (
+          <AgentsDialog
+            embedded
+            open
+            onOpenChange={() => {}}
+            onDirtyChange={setSettingsPageDirty}
+            agentsSettings={agentsSettings}
+            onAgentsSettingsChange={setAgentsSettings}
+            loadedAgents={loadedAgents}
+            onLoadedAgentsChange={setLoadedAgents}
+            availableTools={availableTools}
+            availableSkills={availableSkills}
+            toolsSettings={toolsSettings}
+            skillsSettings={skillsSettings}
+            providers={providers}
+            showSuccess={stableShowSuccess}
+            showError={stableShowError}
+          />
+        );
+        break;
+      case "mcp":
+        settingsPage = (
+          <McpDialog
+            embedded
+            open
+            onOpenChange={() => {}}
+            onDirtyChange={setSettingsPageDirty}
+            mcpSettings={mcpSettings}
+            onMcpSettingsChange={handleMcpSettingsChange}
+            toolsSettings={toolsSettings}
+            onToolsSettingsChange={setToolsSettings}
+            showSuccess={stableShowSuccess}
+            showError={stableShowError}
+          />
+        );
+        break;
+      case "general":
+      default:
+        settingsPage = (
+          <div className="mx-auto h-full w-full max-w-4xl">
+            <SettingsDialog
+              embedded
+              open
+              onOpenChange={() => {}}
+              chatTitleGenerationMode={appSettings.chatTitleGenerationMode}
+              titleGenerationModelValue={resolvedTitleGenerationModelValue}
+              titleGenerationDefaultModelOption={titleGenerationDefaultModelOption}
+              titleGenerationModelGroups={titleGenerationModelGroups}
+              appFontFamily={appSettings.fontFamily}
+              thinkingAutoCollapse={appSettings.thinkingAutoCollapse ?? true}
+              renderMarkdownWhileStreaming={
+                appSettings.renderMarkdownWhileStreaming ?? true
+              }
+              chatWidth={appSettings.chatWidth ?? "896"}
+              theme={theme}
+              resolvedTheme={resolvedTheme}
+              onToggleAiTitleGeneration={(checked) =>
+                setAppSettings((currentSettings) => ({
+                  ...currentSettings,
+                  chatTitleGenerationMode: checked ? "ai" : "local",
+                }))
+              }
+              onTitleGenerationModelChange={(value) =>
+                setAppSettings((currentSettings) => ({
+                  ...currentSettings,
+                  titleGenerationModel: decodeTitleGenerationModelValue(value),
+                }))
+              }
+              onSetTheme={setTheme}
+              onSetAppFontFamily={(fontFamily) =>
+                setAppSettings((currentSettings) => ({
+                  ...currentSettings,
+                  fontFamily,
+                }))
+              }
+              onThinkingAutoCollapseChange={(checked) =>
+                setAppSettings((currentSettings) => ({
+                  ...currentSettings,
+                  thinkingAutoCollapse: checked,
+                }))
+              }
+              onRenderMarkdownWhileStreamingChange={(checked) =>
+                setAppSettings((currentSettings) => ({
+                  ...currentSettings,
+                  renderMarkdownWhileStreaming: checked,
+                }))
+              }
+              onChatWidthChange={(nextChatWidth) =>
+                setAppSettings((currentSettings) => ({
+                  ...currentSettings,
+                  chatWidth: nextChatWidth,
+                }))
+              }
+              onOpenProviders={() => openSettingsSection("providers")}
+              onOpenTools={() => openSettingsSection("tools")}
+              onOpenSkills={() => openSettingsSection("skills")}
+              onOpenAgents={() => openSettingsSection("agents")}
+              onOpenModes={() => openSettingsSection("modes")}
+              onOpenMcp={() => openSettingsSection("mcp")}
+              onOpenSystemPrompt={() => openSettingsSection("system-prompt")}
+            />
+          </div>
+        );
+        break;
+    }
+
+    return (
+      <main className="relative flex h-dvh min-h-0 overflow-hidden bg-background text-foreground">
+        <SettingsSidebar
+          appName={APP_NAME}
+          appVersionLabel={APP_VERSION_LABEL}
+          activeSection={settingsSection}
+          collapsed={isSettingsSidebarCollapsed}
+          onCollapsedChange={setIsSettingsSidebarCollapsed}
+          width={leftSidebarWidth}
+          onResizePointerDown={handleLeftSidebarResizePointerDown}
+          onSectionChange={requestSettingsNavigation}
+          onBackToChat={() => requestSettingsNavigation("chat")}
+          onCreateNewChat={() => requestSettingsNavigation("new-chat")}
+          onCloseWindow={requestWindowClose}
+        />
+
+        <section className="relative flex min-h-0 min-w-0 flex-1 flex-col bg-background">
+          <div className="app-region-drag flex h-[41px] shrink-0 items-center border-b px-2 pr-[100px]">
+            {isSettingsSidebarCollapsed ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                className="app-region-no-drag shrink-0"
+                onClick={() => setIsSettingsSidebarCollapsed(false)}
+                title="Show sidebar"
+                aria-label="Show sidebar"
+              >
+                <Menu className="size-4" />
+              </Button>
+            ) : null}
+            <span className="ml-2 text-base font-medium text-foreground">
+              {SETTINGS_SECTION_LABELS[settingsSection as SettingsSection]}
+            </span>
+          </div>
+          <div className="min-h-0 flex-1 overflow-hidden">{settingsPage}</div>
+        </section>
+
+        <WindowControls
+          className="fixed right-0 top-1 z-[100] bg-background/85 backdrop-blur-sm"
+          onCloseRequest={requestWindowClose}
+        />
+
+        <UnsavedChangesDialog
+          open={settingsDiscardDialogOpen}
+          onCancel={() => {
+            setPendingSettingsNavigation(null);
+            setSettingsDiscardDialogOpen(false);
+          }}
+          onDiscard={() => {
+            if (pendingSettingsNavigation) {
+              commitSettingsNavigation(pendingSettingsNavigation);
+            }
+          }}
+        />
+      </main>
+    );
+  }
+
   return (
     <main className="relative flex h-dvh min-h-0 overflow-hidden bg-background text-foreground">
+      <WindowControls
+        className="fixed right-0 top-1 z-[100] bg-background/85 backdrop-blur-sm"
+        onCloseRequest={requestWindowClose}
+      />
       <ChatSidebar
         appName={APP_NAME}
         appVersionLabel={APP_VERSION_LABEL}
@@ -3960,7 +4327,9 @@ export default function Home() {
               ) : null}
             </div>
           </div>
-          {!isRightSidebarOpen ? <WindowControls /> : null}
+          {!isRightSidebarOpen ? (
+            <div className="h-8 w-[100px] shrink-0" aria-hidden />
+          ) : null}
         </div>
 
         {findBarOpen && (
@@ -4023,7 +4392,7 @@ export default function Home() {
                 />
               ) : !hasMessages ? (
                 <EmptyChatState
-                  onOpenProviders={() => setProviderSettingsOpen(true)}
+                  onOpenProviders={() => openSettingsSection("providers")}
                 />
               ) : (
                 <ChatMessageList
@@ -4236,7 +4605,7 @@ export default function Home() {
           </div>
           {selectedToolSidebarDetails ? (
             <ToolExecutionDetailsSidebar
-              windowControls={<WindowControls />}
+              windowControls={<div className="h-8 w-[100px] shrink-0" aria-hidden />}
               details={selectedToolSidebarDetails}
               loadedTools={executableTools}
               width={rightSidebarWidth}
@@ -4249,14 +4618,14 @@ export default function Home() {
             />
           ) : selectedGenerationInfoVariant ? (
             <GenerationInfoSidebar
-              windowControls={<WindowControls />}
+              windowControls={<div className="h-8 w-[100px] shrink-0" aria-hidden />}
               variant={selectedGenerationInfoVariant}
               width={rightSidebarWidth}
               onClose={() => setSelectedGenerationInfoVariant(undefined)}
             />
           ) : selectedAgentSidebarCall ? (
             <AgentTranscriptSidebar
-              windowControls={<WindowControls />}
+              windowControls={<div className="h-8 w-[100px] shrink-0" aria-hidden />}
               agentCall={selectedAgentSidebarCall}
               width={rightSidebarWidth}
               renderToolExecutionBlock={stableRenderToolExecutionBlock}
@@ -4293,7 +4662,7 @@ export default function Home() {
             />
           ) : isChatCapabilitiesSidebarOpen ? (
             <ChatCapabilitiesSidebar
-              windowControls={<WindowControls />}
+              windowControls={<div className="h-8 w-[100px] shrink-0" aria-hidden />}
               width={rightSidebarWidth}
               tools={availableTools}
               toolPermissions={effectiveToolPermissions}
@@ -4313,7 +4682,7 @@ export default function Home() {
             />
           ) : (
             <ContextUsageSidebar
-              windowControls={<WindowControls />}
+              windowControls={<div className="h-8 w-[100px] shrink-0" aria-hidden />}
               usage={isContextUsageSidebarOpen ? headerContextUsage : undefined}
               width={rightSidebarWidth}
               onClose={() => setIsContextUsageSidebarOpen(false)}
@@ -4322,159 +4691,6 @@ export default function Home() {
         </div>
       ) : null}
 
-      <SettingsDialog
-        open={settingsOpen}
-        onOpenChange={setSettingsOpen}
-        chatTitleGenerationMode={appSettings.chatTitleGenerationMode}
-        titleGenerationModelValue={resolvedTitleGenerationModelValue}
-        titleGenerationDefaultModelOption={titleGenerationDefaultModelOption}
-        titleGenerationModelGroups={titleGenerationModelGroups}
-        appFontFamily={appSettings.fontFamily}
-        thinkingAutoCollapse={appSettings.thinkingAutoCollapse ?? true}
-        renderMarkdownWhileStreaming={
-          appSettings.renderMarkdownWhileStreaming ?? true
-        }
-        chatWidth={appSettings.chatWidth ?? "896"}
-        theme={theme}
-        resolvedTheme={resolvedTheme}
-        onToggleAiTitleGeneration={(checked) =>
-          setAppSettings((currentSettings) => ({
-            ...currentSettings,
-            chatTitleGenerationMode: checked ? "ai" : "local",
-          }))
-        }
-        onTitleGenerationModelChange={(value) =>
-          setAppSettings((currentSettings) => ({
-            ...currentSettings,
-            titleGenerationModel: decodeTitleGenerationModelValue(value),
-          }))
-        }
-        onSetTheme={setTheme}
-        onSetAppFontFamily={(fontFamily) =>
-          setAppSettings((currentSettings) => ({
-            ...currentSettings,
-            fontFamily,
-          }))
-        }
-        onThinkingAutoCollapseChange={(checked) =>
-          setAppSettings((currentSettings) => ({
-            ...currentSettings,
-            thinkingAutoCollapse: checked,
-          }))
-        }
-        onRenderMarkdownWhileStreamingChange={(checked) =>
-          setAppSettings((currentSettings) => ({
-            ...currentSettings,
-            renderMarkdownWhileStreaming: checked,
-          }))
-        }
-        onChatWidthChange={(chatWidth) =>
-          setAppSettings((currentSettings) => ({
-            ...currentSettings,
-            chatWidth,
-          }))
-        }
-        onOpenProviders={() => setProviderSettingsOpen(true)}
-        onOpenTools={() => setToolsOpen(true)}
-        onOpenSkills={() => setSkillsOpen(true)}
-        onOpenAgents={() => setAgentsOpen(true)}
-        onOpenModes={() => setModesOpen(true)}
-        onOpenMcp={() => setMcpOpen(true)}
-        onOpenSystemPrompt={() => setSystemPromptOpen(true)}
-      />
-
-      <ProviderSettingsDialog
-        open={providerSettingsOpen}
-        onOpenChange={setProviderSettingsOpen}
-        providers={providers}
-        activeProvider={activeProvider}
-        onProvidersStateChange={handleProvidersStateChange}
-        onProviderSettingChange={handleProviderSettingChange}
-        onAddProvider={handleAddProvider}
-        onDuplicateProvider={handleDuplicateProvider}
-        onDeleteProvider={handleDeleteProvider}
-        onSave={handleSaveSettingsChanges}
-        showSuccess={stableShowSuccess}
-      />
-
-      <SkillsDialog
-        open={skillsOpen}
-        onOpenChange={setSkillsOpen}
-        skillsSettings={skillsSettings}
-        onSkillsSettingsChange={setSkillsSettings}
-        loadedSkills={loadedSkills}
-        onLoadedSkillsChange={setLoadedSkills}
-        availableTools={availableTools}
-        workspaceRoots={[]}
-        showSuccess={stableShowSuccess}
-        showError={stableShowError}
-      />
-
-      <AgentsDialog
-        open={agentsOpen}
-        onOpenChange={setAgentsOpen}
-        agentsSettings={agentsSettings}
-        onAgentsSettingsChange={setAgentsSettings}
-        loadedAgents={loadedAgents}
-        onLoadedAgentsChange={setLoadedAgents}
-        availableTools={availableTools}
-        availableSkills={availableSkills}
-        toolsSettings={toolsSettings}
-        skillsSettings={skillsSettings}
-        providers={providers}
-        showSuccess={stableShowSuccess}
-        showError={stableShowError}
-      />
-
-      <ModesDialog
-        open={modesOpen}
-        onOpenChange={setModesOpen}
-        modesState={modesState}
-        onModesStateChange={setModesState}
-        availableTools={availableTools}
-        availableSkills={availableSkills}
-        availableAgents={availableAgents}
-        toolsSettings={toolsSettings}
-        skillsSettings={skillsSettings}
-        agentsSettings={agentsSettings}
-        showSuccess={stableShowSuccess}
-        showError={stableShowError}
-      />
-
-      <McpDialog
-        open={mcpOpen}
-        onOpenChange={setMcpOpen}
-        mcpSettings={mcpSettings}
-        onMcpSettingsChange={handleMcpSettingsChange}
-        toolsSettings={toolsSettings}
-        onToolsSettingsChange={setToolsSettings}
-        showSuccess={stableShowSuccess}
-        showError={stableShowError}
-      />
-
-      <ToolsDialog
-        open={toolsOpen}
-        onOpenChange={setToolsOpen}
-        toolsSettings={toolsSettings}
-        onToolsSettingsChange={setToolsSettings}
-        availableTools={availableTools}
-        loadedTools={loadedTools}
-        onLoadedToolsChange={setLoadedTools}
-        callAgentEnabled={availableAgents.some(
-          (agent) => effectiveAgentPermissions.get(agent.name) !== "deny",
-        )}
-        showSuccess={stableShowSuccess}
-        showError={stableShowError}
-      />
-
-      <SystemPromptDialog
-        open={systemPromptOpen}
-        value={systemPrompt}
-        onOpenChange={setSystemPromptOpen}
-        onValueChange={setSystemPrompt}
-        showSuccess={stableShowSuccess}
-        showError={stableShowError}
-      />
     </main>
   );
 }

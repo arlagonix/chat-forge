@@ -186,6 +186,8 @@ type McpDialogProps = {
   onToolsSettingsChange: Dispatch<SetStateAction<ToolsSettings>>;
   showSuccess: (message: string, description?: string) => void;
   showError: (message: string, description?: string) => void;
+  embedded?: boolean;
+  onDirtyChange?: (dirty: boolean) => void;
 };
 
 function sortTools(tools?: Record<string, McpToolConfig>) {
@@ -264,6 +266,8 @@ export const McpDialog = memo(function McpDialog({
   onToolsSettingsChange,
   showSuccess,
   showError,
+  embedded = false,
+  onDirtyChange,
 }: McpDialogProps) {
   const {
     activeServer,
@@ -303,6 +307,10 @@ export const McpDialog = memo(function McpDialog({
     showSuccess,
     showError,
   });
+  useEffect(() => {
+    onDirtyChange?.(hasChanges);
+  }, [hasChanges, onDirtyChange]);
+
 
   const [serverSearch, setServerSearch] = useState("");
   const [discoveredToolSearch, setDiscoveredToolSearch] = useState("");
@@ -442,7 +450,7 @@ export const McpDialog = memo(function McpDialog({
 
   return (
     <>
-      <Dialog open={open} onOpenChange={requestClose}>
+      <Dialog embedded={embedded} open={open} onOpenChange={requestClose}>
         <DialogContent
           className="flex h-[min(1000px,calc(100dvh-2rem))] max-h-none flex-col gap-0 overflow-hidden p-0 outline-none focus:outline-none focus-visible:ring-0 sm:max-w-6xl"
           onOpenAutoFocus={(event) => {
@@ -465,9 +473,11 @@ export const McpDialog = memo(function McpDialog({
             }
           }}
         >
-          <DialogHeader className="shrink-0 border-b p-4 pr-12">
-            <DialogTitle>MCP</DialogTitle>
-          </DialogHeader>
+          {!embedded ? (
+            <DialogHeader className="shrink-0 border-b p-4 pr-12">
+              <DialogTitle>MCP</DialogTitle>
+            </DialogHeader>
+          ) : null}
 
           <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden md:grid-cols-[400px_minmax(0,1fr)]">
             <aside className="flex min-h-0 flex-col border-b bg-card/70 md:border-b-0 md:border-r">

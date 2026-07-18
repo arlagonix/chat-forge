@@ -41,6 +41,7 @@ import { cn } from "@/lib/utils";
 
 type AppMenuProps = {
   onCreateNewChat: () => void;
+  onCloseWindow?: () => void;
   triggerClassName?: string;
 };
 
@@ -68,6 +69,7 @@ function shortcutLabel(platform: NodeJS.Platform | undefined, keys: string) {
 
 export function AppMenu({
   onCreateNewChat,
+  onCloseWindow,
   triggerClassName,
 }: AppMenuProps) {
   const desktop = window.moltenForgeDesktop;
@@ -134,7 +136,15 @@ export function AppMenu({
               </DropdownMenuShortcut>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => void desktop?.closeWindow()}>
+            <DropdownMenuItem
+              onClick={() => {
+                if (onCloseWindow) {
+                  onCloseWindow();
+                  return;
+                }
+                void desktop?.closeWindow();
+              }}
+            >
               <X className="size-4" />
               Close window
               <DropdownMenuShortcut>
@@ -302,7 +312,15 @@ export function AppMenu({
               {windowState.maximized ? "Restore" : "Maximize"}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => void desktop?.closeWindow()}>
+            <DropdownMenuItem
+              onClick={() => {
+                if (onCloseWindow) {
+                  onCloseWindow();
+                  return;
+                }
+                void desktop?.closeWindow();
+              }}
+            >
               <X className="size-4" />
               Close
             </DropdownMenuItem>

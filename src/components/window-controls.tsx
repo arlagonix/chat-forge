@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 
+import { cn } from "@/lib/utils";
+
 const controlClassName =
   "window-control-button app-region-no-drag inline-flex h-8 w-8 items-center justify-center text-muted-foreground";
 
@@ -57,7 +59,13 @@ type WindowState = {
   fullscreen: boolean;
 };
 
-export function WindowControls() {
+export function WindowControls({
+  className,
+  onCloseRequest,
+}: {
+  className?: string;
+  onCloseRequest?: () => void;
+} = {}) {
   const desktop = window.moltenForgeDesktop;
   const [windowState, setWindowState] = useState<WindowState>({
     maximized: false,
@@ -91,7 +99,11 @@ export function WindowControls() {
 
   return (
     <div
-      className="app-region-no-drag flex h-8 shrink-0 items-center pr-1"
+      data-window-controls
+      className={cn(
+        "app-region-no-drag pointer-events-auto flex h-8 shrink-0 items-center pr-1",
+        className,
+      )}
       aria-label="Window controls"
     >
       <button
@@ -120,7 +132,13 @@ export function WindowControls() {
       <button
         type="button"
         className={`${controlClassName} window-control-button-close`}
-        onClick={() => void desktop.closeWindow()}
+        onClick={() => {
+          if (onCloseRequest) {
+            onCloseRequest();
+            return;
+          }
+          void desktop.closeWindow();
+        }}
         title="Close"
         aria-label="Close"
       >
