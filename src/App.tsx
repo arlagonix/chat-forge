@@ -3894,6 +3894,7 @@ export default function Home() {
         settingsPage = (
           <ProviderSettingsDialog
             embedded
+            contentWidthClassName={chatWidthClassName}
             open
             onOpenChange={() => {}}
             onDirtyChange={setSettingsPageDirty}
@@ -3913,6 +3914,7 @@ export default function Home() {
         settingsPage = (
           <ModesDialog
             embedded
+            contentWidthClassName={chatWidthClassName}
             open
             onOpenChange={() => {}}
             onDirtyChange={setSettingsPageDirty}
@@ -3947,6 +3949,7 @@ export default function Home() {
         settingsPage = (
           <ToolsDialog
             embedded
+            contentWidthClassName={chatWidthClassName}
             open
             onOpenChange={() => {}}
             onDirtyChange={setSettingsPageDirty}
@@ -3967,6 +3970,7 @@ export default function Home() {
         settingsPage = (
           <SkillsDialog
             embedded
+            contentWidthClassName={chatWidthClassName}
             open
             onOpenChange={() => {}}
             onDirtyChange={setSettingsPageDirty}
@@ -3985,6 +3989,7 @@ export default function Home() {
         settingsPage = (
           <AgentsDialog
             embedded
+            contentWidthClassName={chatWidthClassName}
             open
             onOpenChange={() => {}}
             onDirtyChange={setSettingsPageDirty}
@@ -4006,6 +4011,7 @@ export default function Home() {
         settingsPage = (
           <McpDialog
             embedded
+            contentWidthClassName={chatWidthClassName}
             open
             onOpenChange={() => {}}
             onDirtyChange={setSettingsPageDirty}

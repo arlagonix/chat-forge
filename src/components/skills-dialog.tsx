@@ -74,6 +74,12 @@ import type {
   SkillAvailability,
   SkillsSettings,
 } from "@/lib/ai-chat/types";
+import {
+  SettingsDetailContent,
+  SettingsDetailFooter,
+  SettingsDetailHeader,
+  SettingsDetailPane,
+} from "@/components/settings/settings-detail-pane";
 import { cn } from "@/lib/utils";
 
 type SkillsDialogProps = {
@@ -88,6 +94,7 @@ type SkillsDialogProps = {
   showSuccess: (message: string, description?: string) => void;
   showError: (message: string, description?: string) => void;
   embedded?: boolean;
+  contentWidthClassName?: string;
   onDirtyChange?: (dirty: boolean) => void;
 };
 
@@ -437,6 +444,7 @@ export const SkillsDialog = memo(function SkillsDialog({
   showSuccess,
   showError,
   embedded = false,
+  contentWidthClassName,
   onDirtyChange,
 }: SkillsDialogProps) {
   const [selectedSkillKey, setSelectedSkillKey] = useState<string | null>(null);
@@ -1091,10 +1099,10 @@ export const SkillsDialog = memo(function SkillsDialog({
               </div>
             </aside>
 
-            <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+            <SettingsDetailPane contentWidthClassName={contentWidthClassName}>
               {draftMode === "new" || selectedSkill ? (
                 <>
-                  <div className="z-20 flex shrink-0 items-center border-b bg-background px-4 py-[10px]">
+                  <SettingsDetailHeader className="flex items-center px-4 py-[10px]">
                     <div className="flex w-full items-center justify-between gap-4">
                       <Label className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
                         {activeTitle}
@@ -1145,9 +1153,9 @@ export const SkillsDialog = memo(function SkillsDialog({
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </div>
-                  </div>
+                  </SettingsDetailHeader>
 
-                  <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 chat-message-scrollbar">
+                  <SettingsDetailContent className="px-4 py-4">
                     <div className="grid gap-5 pb-1">
                       <div className="grid gap-4">
                         <SkillMetadataFields
@@ -1197,9 +1205,9 @@ export const SkillsDialog = memo(function SkillsDialog({
                         <SkillFileStructurePreview skill={selectedSkill} />
                       ) : null}
                     </div>
-                  </div>
+                  </SettingsDetailContent>
 
-                  <DialogFooter className="shrink-0 items-center border-t bg-background px-4 py-2 sm:justify-between">
+                  <SettingsDetailFooter className="items-center px-4 py-2 sm:justify-between">
                     <div
                       className="text-sm text-muted-foreground"
                       aria-live="polite"
@@ -1233,7 +1241,7 @@ export const SkillsDialog = memo(function SkillsDialog({
                             : "Save"}
                       </Button>
                     </div>
-                  </DialogFooter>
+                  </SettingsDetailFooter>
                 </>
               ) : (
                 <div className="flex min-h-0 flex-1 items-center justify-center p-6 text-center text-muted-foreground">
@@ -1249,7 +1257,7 @@ export const SkillsDialog = memo(function SkillsDialog({
                   </div>
                 </div>
               )}
-            </main>
+            </SettingsDetailPane>
           </div>
         </DialogContent>
       </Dialog>

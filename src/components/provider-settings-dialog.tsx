@@ -83,6 +83,12 @@ import type {
   ProvidersState,
   ThinkingLevel,
 } from "@/lib/ai-chat/types";
+import {
+  SettingsDetailContent,
+  SettingsDetailFooter,
+  SettingsDetailHeader,
+  SettingsDetailPane,
+} from "@/components/settings/settings-detail-pane";
 import { cn } from "@/lib/utils";
 
 const EMPTY_MODEL_CONFIG: ProviderModelConfig = {};
@@ -109,6 +115,7 @@ type ProviderSettingsDialogProps = {
   onSave: (providersStateOverride?: ProvidersState) => void;
   showSuccess: (message: string, description?: string) => void;
   embedded?: boolean;
+  contentWidthClassName?: string;
   onDirtyChange?: (dirty: boolean) => void;
 };
 
@@ -415,6 +422,7 @@ export const ProviderSettingsDialog = memo(function ProviderSettingsDialog({
   onSave,
   showSuccess,
   embedded = false,
+  contentWidthClassName,
   onDirtyChange,
 }: ProviderSettingsDialogProps) {
   const [isApiKeyVisible, setIsApiKeyVisible] = useState(false);
@@ -1301,8 +1309,8 @@ export const ProviderSettingsDialog = memo(function ProviderSettingsDialog({
               </div>
             </aside>
 
-            <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-              <div className="z-20 flex shrink-0 items-center border-b bg-background px-4 py-[10px]">
+            <SettingsDetailPane contentWidthClassName={contentWidthClassName}>
+              <SettingsDetailHeader className="flex items-center px-4 py-[10px]">
                 <div className="flex min-h-8 w-full items-center justify-between gap-4">
                   <Label className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
                     {isCreatingProvider
@@ -1343,9 +1351,9 @@ export const ProviderSettingsDialog = memo(function ProviderSettingsDialog({
                     </DropdownMenu>
                   ) : null}
                 </div>
-              </div>
+              </SettingsDetailHeader>
 
-              <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 chat-message-scrollbar">
+              <SettingsDetailContent className="px-4 py-4">
                 {!selectedModel ? (
                   <div className="grid gap-5 pb-1">
                     <div className="grid gap-4">
@@ -1915,9 +1923,9 @@ export const ProviderSettingsDialog = memo(function ProviderSettingsDialog({
                     </div>
                   </div>
                 )}
-              </div>
+              </SettingsDetailContent>
 
-              <DialogFooter className="shrink-0 items-center border-t bg-background px-4 py-2 sm:justify-between">
+              <SettingsDetailFooter className="items-center px-4 py-2 sm:justify-between">
                 <div />
                 <div className="flex gap-2">
                   {isCreatingProvider ? (
@@ -1956,8 +1964,8 @@ export const ProviderSettingsDialog = memo(function ProviderSettingsDialog({
                     </>
                   )}
                 </div>
-              </DialogFooter>
-            </main>
+              </SettingsDetailFooter>
+            </SettingsDetailPane>
           </div>
         </DialogContent>
       </Dialog>

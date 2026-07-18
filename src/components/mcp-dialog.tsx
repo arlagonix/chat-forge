@@ -67,6 +67,12 @@ import type {
   Permission,
   ToolsSettings,
 } from "@/lib/ai-chat/types";
+import {
+  SettingsDetailContent,
+  SettingsDetailFooter,
+  SettingsDetailHeader,
+  SettingsDetailPane,
+} from "@/components/settings/settings-detail-pane";
 import { cn } from "@/lib/utils";
 
 const TLS_WARNING =
@@ -187,6 +193,7 @@ type McpDialogProps = {
   showSuccess: (message: string, description?: string) => void;
   showError: (message: string, description?: string) => void;
   embedded?: boolean;
+  contentWidthClassName?: string;
   onDirtyChange?: (dirty: boolean) => void;
 };
 
@@ -267,6 +274,7 @@ export const McpDialog = memo(function McpDialog({
   showSuccess,
   showError,
   embedded = false,
+  contentWidthClassName,
   onDirtyChange,
 }: McpDialogProps) {
   const {
@@ -415,12 +423,12 @@ export const McpDialog = memo(function McpDialog({
   function renderSavedToolDetails(entry: SavedMcpToolEntry) {
     return (
       <>
-        <div className="z-20 flex shrink-0 items-center border-b bg-background px-4 py-2.5">
-          <Label className="text-sm font-medium uppercase tracking-wide text-muted-foreground min-h-8">
+        <SettingsDetailHeader className="flex items-center px-4 py-2.5">
+          <Label className="min-h-8 text-sm font-medium uppercase tracking-wide text-muted-foreground">
             MCP tool
           </Label>
-        </div>
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4">
+        </SettingsDetailHeader>
+        <SettingsDetailContent className="px-4 py-4">
           <div className="grid gap-5 pb-1">
             <div className="grid gap-1">
               <h3 className="min-w-0 break-all text-lg font-semibold text-foreground">
@@ -443,7 +451,7 @@ export const McpDialog = memo(function McpDialog({
               {renderJsonCodeBlock(entry.tool.inputSchema ?? {})}
             </div>
           </div>
-        </div>
+        </SettingsDetailContent>
       </>
     );
   }
@@ -739,12 +747,12 @@ export const McpDialog = memo(function McpDialog({
               </div>
             </aside>
 
-            <div className="min-h-0 flex flex-col overflow-hidden">
+            <SettingsDetailPane contentWidthClassName={contentWidthClassName}>
               {selectedSavedToolEntry ? (
                 renderSavedToolDetails(selectedSavedToolEntry)
               ) : activeServer ? (
                 <>
-                  <div className="z-20 flex shrink-0 items-center border-b bg-background px-4 py-2.5">
+                  <SettingsDetailHeader className="flex items-center px-4 py-2.5">
                     <div className="flex w-full items-center justify-between gap-4">
                       <div>
                         <Label className="text-sm font-medium uppercase tracking-wide text-muted-foreground min-h-8">
@@ -803,9 +811,9 @@ export const McpDialog = memo(function McpDialog({
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </div>
-                  </div>
+                  </SettingsDetailHeader>
 
-                  <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4">
+                  <SettingsDetailContent className="px-4 py-4">
                     <div className="grid gap-5 pb-1">
                       {testResult &&
                         testResult.serverId === activeServer.id && (
@@ -1167,9 +1175,9 @@ export const McpDialog = memo(function McpDialog({
                         </div>
                       </div>
                     </div>
-                  </div>
+                  </SettingsDetailContent>
 
-                  <DialogFooter className="shrink-0 items-center border-t bg-background px-4 py-2 sm:justify-between">
+                  <SettingsDetailFooter className="items-center px-4 py-2 sm:justify-between">
                     <div
                       className="text-sm text-muted-foreground"
                       aria-live="polite"
@@ -1199,7 +1207,7 @@ export const McpDialog = memo(function McpDialog({
                             : "Save"}
                       </Button>
                     </div>
-                  </DialogFooter>
+                  </SettingsDetailFooter>
                 </>
               ) : (
                 <div className="flex min-h-0 flex-1 items-center justify-center p-6 text-center text-muted-foreground">
@@ -1214,7 +1222,7 @@ export const McpDialog = memo(function McpDialog({
                   </div>
                 </div>
               )}
-            </div>
+            </SettingsDetailPane>
           </div>
         </DialogContent>
       </Dialog>

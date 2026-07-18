@@ -74,6 +74,12 @@ import type {
   ToolImportResult,
   ToolsSettings,
 } from "@/lib/ai-chat/types";
+import {
+  SettingsDetailContent,
+  SettingsDetailFooter,
+  SettingsDetailHeader,
+  SettingsDetailPane,
+} from "@/components/settings/settings-detail-pane";
 import { cn } from "@/lib/utils";
 
 const TOOL_TEST_STATES_STORAGE_KEY = "molten-forge-tool-test-states";
@@ -648,6 +654,7 @@ type ToolsDialogProps = {
   showSuccess: (message: string, description?: string) => void;
   showError: (message: string, description?: string) => void;
   embedded?: boolean;
+  contentWidthClassName?: string;
   onDirtyChange?: (dirty: boolean) => void;
 };
 
@@ -1131,6 +1138,7 @@ export const ToolsDialog = memo(function ToolsDialog({
   showSuccess,
   showError,
   embedded = false,
+  contentWidthClassName,
   onDirtyChange,
 }: ToolsDialogProps) {
   const [toolLoadErrors, setToolLoadErrors] = useState<
@@ -2104,10 +2112,10 @@ export const ToolsDialog = memo(function ToolsDialog({
               </div>
             </aside>
 
-          <main className="min-h-0 flex flex-col overflow-hidden">
+          <SettingsDetailPane contentWidthClassName={contentWidthClassName}>
             {isAskUserToolSelected ? (
               <>
-                <div className="z-20 flex min-h-[50px] shrink-0 items-center border-b bg-background px-4 py-[10px]">
+                <SettingsDetailHeader className="flex min-h-[50px] items-center px-4 py-[10px]">
                   <div className="flex min-h-[32px] w-full items-center justify-between gap-4">
                     <Label className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
                       Built-in tool
@@ -2117,9 +2125,9 @@ export const ToolsDialog = memo(function ToolsDialog({
                       Locked
                     </span>
                   </div>
-                </div>
+                </SettingsDetailHeader>
 
-                <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 chat-message-scrollbar">
+                <SettingsDetailContent className="px-4 py-4">
                   <div className="grid gap-5 pb-1">
                     <div className="grid gap-1">
                       <h3 className="flex items-center gap-2 text-lg font-semibold text-foreground">
@@ -2171,11 +2179,11 @@ export const ToolsDialog = memo(function ToolsDialog({
                       : null}
 
                   </div>
-                </div>
+                </SettingsDetailContent>
               </>
             ) : isTaskToolsSelected ? (
               <>
-                <div className="z-20 flex min-h-[50px] shrink-0 items-center border-b bg-background px-4 py-[10px]">
+                <SettingsDetailHeader className="flex min-h-[50px] items-center px-4 py-[10px]">
                   <div className="flex min-h-[32px] w-full items-center justify-between gap-4">
                     <Label className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
                       Built-in tool
@@ -2185,9 +2193,9 @@ export const ToolsDialog = memo(function ToolsDialog({
                       Locked
                     </span>
                   </div>
-                </div>
+                </SettingsDetailHeader>
 
-                <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 chat-message-scrollbar">
+                <SettingsDetailContent className="px-4 py-4">
                   <div className="grid gap-5 pb-1">
                     <div className="grid gap-1">
                       <h3 className="flex items-center gap-2 text-lg font-semibold text-foreground">
@@ -2242,11 +2250,11 @@ export const ToolsDialog = memo(function ToolsDialog({
                       : null}
 
                   </div>
-                </div>
+                </SettingsDetailContent>
               </>
             ) : isLoadSkillToolSelected ? (
               <>
-                <div className="z-20 flex min-h-[50px] shrink-0 items-center border-b bg-background px-4 py-[10px]">
+                <SettingsDetailHeader className="flex min-h-[50px] items-center px-4 py-[10px]">
                   <div className="flex min-h-[32px] w-full items-center justify-between gap-4">
                     <Label className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
                       Built-in tool
@@ -2256,9 +2264,9 @@ export const ToolsDialog = memo(function ToolsDialog({
                       Locked
                     </span>
                   </div>
-                </div>
+                </SettingsDetailHeader>
 
-                <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 chat-message-scrollbar">
+                <SettingsDetailContent className="px-4 py-4">
                   <div className="grid gap-5 pb-1">
                     <div className="grid gap-1">
                       <h3 className="flex items-center gap-2 text-lg font-semibold text-foreground">
@@ -2304,11 +2312,11 @@ export const ToolsDialog = memo(function ToolsDialog({
                       : null}
 
                   </div>
-                </div>
+                </SettingsDetailContent>
               </>
             ) : isCallAgentToolSelected ? (
               <>
-                <div className="z-20 flex min-h-[50px] shrink-0 items-center border-b bg-background px-4 py-[10px]">
+                <SettingsDetailHeader className="flex min-h-[50px] items-center px-4 py-[10px]">
                   <div className="flex min-h-[32px] w-full items-center justify-between gap-4">
                     <Label className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
                       Built-in tool
@@ -2318,9 +2326,9 @@ export const ToolsDialog = memo(function ToolsDialog({
                       Locked
                     </span>
                   </div>
-                </div>
+                </SettingsDetailHeader>
 
-                <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 chat-message-scrollbar">
+                <SettingsDetailContent className="px-4 py-4">
                   <div className="grid gap-5 pb-1">
                     <div className="grid gap-1">
                       <h3 className="flex items-center gap-2 text-lg font-semibold text-foreground">
@@ -2367,11 +2375,11 @@ export const ToolsDialog = memo(function ToolsDialog({
                       : null}
 
                   </div>
-                </div>
+                </SettingsDetailContent>
               </>
             ) : isWebFetchToolSelected ? (
               <>
-                <div className="z-20 flex min-h-[50px] shrink-0 items-center border-b bg-background px-4 py-[10px]">
+                <SettingsDetailHeader className="flex min-h-[50px] items-center px-4 py-[10px]">
                   <div className="flex min-h-[32px] w-full items-center justify-between gap-4">
                     <Label className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
                       Built-in tool
@@ -2381,9 +2389,9 @@ export const ToolsDialog = memo(function ToolsDialog({
                       Locked
                     </span>
                   </div>
-                </div>
+                </SettingsDetailHeader>
 
-                <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 chat-message-scrollbar">
+                <SettingsDetailContent className="px-4 py-4">
                   <div className="grid gap-5 pb-1">
                     <div className="grid gap-1">
                       <h3 className="flex items-center gap-2 text-lg font-semibold text-foreground">
@@ -2432,11 +2440,11 @@ export const ToolsDialog = memo(function ToolsDialog({
                       : null}
 
                   </div>
-                </div>
+                </SettingsDetailContent>
               </>
             ) : selectedFileToolInfo ? (
               <>
-                <div className="z-20 flex min-h-[50px] shrink-0 items-center border-b bg-background px-4 py-[10px]">
+                <SettingsDetailHeader className="flex min-h-[50px] items-center px-4 py-[10px]">
                   <div className="flex min-h-[32px] w-full items-center justify-between gap-4">
                     <Label className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
                       Built-in tool
@@ -2446,9 +2454,9 @@ export const ToolsDialog = memo(function ToolsDialog({
                       Locked
                     </span>
                   </div>
-                </div>
+                </SettingsDetailHeader>
 
-                <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 chat-message-scrollbar">
+                <SettingsDetailContent className="px-4 py-4">
                   <div className="grid gap-5 pb-1">
                     <div className="grid gap-1">
                       <h3 className="flex items-center gap-2 text-lg font-semibold text-foreground">
@@ -2499,11 +2507,11 @@ export const ToolsDialog = memo(function ToolsDialog({
                       : null}
 
                   </div>
-                </div>
+                </SettingsDetailContent>
               </>
             ) : toolDraft ? (
               <>
-                <div className="z-20 flex min-h-[50px] shrink-0 items-center border-b bg-background px-4 py-[10px]">
+                <SettingsDetailHeader className="flex min-h-[50px] items-center px-4 py-[10px]">
                   <div className="flex w-full items-center justify-between gap-4">
                     <Label className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
                       {selectedTool ? "Edit tool" : "New tool"}
@@ -2544,9 +2552,9 @@ export const ToolsDialog = memo(function ToolsDialog({
                       </DropdownMenu>
                     )}
                   </div>
-                </div>
+                </SettingsDetailHeader>
 
-                <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 chat-message-scrollbar">
+                <SettingsDetailContent className="px-4 py-4">
                   <div className="grid gap-5 pb-1">
                     <div className="grid gap-1">
                       <h3 className="flex items-center gap-2 text-lg font-semibold text-foreground">
@@ -2826,17 +2834,17 @@ export const ToolsDialog = memo(function ToolsDialog({
                       )}
                     </div>
                   </div>
-                </div>
+                </SettingsDetailContent>
               </>
             ) : (
-              <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 chat-message-scrollbar">
+              <SettingsDetailContent className="p-4">
                 <div className="flex h-full items-center justify-center rounded-sm border border-dashed p-8 text-center text-base text-muted-foreground">
                   Select a tool or add a new one.
                 </div>
-              </div>
+              </SettingsDetailContent>
             )}
             {(toolDraft || selectedBuiltInToolName) ? (
-          <DialogFooter className="shrink-0 items-center border-t bg-background px-4 py-2 sm:justify-between">
+          <SettingsDetailFooter className="items-center px-4 py-2 sm:justify-between">
             <div className="text-sm text-muted-foreground" aria-live="polite">
               {hasUnsavedToolChanges ? "Unsaved changes" : null}
             </div>
@@ -2889,9 +2897,9 @@ export const ToolsDialog = memo(function ToolsDialog({
                 </>
               ) : null}
             </div>
-          </DialogFooter>
+          </SettingsDetailFooter>
             ) : null}
-          </main>
+          </SettingsDetailPane>
         </div>
 
 

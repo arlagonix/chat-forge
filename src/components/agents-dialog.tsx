@@ -107,6 +107,12 @@ import type {
   SkillsSettings,
   ToolsSettings,
 } from "@/lib/ai-chat/types";
+import {
+  SettingsDetailContent,
+  SettingsDetailFooter,
+  SettingsDetailHeader,
+  SettingsDetailPane,
+} from "@/components/settings/settings-detail-pane";
 import { cn } from "@/lib/utils";
 
 type AgentDraft = {
@@ -145,6 +151,7 @@ type AgentsDialogProps = {
   showSuccess: (message: string, description?: string) => void;
   showError: (message: string, description?: string) => void;
   embedded?: boolean;
+  contentWidthClassName?: string;
   onDirtyChange?: (dirty: boolean) => void;
 };
 
@@ -542,6 +549,7 @@ export const AgentsDialog = memo(function AgentsDialog({
   showSuccess,
   showError,
   embedded = false,
+  contentWidthClassName,
   onDirtyChange,
 }: AgentsDialogProps) {
   const [agentLoadErrors, setAgentLoadErrors] = useState<
@@ -1954,10 +1962,10 @@ export const AgentsDialog = memo(function AgentsDialog({
               </div>
             </aside>
 
-            <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+            <SettingsDetailPane contentWidthClassName={contentWidthClassName}>
               {agentDraft ? (
                 <>
-                  <div className="z-20 flex shrink-0 items-center border-b bg-background px-4 py-[10px]">
+                  <SettingsDetailHeader className="flex items-center px-4 py-[10px]">
                     <div className="flex w-full items-center justify-between gap-4">
                       <Label className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
                         {selectedAgentIsBuiltIn
@@ -2005,9 +2013,9 @@ export const AgentsDialog = memo(function AgentsDialog({
                         </DropdownMenu>
                       ) : null}
                     </div>
-                  </div>
+                  </SettingsDetailHeader>
 
-                  <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 chat-message-scrollbar">
+                  <SettingsDetailContent className="px-4 py-4">
                     <div className="grid gap-5 pb-1">
                       <div className="grid gap-2">
                         <Label htmlFor="agent-name">Name</Label>
@@ -2257,9 +2265,9 @@ export const AgentsDialog = memo(function AgentsDialog({
                         </>
                       )}
                     </div>
-                  </div>
+                  </SettingsDetailContent>
 
-                  <DialogFooter className="shrink-0 items-center border-t bg-background px-4 py-2 sm:justify-between">
+                  <SettingsDetailFooter className="items-center px-4 py-2 sm:justify-between">
                     <div
                       className="text-sm text-muted-foreground"
                       aria-live="polite"
@@ -2294,7 +2302,7 @@ export const AgentsDialog = memo(function AgentsDialog({
                             : "Save"}
                       </Button>
                     </div>
-                  </DialogFooter>
+                  </SettingsDetailFooter>
                 </>
               ) : (
                 <div className="flex min-h-0 flex-1 items-center justify-center p-6 text-center text-muted-foreground">
@@ -2310,7 +2318,7 @@ export const AgentsDialog = memo(function AgentsDialog({
                   </div>
                 </div>
               )}
-            </main>
+            </SettingsDetailPane>
           </div>
         </DialogContent>
       </Dialog>
