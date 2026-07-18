@@ -68,7 +68,7 @@ function SettingsSwitchRow({
           onCheckedChange(!checked);
         }
       }}
-      className="flex cursor-pointer select-none items-center justify-between gap-4 rounded-sm border p-3 transition-colors hover:bg-accent/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="flex cursor-pointer select-none items-center justify-between gap-4 border-b p-3 transition-colors last:border-b-0 hover:bg-accent/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
     >
       <div className="flex min-w-0 items-start gap-3">
         <div className="mt-[5px] text-muted-foreground">{icon}</div>
@@ -108,7 +108,7 @@ function SettingsSelectRow({
   triggerClassName?: string;
 }) {
   return (
-    <div className="flex items-center justify-between gap-4 rounded-sm border p-3">
+    <div className="flex items-center justify-between gap-4 border-b p-3 last:border-b-0">
       <div className="flex min-w-0 items-start gap-3">
         <div className="mt-[5px] text-muted-foreground">{icon}</div>
         <div className="min-w-0">
@@ -158,7 +158,7 @@ function SettingsGroupedSelectRow({
   triggerClassName?: string;
 }) {
   return (
-    <div className="flex items-center justify-between gap-4 rounded-sm border p-3">
+    <div className="flex items-center justify-between gap-4 border-b p-3 last:border-b-0">
       <div className="flex min-w-0 items-start gap-3">
         <div className="mt-[5px] text-muted-foreground">{icon}</div>
         <div className="min-w-0">
@@ -301,7 +301,13 @@ export const SettingsDialog = memo(function SettingsDialog({
           </DialogHeader>
         ) : null}
 
-        <div className="min-h-0 overflow-y-auto p-4 chat-scrollbar">
+        <div
+          className={
+            embedded
+              ? "min-h-0 overflow-y-auto py-4 chat-scrollbar"
+              : "min-h-0 overflow-y-auto p-4 chat-scrollbar"
+          }
+        >
           <div className="grid gap-6">
             {!embedded ? (
               <section className="grid gap-3">
@@ -354,10 +360,8 @@ export const SettingsDialog = memo(function SettingsDialog({
             ) : null}
 
             <section className="grid gap-3">
-              {!embedded ? (
-                <GroupHeading className="mt-0">General</GroupHeading>
-              ) : null}
-              <div className="grid gap-2">
+              <GroupHeading className="mt-0">General</GroupHeading>
+              <div className="overflow-hidden rounded-lg border bg-card/80">
                 <SettingsSelectRow
                   icon={
                     resolvedTheme === "light" ? (
@@ -421,6 +425,12 @@ export const SettingsDialog = memo(function SettingsDialog({
                     { value: "full", label: "Full" },
                   ]}
                 />
+              </div>
+            </section>
+
+            <section className="grid gap-3">
+              <GroupHeading className="mt-0">Title</GroupHeading>
+              <div className="overflow-hidden rounded-lg border bg-card/80">
                 <SettingsSwitchRow
                   icon={<SlidersHorizontal className="size-4" />}
                   title="Generate title"

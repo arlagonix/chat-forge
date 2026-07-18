@@ -168,6 +168,7 @@ import {
   loadSystemPrompt,
   loadTools,
   loadToolsSettings,
+  DEFAULT_APP_SETTINGS,
   saveActiveChatId,
   saveAgentsSettings,
   saveAppSettings,
@@ -3871,6 +3872,20 @@ export default function Home() {
     );
   }
 
+  const handleRestoreGeneralDefaults = () => {
+    setTheme("system");
+    setAppSettings((currentSettings) => ({
+      ...currentSettings,
+      chatTitleGenerationMode: DEFAULT_APP_SETTINGS.chatTitleGenerationMode,
+      titleGenerationModel: DEFAULT_APP_SETTINGS.titleGenerationModel,
+      fontFamily: DEFAULT_APP_SETTINGS.fontFamily,
+      thinkingAutoCollapse: DEFAULT_APP_SETTINGS.thinkingAutoCollapse,
+      renderMarkdownWhileStreaming:
+        DEFAULT_APP_SETTINGS.renderMarkdownWhileStreaming,
+      chatWidth: DEFAULT_APP_SETTINGS.chatWidth,
+    }));
+  };
+
   if (appView === "settings") {
     let settingsPage: ReactNode;
 
@@ -4006,68 +4021,78 @@ export default function Home() {
       case "general":
       default:
         settingsPage = (
-          <div className="mx-auto h-full w-full max-w-4xl">
-            <SettingsDialog
-              embedded
-              open
-              onOpenChange={() => {}}
-              chatTitleGenerationMode={appSettings.chatTitleGenerationMode}
-              titleGenerationModelValue={resolvedTitleGenerationModelValue}
-              titleGenerationDefaultModelOption={titleGenerationDefaultModelOption}
-              titleGenerationModelGroups={titleGenerationModelGroups}
-              appFontFamily={appSettings.fontFamily}
-              thinkingAutoCollapse={appSettings.thinkingAutoCollapse ?? true}
-              renderMarkdownWhileStreaming={
-                appSettings.renderMarkdownWhileStreaming ?? true
-              }
-              chatWidth={appSettings.chatWidth ?? "896"}
-              theme={theme}
-              resolvedTheme={resolvedTheme}
-              onToggleAiTitleGeneration={(checked) =>
-                setAppSettings((currentSettings) => ({
-                  ...currentSettings,
-                  chatTitleGenerationMode: checked ? "ai" : "local",
-                }))
-              }
-              onTitleGenerationModelChange={(value) =>
-                setAppSettings((currentSettings) => ({
-                  ...currentSettings,
-                  titleGenerationModel: decodeTitleGenerationModelValue(value),
-                }))
-              }
-              onSetTheme={setTheme}
-              onSetAppFontFamily={(fontFamily) =>
-                setAppSettings((currentSettings) => ({
-                  ...currentSettings,
-                  fontFamily,
-                }))
-              }
-              onThinkingAutoCollapseChange={(checked) =>
-                setAppSettings((currentSettings) => ({
-                  ...currentSettings,
-                  thinkingAutoCollapse: checked,
-                }))
-              }
-              onRenderMarkdownWhileStreamingChange={(checked) =>
-                setAppSettings((currentSettings) => ({
-                  ...currentSettings,
-                  renderMarkdownWhileStreaming: checked,
-                }))
-              }
-              onChatWidthChange={(nextChatWidth) =>
-                setAppSettings((currentSettings) => ({
-                  ...currentSettings,
-                  chatWidth: nextChatWidth,
-                }))
-              }
-              onOpenProviders={() => openSettingsSection("providers")}
-              onOpenTools={() => openSettingsSection("tools")}
-              onOpenSkills={() => openSettingsSection("skills")}
-              onOpenAgents={() => openSettingsSection("agents")}
-              onOpenModes={() => openSettingsSection("modes")}
-              onOpenMcp={() => openSettingsSection("mcp")}
-              onOpenSystemPrompt={() => openSettingsSection("system-prompt")}
-            />
+          <div className="h-full w-full px-4">
+            <div
+              className={cn(
+                "mx-auto h-full w-full",
+                chatWidthClassName,
+              )}
+            >
+              <SettingsDialog
+                embedded
+                open
+                onOpenChange={() => {}}
+                chatTitleGenerationMode={appSettings.chatTitleGenerationMode}
+                titleGenerationModelValue={resolvedTitleGenerationModelValue}
+                titleGenerationDefaultModelOption={titleGenerationDefaultModelOption}
+                titleGenerationModelGroups={titleGenerationModelGroups}
+                appFontFamily={appSettings.fontFamily}
+                thinkingAutoCollapse={appSettings.thinkingAutoCollapse ?? true}
+                renderMarkdownWhileStreaming={
+                  appSettings.renderMarkdownWhileStreaming ?? true
+                }
+                chatWidth={appSettings.chatWidth ?? "896"}
+                theme={theme}
+                resolvedTheme={resolvedTheme}
+                onToggleAiTitleGeneration={(checked) =>
+                  setAppSettings((currentSettings) => ({
+                    ...currentSettings,
+                    chatTitleGenerationMode: checked ? "ai" : "local",
+                  }))
+                }
+                onTitleGenerationModelChange={(value) =>
+                  setAppSettings((currentSettings) => ({
+                    ...currentSettings,
+                    titleGenerationModel:
+                      decodeTitleGenerationModelValue(value),
+                  }))
+                }
+                onSetTheme={setTheme}
+                onSetAppFontFamily={(fontFamily) =>
+                  setAppSettings((currentSettings) => ({
+                    ...currentSettings,
+                    fontFamily,
+                  }))
+                }
+                onThinkingAutoCollapseChange={(checked) =>
+                  setAppSettings((currentSettings) => ({
+                    ...currentSettings,
+                    thinkingAutoCollapse: checked,
+                  }))
+                }
+                onRenderMarkdownWhileStreamingChange={(checked) =>
+                  setAppSettings((currentSettings) => ({
+                    ...currentSettings,
+                    renderMarkdownWhileStreaming: checked,
+                  }))
+                }
+                onChatWidthChange={(nextChatWidth) =>
+                  setAppSettings((currentSettings) => ({
+                    ...currentSettings,
+                    chatWidth: nextChatWidth,
+                  }))
+                }
+                onOpenProviders={() => openSettingsSection("providers")}
+                onOpenTools={() => openSettingsSection("tools")}
+                onOpenSkills={() => openSettingsSection("skills")}
+                onOpenAgents={() => openSettingsSection("agents")}
+                onOpenModes={() => openSettingsSection("modes")}
+                onOpenMcp={() => openSettingsSection("mcp")}
+                onOpenSystemPrompt={() =>
+                  openSettingsSection("system-prompt")
+                }
+              />
+            </div>
           </div>
         );
         break;
@@ -4107,6 +4132,17 @@ export default function Home() {
             <span className="ml-2 text-base font-medium text-foreground">
               {SETTINGS_SECTION_LABELS[settingsSection as SettingsSection]}
             </span>
+            {settingsSection === "general" ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="app-region-no-drag ml-auto h-8 px-3 text-xs"
+                onClick={handleRestoreGeneralDefaults}
+              >
+                Restore defaults
+              </Button>
+            ) : null}
           </div>
           <div className="min-h-0 flex-1 overflow-hidden">{settingsPage}</div>
         </section>
