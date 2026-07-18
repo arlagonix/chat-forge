@@ -1252,7 +1252,7 @@ const ChatMessageItem = memo(
                 className={cn(
                   "min-w-0 text-base leading-6 [overflow-wrap:anywhere] w-full ",
                   message.role === "user"
-                    ? "max-h-[32rem] overflow-y-auto overflow-x-hidden chat-message-scrollbar rounded-sm bg-primary px-4 py-3 text-primary-foreground shadow-xs"
+                    ? "max-h-[32rem] overflow-y-auto overflow-x-hidden chat-message-scrollbar rounded-sm bg-primary/90 px-4 py-3 text-primary-foreground shadow-xs"
                     : "min-w-0 max-w-full overflow-visible px-0 py-1 text-card-foreground shadow-xs",
                   status === "error" && "border-destructive/50",
                 )}

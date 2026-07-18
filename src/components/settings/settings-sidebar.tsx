@@ -102,9 +102,11 @@ export function SettingsSidebar({
             <Menu className="size-4" />
           </Button>
 
-          <h1 className="min-w-0 flex-1 truncate text-base font-semibold leading-6">
-            <span className="molten-forge-title truncate">{appName}</span>
-          </h1>
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            <h1 className="min-w-0 truncate text-base font-semibold leading-6">
+              <span className="molten-forge-title truncate">{appName}</span>
+            </h1>
+          </div>
 
           <div className="app-region-no-drag flex shrink-0 items-center">
             <AppMenu
@@ -126,7 +128,7 @@ export function SettingsSidebar({
                 key={item.id}
                 type="button"
                 className={cn(
-                  "flex h-9 w-full items-center gap-2 rounded-sm px-2 text-left text-sm transition-colors",
+                  "flex h-9 w-full items-center gap-2 rounded-sm px-2 text-left text-base transition-colors",
                   selected
                     ? "bg-accent text-accent-foreground"
                     : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",

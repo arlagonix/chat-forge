@@ -90,7 +90,7 @@ export const SystemPromptDialog = memo(function SystemPromptDialog({
             />
           </div>
 
-          <DialogFooter className="shrink-0 border-t px-4 py-2">
+          <DialogFooter className="shrink-0 border-t bg-card px-4 py-2">
             <Button
               type="button"
               variant="secondary"

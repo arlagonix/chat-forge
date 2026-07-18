@@ -311,6 +311,10 @@
   }
 
   .molten-forge-title {
+    color: var(--foreground);
+  }
+
+  .dark .molten-forge-title {
     background-image: radial-gradient(
       circle,
       #ffcc70 0%,
@@ -351,7 +355,7 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .molten-forge-title {
+    .dark .molten-forge-title {
       animation: none;
     }
   }
