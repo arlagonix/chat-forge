@@ -229,7 +229,6 @@ const CHAT_WIDTH_CLASS_NAMES: Record<ChatWidth, string> = {
 const APP_NAME = "Molten Forge";
 const APP_VERSION_LABEL = `v${__APP_VERSION__}`;
 const APP_TITLE = `${APP_NAME} ${APP_VERSION_LABEL}`;
-const CHAT_BOTTOM_OVERLAY_FADE_HEIGHT_PX = 48;
 const CHAT_BOTTOM_CONTENT_CLEARANCE_PX = 16;
 const SCROLL_TO_BOTTOM_GUTTER_REQUIRED_PX = 48;
 const TITLE_GENERATION_CHAT_DEFAULT_VALUE = "chat-default";
@@ -3690,9 +3689,7 @@ export default function Home() {
   const hasBottomOverlay =
     visiblePendingInteractions.length > 0 || !selectedAgentChat;
   const bottomOverlayHeight = hasBottomOverlay
-    ? bottomPanelHeight +
-      CHAT_BOTTOM_OVERLAY_FADE_HEIGHT_PX +
-      CHAT_BOTTOM_CONTENT_CLEARANCE_PX
+    ? bottomPanelHeight + CHAT_BOTTOM_CONTENT_CLEARANCE_PX
     : 0;
 
   useLayoutEffect(() => {
@@ -3860,7 +3857,7 @@ export default function Home() {
           <div className="app-region-drag min-w-0 flex-1" aria-hidden="true" />
         </div>
         <WindowControls
-          className="fixed right-0 top-1 z-[100] bg-card"
+          className="fixed right-0 top-1 z-[100]"
         />
         <div className="flex flex-col items-center gap-4 text-center">
           <div
@@ -4144,7 +4141,7 @@ export default function Home() {
         </section>
 
         <WindowControls
-          className="fixed right-0 top-1 z-[100] bg-card"
+          className="fixed right-0 top-1 z-[100]"
           onCloseRequest={requestWindowClose}
         />
 
@@ -4167,7 +4164,7 @@ export default function Home() {
   return (
     <main className="relative flex h-dvh min-h-0 overflow-hidden bg-background text-foreground">
       <WindowControls
-        className="fixed right-0 top-1 z-[100] bg-card"
+        className="fixed right-0 top-1 z-[100]"
         onCloseRequest={requestWindowClose}
       />
       <ChatSidebar
@@ -4406,13 +4403,14 @@ export default function Home() {
               ref={chatContentRef}
               className={cn(
                 "mx-auto flex w-full min-w-0 flex-col [overflow-anchor:none]",
-                selectedAgentChat ? "max-w-4xl" : chatWidthClassName,
+                chatWidthClassName,
                 hasMessages || selectedAgentChat ? "gap-5" : "h-full",
               )}
             >
               {selectedAgentChat ? (
                 <AgentTranscriptChatView
                   agentCall={selectedAgentChat}
+                  contentWidthClassName={chatWidthClassName}
                   renderToolExecutionBlock={stableRenderToolExecutionBlock}
                   canSubmitAskUserResponse={stableCanSubmitAskUserResponse}
                   pendingInteractionIds={visiblePendingInteractionIds}
@@ -4549,9 +4547,7 @@ export default function Home() {
                   {visiblePendingInteractions.length > 0 ? (
                   <InteractionDock
                     interactions={visiblePendingInteractions}
-                    contentWidthClassName={
-                      selectedAgentChat ? "max-w-4xl" : chatWidthClassName
-                    }
+                    contentWidthClassName={chatWidthClassName}
                     canSubmit={stableCanSubmitAskUserResponse}
                     onSubmitAskUserResponse={stableSubmitAskUserResponse}
                     onSubmitToolApprovalResponse={

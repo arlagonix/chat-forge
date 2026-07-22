@@ -1253,6 +1253,7 @@ export const AgentTranscriptSidebar = memo(function AgentTranscriptSidebar({
 
 export const AgentTranscriptChatView = memo(function AgentTranscriptChatView({
   agentCall,
+  contentWidthClassName,
   renderToolExecutionBlock,
   canSubmitAskUserResponse,
   pendingInteractionIds,
@@ -1262,13 +1263,19 @@ export const AgentTranscriptChatView = memo(function AgentTranscriptChatView({
   onOpenAgentCall,
 }: {
   agentCall: ChatAgentCall;
+  contentWidthClassName: string;
   renderToolExecutionBlock?: RenderAgentToolExecutionBlock;
   onOpenAgentCall: (agentCallId: string) => void;
 } & AgentInteractionProps) {
   const displayedAgentCall = useThrottledLiveAgentCall(agentCall);
 
   return (
-    <div className="mx-auto flex w-full max-w-4xl min-w-0 flex-col gap-5 px-0 pt-3 pb-0 md:pt-6">
+    <div
+      className={cn(
+        "mx-auto flex w-full min-w-0 flex-col gap-5 px-0 pt-3 pb-0 md:pt-6",
+        contentWidthClassName,
+      )}
+    >
       <AgentTranscriptBody
         agentCall={displayedAgentCall}
         renderToolExecutionBlock={renderToolExecutionBlock}

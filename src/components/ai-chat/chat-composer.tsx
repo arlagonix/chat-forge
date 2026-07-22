@@ -611,10 +611,11 @@ export const ChatComposer = memo(
       >
         <div
           className={cn(
-            "mx-auto w-full rounded-sm border bg-card p-3 pt-0 shadow-sm",
+            "chat-composer-surface mx-auto w-full rounded-sm border p-3 pt-0 shadow-sm",
             contentWidthClassName,
-            isDraggingAttachments && "border-primary bg-primary/5",
+            isDraggingAttachments && "border-primary",
           )}
+          data-dragging-attachments={isDraggingAttachments ? "true" : undefined}
         >
           <div className="mx-auto grid w-full gap-2">
             <AttachmentChips

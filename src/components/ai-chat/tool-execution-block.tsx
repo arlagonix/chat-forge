@@ -546,7 +546,7 @@ function renderToolStatus(status: ToolExecutionStatus) {
   if (status === "failed") {
     return (
       <span className="inline-flex shrink-0 items-center gap-1 text-red-600 dark:text-red-400">
-        <X className="size-3.5" />
+        <X className="relative top-px size-3.5" />
       </span>
     );
   }
@@ -557,7 +557,7 @@ function renderToolStatus(status: ToolExecutionStatus) {
         className="inline-flex shrink-0 items-center gap-1 text-muted-foreground/85"
         aria-label="Tool complete"
       >
-        <Check className="size-3.5" />
+        <Check className="relative top-px size-3.5" />
       </span>
     );
   }

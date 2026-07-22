@@ -60,8 +60,7 @@ const codeEditorTheme = EditorView.theme({
     caretColor: "var(--foreground)",
   },
   ".cm-content ::selection": {
-    backgroundColor:
-      "color-mix(in oklab, var(--foreground) 28%, var(--background))",
+    backgroundColor: "var(--code-editor-selection-background)",
     color: "var(--foreground)",
   },
   ".cm-line": {
@@ -80,27 +79,21 @@ const codeEditorTheme = EditorView.theme({
     backgroundColor: "color-mix(in oklab, var(--accent) 22%, transparent)",
   },
   ".cm-cursor, .cm-dropCursor": {
-    borderLeftColor: "var(--foreground)",
+    borderLeftColor: "var(--code-editor-cursor)",
   },
   ".cm-selectionBackground, &.cm-focused .cm-selectionBackground": {
-    backgroundColor:
-      "color-mix(in oklab, var(--foreground) 28%, var(--background))",
+    backgroundColor: "var(--code-editor-selection-background)",
   },
   ".cm-selectionMatch": {
-    backgroundColor:
-      "color-mix(in oklab, var(--foreground) 14%, var(--background))",
-    outline:
-      "1px solid color-mix(in oklab, var(--foreground) 24%, var(--background))",
+    backgroundColor: "var(--code-editor-selection-match-background)",
+    outline: "1px solid var(--code-editor-match-outline)",
   },
   ".cm-searchMatch": {
-    backgroundColor:
-      "color-mix(in oklab, var(--foreground) 18%, var(--background))",
-    outline:
-      "1px solid color-mix(in oklab, var(--foreground) 30%, var(--background))",
+    backgroundColor: "var(--code-editor-search-match-background)",
+    outline: "1px solid var(--code-editor-match-outline)",
   },
   ".cm-searchMatch.cm-searchMatch-selected": {
-    backgroundColor:
-      "color-mix(in oklab, var(--foreground) 32%, var(--background))",
+    backgroundColor: "var(--code-editor-search-match-active-background)",
   },
   ".cm-placeholder": {
     color: "var(--muted-foreground)",
@@ -279,7 +272,7 @@ function CodeMirrorEditor({
     <div
       ref={containerRef}
       className={cn(
-        "min-h-0 overflow-hidden rounded-sm border bg-background text-foreground",
+        "molten-code-editor min-h-0 overflow-hidden rounded-sm border bg-background text-foreground",
         className,
       )}
     />

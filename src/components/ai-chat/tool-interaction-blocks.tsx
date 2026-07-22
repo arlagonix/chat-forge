@@ -901,7 +901,7 @@ export const AskUserBlock = memo(function AskUserBlock({
                     {effectiveStatus === "waiting" ? (
                       <Spinner className="size-3.5" />
                     ) : (
-                      <X className="size-3.5" />
+                      <X className="relative top-px size-3.5" />
                     )}
                   </span>
                 </>
@@ -1208,11 +1208,11 @@ export const ToolApprovalBlock = memo(function ToolApprovalBlock({
                     )}
                   >
                     {effectiveStatus === "complete" ? (
-                      <Check className="size-3.5" />
+                      <Check className="relative top-px size-3.5" />
                     ) : effectiveStatus === "waiting" ? (
                       <Spinner className="size-3.5" />
                     ) : (
-                      <X className="size-3.5" />
+                      <X className="relative top-px size-3.5" />
                     )}
                     {approvalStatusText}
                   </span>
@@ -1303,7 +1303,9 @@ export const ToolApprovalBlock = memo(function ToolApprovalBlock({
 
 function getTaskItemIcon(done: boolean) {
   if (done) {
-    return <Check className="size-3.5 text-green-600 dark:text-green-400" />;
+    return (
+      <Check className="relative top-px size-3.5 text-green-600 dark:text-green-400" />
+    );
   }
 
   return <Square className="size-3.5 text-muted-foreground/70" />;

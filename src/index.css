@@ -78,6 +78,13 @@
   --code-attr: oklch(0.46 0.1 35);
   --code-built-in: oklch(0.43 0.11 300);
 
+  --code-editor-cursor: var(--foreground);
+  --code-editor-selection-background: oklch(0.84 0.004 95);
+  --code-editor-selection-match-background: oklch(0.9 0.003 95);
+  --code-editor-search-match-background: oklch(0.86 0.004 95);
+  --code-editor-search-match-active-background: oklch(0.78 0.006 95);
+  --code-editor-match-outline: oklch(0.68 0.006 95);
+
   --destructive: oklch(0.58 0.22 27);
   --destructive-foreground: oklch(0.97 0.01 27);
 
@@ -124,6 +131,13 @@
   --code-title: #dcdcaa;
   --code-attr: #9cdcfe;
   --code-built-in: #4ec9b0;
+
+  --code-editor-cursor: #d4d4d4;
+  --code-editor-selection-background: #3c3c3c;
+  --code-editor-selection-match-background: #303030;
+  --code-editor-search-match-background: #383838;
+  --code-editor-search-match-active-background: #484848;
+  --code-editor-match-outline: #5a5a5a;
 
   --destructive: #f87171;
   --destructive-foreground: #ffffff;
@@ -236,13 +250,43 @@
     -webkit-app-region: no-drag;
   }
 
-  .chat-bottom-overlay {
-    background: linear-gradient(
-      to top,
-      var(--background) 0%,
-      var(--background) 58%,
-      transparent 100%
-    );
+  .chat-composer-surface {
+    background: color-mix(in oklab, var(--card) 82%, transparent);
+    -webkit-backdrop-filter: blur(18px) saturate(140%);
+    backdrop-filter: blur(18px) saturate(140%);
+  }
+
+  .chat-composer-surface[data-dragging-attachments="true"] {
+    background: color-mix(in oklab, var(--primary) 8%, var(--card) 74%);
+  }
+
+  .molten-code-editor .cm-cursor,
+  .molten-code-editor .cm-dropCursor {
+    border-left-color: var(--code-editor-cursor) !important;
+  }
+
+  .molten-code-editor .cm-content ::selection {
+    background: var(--code-editor-selection-background) !important;
+    color: var(--foreground) !important;
+  }
+
+  .molten-code-editor .cm-selectionBackground,
+  .molten-code-editor.cm-focused .cm-selectionBackground {
+    background: var(--code-editor-selection-background) !important;
+  }
+
+  .molten-code-editor .cm-selectionMatch {
+    background: var(--code-editor-selection-match-background) !important;
+    outline: 1px solid var(--code-editor-match-outline) !important;
+  }
+
+  .molten-code-editor .cm-searchMatch {
+    background: var(--code-editor-search-match-background) !important;
+    outline: 1px solid var(--code-editor-match-outline) !important;
+  }
+
+  .molten-code-editor .cm-searchMatch.cm-searchMatch-selected {
+    background: var(--code-editor-search-match-active-background) !important;
   }
 
   .window-control-button {
