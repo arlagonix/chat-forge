@@ -7,6 +7,7 @@ import {
   FolderOpen,
   FolderSearch,
   Globe,
+  Info,
   ListTodo,
   Lock,
   MessageSquareText,
@@ -19,7 +20,7 @@ import {
   Wrench,
   X,
 } from "lucide-react";
-import type { Dispatch, SetStateAction } from "react";
+import type { Dispatch, ReactNode, SetStateAction } from "react";
 import { memo, useEffect, useMemo, useState } from "react";
 
 import { MarkdownMessage } from "@/components/ai-chat/markdown-message";
@@ -52,6 +53,11 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { UnsavedChangesDialog } from "@/components/unsaved-changes-dialog";
 import { createId, labelForError } from "@/lib/ai-chat/chat-utils";
 import { getEffectiveGlobalToolPermission } from "@/lib/ai-chat/request-builder";
@@ -81,6 +87,37 @@ import {
   SettingsDetailPane,
 } from "@/components/settings/settings-detail-pane";
 import { cn } from "@/lib/utils";
+
+function InfoTooltip({
+  label,
+  children,
+}: {
+  label: string;
+  children: ReactNode;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          aria-label={`${label} info`}
+          className="inline-flex size-5 shrink-0 cursor-help items-center justify-center rounded-sm text-muted-foreground transition-colors hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          onClick={(event) => event.stopPropagation()}
+          onKeyDown={(event) => event.stopPropagation()}
+        >
+          <Info className="size-3.5" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent
+        side="right"
+        sideOffset={6}
+        className="max-w-xs text-sm leading-5"
+      >
+        {children}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
 
 const TOOL_TEST_STATES_STORAGE_KEY = "molten-forge-tool-test-states";
 const TOOL_TEST_STATE_SAVE_DELAY_MS = 350;
@@ -1797,10 +1834,10 @@ export const ToolsDialog = memo(function ToolsDialog({
         role="button"
         tabIndex={0}
         className={cn(
-          "group flex min-w-0 cursor-pointer items-start gap-2 rounded-sm border px-2 py-2 outline-none",
+          "group flex min-w-0 cursor-pointer items-start gap-2 px-2 py-2 outline-none transition-colors",
           selected
-            ? "border-primary/30 bg-accent text-accent-foreground"
-            : "border-transparent hover:border-border hover:bg-muted/60",
+            ? "bg-accent text-accent-foreground"
+            : "hover:bg-muted/60",
         )}
         onClick={() => requestSelectToolName(name)}
         onKeyDown={(event) => {
@@ -1921,7 +1958,7 @@ export const ToolsDialog = memo(function ToolsDialog({
 
           <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden md:grid-cols-[400px_minmax(0,1fr)]">
             <aside className="flex min-h-0 flex-col border-b bg-card md:border-b-0 md:border-r">
-              <div className="shrink-0 border-b bg-card p-2">
+              <div className="shrink-0 border-b border-border bg-card p-2">
                 <div className="relative">
                   <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
                   <Input
@@ -1945,14 +1982,14 @@ export const ToolsDialog = memo(function ToolsDialog({
                 </div>
               </div>
 
-              <div className="min-h-0 flex-1 overflow-y-auto p-2 pr-0 chat-message-scrollbar">
-                <div className="mb-3 mr-2 flex items-start justify-between gap-3 rounded-sm border bg-background px-3 py-2 text-base">
-                  <span className="min-w-0">
-                    <span className="block font-medium">Tools</span>
-                    <span className="block select-none text-sm leading-5 text-muted-foreground">
+              <div className="min-h-0 flex-1 overflow-y-auto chat-message-scrollbar">
+                <div className="flex items-center justify-between gap-3 border-b border-border bg-transparent px-2 py-2 text-base">
+                  <span className="flex min-h-8 min-w-0 select-none items-center gap-1.5 font-medium">
+                    Tools globally
+                    <InfoTooltip label="Tools globally">
                       Master permission for the whole tools feature. Modes can
                       override it.
-                    </span>
+                    </InfoTooltip>
                   </span>
                   <MasterPermissionSelect
                     value={toolsMasterPermission}
@@ -1967,12 +2004,12 @@ export const ToolsDialog = memo(function ToolsDialog({
                   />
                 </div>
 
-                <div className="grid gap-1.5">
+                <div>
                   {hasFilteredTools ? (
                     <>
                       {filteredBuiltInToolItems.length > 0 ? (
                         <div>
-                          <GroupHeading className="mb-1 mt-0 px-2 pb-1 pt-2">
+                          <GroupHeading className="mb-0 mt-0 px-2 py-2">
                             Built-in
                           </GroupHeading>
                           {filteredBuiltInToolItems.map((tool) =>
@@ -1992,7 +2029,7 @@ export const ToolsDialog = memo(function ToolsDialog({
 
                       {filteredLoadedTools.length > 0 ? (
                         <div>
-                          <GroupHeading className="mb-1 mt-0 px-2 pb-1 pt-2">
+                          <GroupHeading className="mb-0 mt-0 px-2 py-2">
                             Custom tools
                           </GroupHeading>
                           {filteredLoadedTools.map((tool) => (
@@ -2001,10 +2038,10 @@ export const ToolsDialog = memo(function ToolsDialog({
                               role="button"
                               tabIndex={0}
                               className={cn(
-                                "group flex min-w-0 cursor-pointer items-start gap-2 rounded-sm border px-2 py-2 outline-none",
+                                "group flex min-w-0 cursor-pointer items-start gap-2 px-2 py-2 outline-none transition-colors",
                                 selectedTool?.id === tool.id
-                                  ? "border-primary/30 bg-accent text-accent-foreground"
-                                  : "border-transparent hover:border-border hover:bg-muted/60",
+                                  ? "bg-accent text-accent-foreground"
+                                  : "hover:bg-muted/60",
                               )}
                               onClick={() => requestSelectToolName(tool.name)}
                               onKeyDown={(event) => {
@@ -2039,7 +2076,7 @@ export const ToolsDialog = memo(function ToolsDialog({
                       ) : null}
                     </>
                   ) : (
-                    <div className="mr-2 rounded-sm border border-dashed px-3 py-4 text-center text-base text-muted-foreground">
+                    <div className="m-2 rounded-sm border border-dashed px-3 py-4 text-center text-base text-muted-foreground">
                       {totalToolsCount > 0
                         ? "No tools match the search."
                         : "No custom tools configured."}
@@ -2048,7 +2085,7 @@ export const ToolsDialog = memo(function ToolsDialog({
                 </div>
 
                 {toolLoadErrors.length > 0 && (
-                  <div className="mr-2 mt-4 grid gap-2">
+                  <div className="m-2 mt-4 grid gap-2">
                     <GroupHeading className="mt-0">Tool file issues</GroupHeading>
                     {toolLoadErrors.map((error) => (
                       <div

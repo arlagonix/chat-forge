@@ -131,7 +131,7 @@ describe("McpDialog", () => {
     expect(firstServerSwitch).toHaveAttribute("data-state", "unchecked");
   });
 
-  it("toggles the selected MCP server switch when clicking its row", async () => {
+  it("expands and collapses the selected MCP server without changing enablement", async () => {
     const { user } = renderMcpDialog();
     const serverSwitch = screen.getByRole("switch", {
       name: "serena MCP server",
@@ -140,8 +140,43 @@ describe("McpDialog", () => {
 
     expect(serverRow).toBeInstanceOf(HTMLElement);
     expect(serverSwitch).toHaveAttribute("data-state", "checked");
+    expect(
+      screen.getByRole("button", { name: "Expand serena tools" }),
+    ).toBeInTheDocument();
 
     await user.click(serverRow as HTMLElement);
+
+    expect(serverSwitch).toHaveAttribute("data-state", "checked");
+    expect(
+      screen.getByRole("button", { name: "Collapse serena tools" }),
+    ).toBeInTheDocument();
+
+    await user.click(serverRow as HTMLElement);
+
+    expect(serverSwitch).toHaveAttribute("data-state", "checked");
+    expect(
+      screen.getByRole("button", { name: "Expand serena tools" }),
+    ).toBeInTheDocument();
+  });
+
+  it("selects and expands an unselected MCP server with one row click", async () => {
+    const { user } = renderMcpDialog();
+
+    await user.click(screen.getByText("github"));
+
+    expect(screen.getByLabelText("Name")).toHaveValue("github");
+    expect(
+      screen.getByRole("button", { name: "Collapse github tools" }),
+    ).toBeInTheDocument();
+  });
+
+  it("changes MCP server enablement only through its switch", async () => {
+    const { user } = renderMcpDialog();
+    const serverSwitch = screen.getByRole("switch", {
+      name: "serena MCP server",
+    });
+
+    await user.click(serverSwitch);
 
     expect(serverSwitch).toHaveAttribute("data-state", "unchecked");
   });

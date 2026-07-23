@@ -124,16 +124,17 @@ describe("ProviderSettingsDialog", () => {
     storageMocks.saveCachedProviderModels.mockReset();
   });
 
-  it("renders providers without the old expand/collapse controls", () => {
+  it("renders expandable provider rows", () => {
     renderProviderSettingsDialog();
 
-    expect(screen.queryByTitle("Collapse models")).not.toBeInTheDocument();
-    expect(screen.queryByTitle("Expand models")).not.toBeInTheDocument();
     expect(
-      screen.queryByText("Manage provider connections and per-model settings."),
-    ).not.toBeInTheDocument();
+      screen.getByRole("button", { name: "Collapse LM Studio models" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Expand OpenRouter models" }),
+    ).toBeInTheDocument();
     expect(screen.getAllByText("alpha").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("or-model").length).toBeGreaterThan(0);
+    expect(screen.queryByText("or-model")).not.toBeInTheDocument();
   });
 
   it("filters providers by name and base URL and clears the search", async () => {
@@ -152,6 +153,29 @@ describe("ProviderSettingsDialog", () => {
 
     expect(screen.getByText("LM Studio")).toBeInTheDocument();
     expect(screen.queryByText("OpenRouter")).not.toBeInTheDocument();
+  });
+
+  it("finds providers by model name and expands matching models", async () => {
+    const { user } = renderProviderSettingsDialog();
+    const searchInput = screen.getByLabelText(
+      "Search providers by name or base URL",
+    );
+
+    await user.type(searchInput, "or-model");
+
+    expect(screen.getByText("OpenRouter")).toBeInTheDocument();
+    expect(
+      screen.getByRole("switch", { name: "OpenRouter or-model model" }),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByTitle("Clear search"));
+
+    expect(
+      screen.getByRole("button", { name: "Expand OpenRouter models" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("switch", { name: "OpenRouter or-model model" }),
+    ).not.toBeInTheDocument();
   });
 
   it("sorts disabled providers below enabled providers", () => {
@@ -228,6 +252,9 @@ describe("ProviderSettingsDialog", () => {
     const lmStudioModelSwitch = screen.getByRole("switch", {
       name: "LM Studio alpha model",
     });
+    await user.click(
+      screen.getByRole("button", { name: "Expand OpenRouter models" }),
+    );
     const openRouterModelSwitch = screen.getByRole("switch", {
       name: "OpenRouter or-model model",
     });
@@ -593,8 +620,12 @@ describe("ProviderSettingsDialog", () => {
     expect(modelNameInput).toBeDisabled();
   });
 
-  it("opens a model from another provider with one sidebar click", async () => {
+  it("selects and expands another provider before opening one of its models", async () => {
     const { user } = renderProviderSettingsDialog();
+
+    await user.click(screen.getByText("OpenRouter"));
+
+    expect(readRenderedState().activeProviderId).toBe("openrouter");
     const openRouterModelSwitch = screen.getByRole("switch", {
       name: "OpenRouter or-model model",
     });
@@ -605,7 +636,6 @@ describe("ProviderSettingsDialog", () => {
 
     const modelNameInput = await screen.findByLabelText("Model name");
     expect(modelNameInput).toHaveValue("or-model");
-    expect(readRenderedState().activeProviderId).toBe("openrouter");
   });
 
   it("keeps model numeric settings within their accepted formats while allowing empty values", async () => {

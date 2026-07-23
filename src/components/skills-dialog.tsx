@@ -277,10 +277,10 @@ const SkillListRow = memo(function SkillListRow({
       role="button"
       tabIndex={0}
       className={cn(
-        "group flex min-w-0 cursor-pointer select-none items-start gap-2 rounded-sm border px-2 py-2 outline-none transition-colors",
+        "group flex min-w-0 cursor-pointer select-none items-start gap-2 px-2 py-2 outline-none transition-colors",
         selected
-          ? "border-primary/30 bg-accent text-accent-foreground"
-          : "border-transparent hover:border-border hover:bg-muted/60",
+          ? "bg-accent text-accent-foreground"
+          : "hover:bg-muted/60",
         (skill.shadowed || skill.conflict || !globalEnabled) && "opacity-70",
       )}
       onClick={() => onSelectSkill(skill)}
@@ -940,7 +940,7 @@ export const SkillsDialog = memo(function SkillsDialog({
 
           <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden md:grid-cols-[400px_minmax(0,1fr)]">
             <aside className="flex min-h-0 flex-col border-b bg-card md:border-b-0 md:border-r">
-              <div className="shrink-0 bg-card p-2">
+              <div className="shrink-0 border-b border-border bg-card p-2">
                 <div className="relative">
                   <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
                   <Input
@@ -970,7 +970,7 @@ export const SkillsDialog = memo(function SkillsDialog({
                 <div
                   role="button"
                   tabIndex={0}
-                  className="flex cursor-pointer items-center justify-between gap-3 border-y border-border bg-transparent px-2 py-2 text-base outline-none transition-colors hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-ring"
+                  className="flex cursor-pointer items-center justify-between gap-3 border-b border-border bg-transparent px-2 py-2 text-base outline-none transition-colors hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-ring"
                   onClick={() =>
                     onSkillsSettingsChange((current) => ({
                       ...current,
@@ -1014,11 +1014,11 @@ export const SkillsDialog = memo(function SkillsDialog({
                   />
                 </div>
 
-                <div className="grid gap-1.5 p-2 pr-0">
+                <div>
                   {filteredSkills.length > 0 ? (
                     groupedSkills.map((group) => (
                       <div key={group.title}>
-                        <GroupHeading className="mb-1 mt-0 px-2 pb-1 pt-2">
+                        <GroupHeading className="mb-0 mt-0 px-2 py-2">
                           {group.title}
                         </GroupHeading>
                         {group.skills.map((skill) => {
@@ -1046,7 +1046,7 @@ export const SkillsDialog = memo(function SkillsDialog({
                       </div>
                     ))
                   ) : (
-                    <div className="rounded-sm border border-dashed px-3 py-4 text-center text-base text-muted-foreground">
+                    <div className="m-2 rounded-sm border border-dashed px-3 py-4 text-center text-base text-muted-foreground">
                       {loadedSkills.length > 0
                         ? "No skills match the search."
                         : "No skills discovered."}

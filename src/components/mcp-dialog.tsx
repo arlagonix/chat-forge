@@ -404,6 +404,25 @@ export const McpDialog = memo(function McpDialog({
     });
   }
 
+  function expandServer(serverId: string) {
+    setExpandedServerIds((current) => {
+      if (current.has(serverId)) return current;
+      const next = new Set(current);
+      next.add(serverId);
+      return next;
+    });
+  }
+
+  function activateServer(serverId: string, isSelected: boolean) {
+    if (isSelected) {
+      toggleServerExpanded(serverId);
+      return;
+    }
+
+    expandServer(serverId);
+    selectServerForEditing(serverId);
+  }
+
   function setMcpToolPermission(toolName: string, permission: Permission) {
     onToolsSettingsChange((current) => ({
       ...current,
@@ -489,7 +508,7 @@ export const McpDialog = memo(function McpDialog({
 
           <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden md:grid-cols-[400px_minmax(0,1fr)]">
             <aside className="flex min-h-0 flex-col border-b bg-card md:border-b-0 md:border-r">
-              <div className="shrink-0 bg-card p-2">
+              <div className="shrink-0 border-b border-border bg-card p-2">
                 <div className="relative">
                   <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
                   <Input
@@ -517,7 +536,7 @@ export const McpDialog = memo(function McpDialog({
                 <div
                   role="button"
                   tabIndex={0}
-                  className="flex cursor-pointer items-center justify-between gap-3 border-y border-border bg-transparent px-2 py-2 text-base outline-none transition-colors hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-ring"
+                  className="flex cursor-pointer items-center justify-between gap-3 border-b border-border bg-transparent px-2 py-2 text-base outline-none transition-colors hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-ring"
                   onClick={() => updateGlobalEnabled(!mcpEnabled)}
                   onKeyDown={(event) => {
                     if (event.key === "Enter" || event.key === " ") {
@@ -570,24 +589,13 @@ export const McpDialog = memo(function McpDialog({
                               : "hover:bg-muted/60",
                             !server.enabled && "opacity-70",
                           )}
-                          onClick={() => {
-                            if (
-                              !isNewServer &&
-                              selectedServerId === server.id &&
-                              !selectedSavedToolEntry
-                            ) {
-                              if (mcpEnabled) {
-                                updateServerEnabled(server.id, !server.enabled);
-                              }
-                              return;
-                            }
-
-                            selectServerForEditing(server.id);
-                          }}
+                          onClick={() =>
+                            activateServer(server.id, isSelectedServer)
+                          }
                           onKeyDown={(event) => {
                             if (event.key === "Enter" || event.key === " ") {
                               event.preventDefault();
-                              selectServerForEditing(server.id);
+                              activateServer(server.id, isSelectedServer);
                             }
                           }}
                         >

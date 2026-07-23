@@ -1,6 +1,8 @@
 "use client";
 
 import {
+  ChevronDown,
+  ChevronRight,
   Copy,
   Eye,
   EyeOff,
@@ -430,6 +432,9 @@ export const ProviderSettingsDialog = memo(function ProviderSettingsDialog({
   const [modelLoadStatus, setModelLoadStatus] =
     useState<ModelLoadStatus>("idle");
   const [providerSearchQuery, setProviderSearchQuery] = useState("");
+  const [expandedProviderIds, setExpandedProviderIds] = useState<Set<string>>(
+    () => new Set([activeProvider.id]),
+  );
   const [loadedModelSearchQuery, setLoadedModelSearchQuery] = useState("");
   const [selectedModelTarget, setSelectedModelTarget] =
     useState<SelectedModelTarget | null>(null);
@@ -594,6 +599,34 @@ export const ProviderSettingsDialog = memo(function ProviderSettingsDialog({
         activeProviderId: providerId,
       }));
     });
+  }
+
+  function toggleProviderExpanded(providerId: string) {
+    setExpandedProviderIds((current) => {
+      const next = new Set(current);
+      if (next.has(providerId)) next.delete(providerId);
+      else next.add(providerId);
+      return next;
+    });
+  }
+
+  function expandProvider(providerId: string) {
+    setExpandedProviderIds((current) => {
+      if (current.has(providerId)) return current;
+      const next = new Set(current);
+      next.add(providerId);
+      return next;
+    });
+  }
+
+  function activateProvider(providerId: string, isSelected: boolean) {
+    if (isSelected) {
+      toggleProviderExpanded(providerId);
+      return;
+    }
+
+    expandProvider(providerId);
+    selectProvider(providerId);
   }
 
   function selectModel(providerId: string, model: string) {
@@ -985,7 +1018,10 @@ export const ProviderSettingsDialog = memo(function ProviderSettingsDialog({
         if (!query) return true;
         const name = providerDisplayName(provider).toLowerCase();
         const baseUrl = provider.baseUrl.toLowerCase();
-        return name.includes(query) || baseUrl.includes(query);
+        const modelMatches = getShownProviderModels(provider).some((model) =>
+          model.toLowerCase().includes(query),
+        );
+        return name.includes(query) || baseUrl.includes(query) || modelMatches;
       })
       .sort((first, second) => {
         const firstEnabled = isProviderEnabled(first.provider);
@@ -1137,7 +1173,7 @@ export const ProviderSettingsDialog = memo(function ProviderSettingsDialog({
 
           <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden md:grid-cols-[400px_minmax(0,1fr)]">
             <aside className="flex min-h-0 flex-col border-b bg-card md:border-b-0 md:border-r">
-              <div className="shrink-0 border-b bg-card p-2">
+              <div className="shrink-0 border-b border-border bg-card p-2">
                 <div className="relative">
                   <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
                   <Input
@@ -1174,35 +1210,59 @@ export const ProviderSettingsDialog = memo(function ProviderSettingsDialog({
                         !isCreatingProvider &&
                         item.id === activeProvider.id &&
                         !selectedModel;
+                      const searchActive = Boolean(
+                        providerSearchQuery.trim(),
+                      );
+                      const expanded =
+                        searchActive || expandedProviderIds.has(item.id);
 
                       return (
                         <div
                           key={item.id}
-                          className="border-b last:border-b-0 pl-2 py-1"
+                          className="border-b last:border-b-0"
                         >
                           <div
                             role="button"
                             tabIndex={0}
                             className={cn(
-                              "group flex min-w-0 cursor-pointer items-center gap-2 px-2 py-2 outline-none",
+                              "group flex min-w-0 cursor-pointer items-start gap-2 px-2 py-2 outline-none transition-colors",
                               providerSelected
                                 ? "bg-accent text-accent-foreground"
                                 : "hover:bg-muted/60",
                             )}
-                            onClick={() => selectProvider(item.id)}
+                            onClick={() =>
+                              activateProvider(item.id, providerSelected)
+                            }
                             onKeyDown={(event) => {
                               if (event.key === "Enter" || event.key === " ") {
                                 event.preventDefault();
-                                selectProvider(item.id);
+                                activateProvider(item.id, providerSelected);
                               }
                             }}
                           >
+                            <button
+                              type="button"
+                              className="mt-[3px] inline-flex size-5 shrink-0 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                toggleProviderExpanded(item.id);
+                              }}
+                              aria-label={`${expanded ? "Collapse" : "Expand"} ${providerDisplayName(item)} models`}
+                              title={`${expanded ? "Collapse" : "Expand"} models`}
+                            >
+                              {expanded ? (
+                                <ChevronDown className="size-4" />
+                              ) : (
+                                <ChevronRight className="size-4" />
+                              )}
+                            </button>
                             <div className="min-w-0 flex-1">
                               <div className="truncate text-base font-medium leading-6">
                                 {providerDisplayName(item)}
                               </div>
                               <div className="truncate text-sm leading-5 text-muted-foreground">
-                                {item.baseUrl || "No base URL"}
+                                {item.baseUrl || "No base URL"} · {modelCount}{" "}
+                                model{modelCount === 1 ? "" : "s"}
                               </div>
                             </div>
 
@@ -1213,6 +1273,7 @@ export const ProviderSettingsDialog = memo(function ProviderSettingsDialog({
                               onCheckedChange={(checked) =>
                                 toggleProvider(item.id, checked)
                               }
+                              className="mt-0.5 shrink-0 cursor-pointer"
                               title={
                                 providerEnabled
                                   ? "Disable provider"
@@ -1221,72 +1282,80 @@ export const ProviderSettingsDialog = memo(function ProviderSettingsDialog({
                             />
                           </div>
 
-                          <div className="grid gap-1 pl-4">
-                            {modelCount > 0 ? (
-                              shownModels.map((model) => {
-                                const modelSelected =
-                                  !isCreatingProvider &&
-                                  item.id === activeProvider.id &&
-                                  selectedModel === model;
-                                const checked = isModelEnabled(item, model);
+                          {expanded ? (
+                            <div className="grid gap-0">
+                              {modelCount > 0 ? (
+                                shownModels.map((model) => {
+                                  const modelSelected =
+                                    !isCreatingProvider &&
+                                    item.id === activeProvider.id &&
+                                    selectedModel === model;
+                                  const checked = isModelEnabled(item, model);
 
-                                return (
-                                  <div
-                                    key={`${item.id}:${model}`}
-                                    role="button"
-                                    tabIndex={0}
-                                    className={cn(
-                                      "flex min-w-0 cursor-pointer items-center gap-2 px-2 py-1.5 outline-none",
-                                      modelSelected
-                                        ? "bg-accent text-accent-foreground"
-                                        : "hover:bg-muted/60",
-                                    )}
-                                    onClick={() => selectModel(item.id, model)}
-                                    onKeyDown={(event) => {
-                                      if (
-                                        event.key === "Enter" ||
-                                        event.key === " "
-                                      ) {
-                                        event.preventDefault();
-                                        selectModel(item.id, model);
+                                  return (
+                                    <div
+                                      key={`${item.id}:${model}`}
+                                      role="button"
+                                      tabIndex={0}
+                                      className={cn(
+                                        "flex min-w-0 cursor-pointer items-center gap-2 px-2 py-2 pl-9 outline-none transition-colors",
+                                        modelSelected
+                                          ? "bg-accent text-accent-foreground"
+                                          : "hover:bg-muted/60",
+                                      )}
+                                      onClick={() =>
+                                        selectModel(item.id, model)
                                       }
-                                    }}
-                                    title={model}
-                                  >
-                                    <span className="min-w-0 flex-1 truncate text-sm font-medium leading-5">
-                                      {model}
-                                    </span>
-                                    <Switch
-                                      aria-label={`${providerDisplayName(item)} ${model} model`}
-                                      checked={checked}
-                                      disabled={!providerEnabled}
-                                      onClick={(event) =>
-                                        event.stopPropagation()
-                                      }
-                                      onCheckedChange={(nextChecked) =>
-                                        toggleModel(item.id, model, nextChecked)
-                                      }
-                                      title={
-                                        checked
-                                          ? "Disable model"
-                                          : "Enable model"
-                                      }
-                                    />
-                                  </div>
-                                );
-                              })
-                            ) : (
-                              <p className="px-2 py-2 text-sm leading-5 text-muted-foreground">
-                                No models shown. Select models in provider
-                                settings.
-                              </p>
-                            )}
-                          </div>
+                                      onKeyDown={(event) => {
+                                        if (
+                                          event.key === "Enter" ||
+                                          event.key === " "
+                                        ) {
+                                          event.preventDefault();
+                                          selectModel(item.id, model);
+                                        }
+                                      }}
+                                      title={model}
+                                    >
+                                      <span className="min-w-0 flex-1 truncate text-sm font-medium leading-5">
+                                        {model}
+                                      </span>
+                                      <Switch
+                                        aria-label={`${providerDisplayName(item)} ${model} model`}
+                                        checked={checked}
+                                        disabled={!providerEnabled}
+                                        onClick={(event) =>
+                                          event.stopPropagation()
+                                        }
+                                        onCheckedChange={(nextChecked) =>
+                                          toggleModel(
+                                            item.id,
+                                            model,
+                                            nextChecked,
+                                          )
+                                        }
+                                        title={
+                                          checked
+                                            ? "Disable model"
+                                            : "Enable model"
+                                        }
+                                      />
+                                    </div>
+                                  );
+                                })
+                              ) : (
+                                <p className="px-2 py-2 pl-9 text-sm leading-5 text-muted-foreground">
+                                  No models shown. Select models in provider
+                                  settings.
+                                </p>
+                              )}
+                            </div>
+                          ) : null}
                         </div>
                       );
                     })
                   ) : (
-                    <div className="rounded-sm border border-dashed px-3 py-4 text-center text-base text-muted-foreground">
+                    <div className="m-2 rounded-sm border border-dashed px-3 py-4 text-center text-base text-muted-foreground">
                       {providers.length > 0
                         ? "No providers match the search."
                         : "No providers configured."}

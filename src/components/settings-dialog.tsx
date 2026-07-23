@@ -426,7 +426,13 @@ export const SettingsDialog = memo(function SettingsDialog({
             ) : null}
 
             <section className="grid gap-3">
-              <GroupHeading className="mt-0">General</GroupHeading>
+              <GroupHeading
+                className="mt-0"
+                labelClassName="text-base normal-case tracking-normal"
+                showDivider={false}
+              >
+                General
+              </GroupHeading>
               <div className="overflow-hidden rounded-lg border bg-card">
                 <SettingsSelectRow
                   icon={
@@ -495,7 +501,13 @@ export const SettingsDialog = memo(function SettingsDialog({
             </section>
 
             <section className="grid gap-3">
-              <GroupHeading className="mt-0">Title</GroupHeading>
+              <GroupHeading
+                className="mt-0"
+                labelClassName="text-base normal-case tracking-normal"
+                showDivider={false}
+              >
+                Title
+              </GroupHeading>
               <div className="overflow-hidden rounded-lg border bg-card">
                 <SettingsSwitchRow
                   icon={<SlidersHorizontal className="size-4" />}
@@ -518,7 +530,13 @@ export const SettingsDialog = memo(function SettingsDialog({
             </section>
 
             <section className="grid gap-3">
-              <GroupHeading className="mt-0">About</GroupHeading>
+              <GroupHeading
+                className="mt-0"
+                labelClassName="text-base normal-case tracking-normal"
+                showDivider={false}
+              >
+                About
+              </GroupHeading>
               <div className="overflow-hidden rounded-lg border bg-card">
                 <SettingsTextRow
                   icon={<Info className="size-4" />}
