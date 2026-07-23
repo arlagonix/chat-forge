@@ -257,6 +257,23 @@ describe("McpDialog", () => {
     ]);
   });
 
+  it("stores HTTP headers entered through the multiline code editor", async () => {
+    const { user } = renderMcpDialog();
+
+    await user.click(screen.getByText("github"));
+    const headersEditor = screen.getByLabelText("Headers");
+    fireEvent.change(headersEditor, {
+      target: { value: "Authorization=Bearer token\nX-Client: molten-forge" },
+    });
+
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(readRenderedMcpSettings().servers[1].headers).toEqual({
+      Authorization: "Bearer token",
+      "X-Client": "molten-forge",
+    });
+  });
+
   it("restores saved multiline values when resetting raw edits", async () => {
     const settings = createSettings();
     settings.servers[0].args = ["--saved"];

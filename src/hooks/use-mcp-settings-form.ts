@@ -394,6 +394,21 @@ export function useMcpSettingsForm({
     [],
   );
 
+  const updateActiveServerArgs = useCallback(
+    (value: string) => updateActiveServerText("args", value),
+    [updateActiveServerText],
+  );
+
+  const updateActiveServerEnv = useCallback(
+    (value: string) => updateActiveServerText("env", value),
+    [updateActiveServerText],
+  );
+
+  const updateActiveServerHeaders = useCallback(
+    (value: string) => updateActiveServerText("headers", value),
+    [updateActiveServerText],
+  );
+
   const updateActiveServerToolEnabled = useCallback(
     (toolName: string, enabled: boolean) => {
       setActiveServerDraft((current) => {
@@ -690,6 +705,9 @@ export function useMcpSettingsForm({
     testServer,
     unsavedChangesDialogOpen,
     updateActiveServer,
+    updateActiveServerArgs,
+    updateActiveServerEnv,
+    updateActiveServerHeaders,
     updateActiveServerText,
     updateActiveServerToolEnabled,
     updateGlobalEnabled,

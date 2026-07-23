@@ -43,7 +43,7 @@ const codeEditorTheme = EditorView.theme({
   "&": {
     height: "100%",
     minHeight: "inherit",
-    backgroundColor: "transparent",
+    backgroundColor: "var(--code-editor-background)",
     color: "var(--foreground)",
     fontSize: "0.875rem",
   },
@@ -67,15 +67,22 @@ const codeEditorTheme = EditorView.theme({
     padding: "0 0.75rem",
   },
   ".cm-gutters": {
-    backgroundColor: "var(--card)",
+    backgroundColor: "var(--code-editor-background)",
     color: "var(--muted-foreground)",
     borderRight: "1px solid var(--border)",
   },
   ".cm-activeLineGutter": {
+    backgroundColor: "transparent",
+    color: "inherit",
+  },
+  "&.cm-focused .cm-activeLineGutter": {
     backgroundColor: "color-mix(in oklab, var(--accent) 60%, transparent)",
     color: "var(--foreground)",
   },
   ".cm-activeLine": {
+    backgroundColor: "transparent",
+  },
+  "&.cm-focused .cm-activeLine": {
     backgroundColor: "color-mix(in oklab, var(--accent) 22%, transparent)",
   },
   ".cm-cursor, .cm-dropCursor": {
@@ -158,7 +165,7 @@ function CodeEditorTestFallback({
       readOnly={readOnly}
       aria-label={ariaLabel}
       className={cn(
-        "min-h-0 rounded-sm border bg-background p-3 font-mono text-sm leading-6 text-foreground",
+        "molten-code-editor min-h-0 rounded-sm border p-3 font-mono text-sm leading-6 text-foreground",
         className,
       )}
     />
@@ -272,7 +279,7 @@ function CodeMirrorEditor({
     <div
       ref={containerRef}
       className={cn(
-        "molten-code-editor min-h-0 overflow-hidden rounded-sm border bg-background text-foreground",
+        "molten-code-editor min-h-0 overflow-hidden rounded-sm border text-foreground",
         className,
       )}
     />

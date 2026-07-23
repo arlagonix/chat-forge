@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import {
   memo,
+  useCallback,
   useEffect,
   useMemo,
   useState,
@@ -26,6 +27,7 @@ import {
 } from "react";
 
 import { MarkdownMessage } from "@/components/ai-chat/markdown-message";
+import { CodeEditor } from "@/components/code-editor";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -51,7 +53,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { Textarea } from "@/components/ui/textarea";
 import {
   Tooltip,
   TooltipContent,
@@ -136,6 +137,38 @@ function FieldLabel({
     </div>
   );
 }
+
+// Keep each CodeMirror instance isolated so editing one raw multiline field
+// does not rerender the other editors.
+const McpMultilineEditor = memo(function McpMultilineEditor({
+  label,
+  description,
+  value,
+  onChange,
+  placeholder,
+  className,
+}: {
+  label: string;
+  description: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+  className: string;
+}) {
+  return (
+    <div className="grid gap-2">
+      <FieldLabel label={label} description={description} />
+      <CodeEditor
+        ariaLabel={label}
+        className={className}
+        language="plain"
+        placeholder={placeholder}
+        value={value}
+        onChange={onChange}
+      />
+    </div>
+  );
+});
 
 /** A bordered container that acts as a single large switch target. */
 function ToggleBlock({
@@ -302,7 +335,9 @@ export const McpDialog = memo(function McpDialog({
     testServer,
     unsavedChangesDialogOpen,
     updateActiveServer,
-    updateActiveServerText,
+    updateActiveServerArgs,
+    updateActiveServerEnv,
+    updateActiveServerHeaders,
     updateActiveServerToolEnabled,
     updateGlobalEnabled,
     updateServerEnabled,
@@ -318,7 +353,6 @@ export const McpDialog = memo(function McpDialog({
   useEffect(() => {
     onDirtyChange?.(hasChanges);
   }, [hasChanges, onDirtyChange]);
-
 
   const [serverSearch, setServerSearch] = useState("");
   const [discoveredToolSearch, setDiscoveredToolSearch] = useState("");
@@ -395,49 +429,58 @@ export const McpDialog = memo(function McpDialog({
     if (!selectedSavedToolEntry) setSelectedToolEntryKey(null);
   }, [selectedSavedToolEntry, selectedToolEntryKey]);
 
-  function toggleServerExpanded(serverId: string) {
+  const toggleServerExpanded = useCallback((serverId: string) => {
     setExpandedServerIds((current) => {
       const next = new Set(current);
       if (next.has(serverId)) next.delete(serverId);
       else next.add(serverId);
       return next;
     });
-  }
+  }, []);
 
-  function expandServer(serverId: string) {
+  const expandServer = useCallback((serverId: string) => {
     setExpandedServerIds((current) => {
       if (current.has(serverId)) return current;
       const next = new Set(current);
       next.add(serverId);
       return next;
     });
-  }
+  }, []);
 
-  function activateServer(serverId: string, isSelected: boolean) {
-    if (isSelected) {
-      toggleServerExpanded(serverId);
-      return;
-    }
+  const selectServerForEditing = useCallback(
+    (serverId: string) => {
+      setSelectedToolEntryKey(null);
+      requestSelectServer(serverId);
+    },
+    [requestSelectServer],
+  );
 
-    expandServer(serverId);
-    selectServerForEditing(serverId);
-  }
+  const activateServer = useCallback(
+    (serverId: string, isSelected: boolean) => {
+      if (isSelected) {
+        toggleServerExpanded(serverId);
+        return;
+      }
 
-  function setMcpToolPermission(toolName: string, permission: Permission) {
-    onToolsSettingsChange((current) => ({
-      ...current,
-      permissionModelVersion: 2,
-      toolPermissions: {
-        ...(current.toolPermissions ?? {}),
-        [toolName]: permission,
-      },
-    }));
-  }
+      expandServer(serverId);
+      selectServerForEditing(serverId);
+    },
+    [expandServer, selectServerForEditing, toggleServerExpanded],
+  );
 
-  function selectServerForEditing(serverId: string) {
-    setSelectedToolEntryKey(null);
-    requestSelectServer(serverId);
-  }
+  const setMcpToolPermission = useCallback(
+    (toolName: string, permission: Permission) => {
+      onToolsSettingsChange((current) => ({
+        ...current,
+        permissionModelVersion: 2,
+        toolPermissions: {
+          ...(current.toolPermissions ?? {}),
+          [toolName]: permission,
+        },
+      }));
+    },
+    [onToolsSettingsChange],
+  );
 
   function renderSavedToolDetails(entry: SavedMcpToolEntry) {
     return (
@@ -475,6 +518,277 @@ export const McpDialog = memo(function McpDialog({
     );
   }
 
+  // The saved-server sidebar does not depend on raw form text. Keeping the
+  // element stable avoids rebuilding the full server/tool list per keystroke.
+  const sidebar = useMemo(
+    () => (
+      <aside className="flex min-h-0 flex-col border-b bg-card md:border-b-0 md:border-r">
+        <div className="shrink-0 border-b border-border bg-card p-2">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={serverSearch}
+              onChange={(event) => setServerSearch(event.target.value)}
+              placeholder="Search MCP servers"
+              aria-label="Search MCP servers"
+              autoFocus={false}
+              className="h-9 pl-8 pr-8"
+            />
+            {serverSearch ? (
+              <button
+                type="button"
+                className="absolute right-2 top-1/2 inline-flex size-5 -translate-y-1/2 items-center justify-center text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                onClick={() => setServerSearch("")}
+                title="Clear server search"
+              >
+                <X className="size-3.5" />
+              </button>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <div
+            role="button"
+            tabIndex={0}
+            className="flex cursor-pointer items-center justify-between gap-3 border-b border-border bg-transparent px-2 py-2 text-base outline-none transition-colors hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-ring"
+            onClick={() => updateGlobalEnabled(!mcpEnabled)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                updateGlobalEnabled(!mcpEnabled);
+              }
+            }}
+          >
+            <span className="min-w-0">
+              <span className="flex items-center gap-1.5 font-medium select-none min-h-8">
+                Enable MCP globally
+                <InfoTooltip label="Enable MCP globally">
+                  Master switch for MCP. When disabled, all server
+                  switches appear off and all MCP tools stay out of model
+                  context, but saved values are preserved.
+                </InfoTooltip>
+              </span>
+            </span>
+            <Switch
+              checked={mcpEnabled}
+              onClick={(event) => event.stopPropagation()}
+              onCheckedChange={updateGlobalEnabled}
+              className="shrink-0 cursor-pointer"
+            />
+          </div>
+
+          <div>
+            {visibleSavedServers.map((server) => {
+              const savedEnabledTools = getSavedEnabledTools(server);
+              const visibleTools = savedEnabledTools;
+              const toolCount = savedEnabledTools.length;
+              const serverSwitchChecked = mcpEnabled
+                ? server.enabled
+                : false;
+              const expanded = expandedServerIds.has(server.id);
+              const isSelectedServer =
+                !isNewServer &&
+                !selectedSavedToolEntry &&
+                selectedServerId === server.id;
+
+              return (
+                <div key={server.id} className="border-b last:border-b-0">
+                  <div
+                    role="button"
+                    tabIndex={0}
+                    className={cn(
+                      "group flex min-w-0 cursor-pointer select-none items-start gap-2 px-2 py-2 outline-none transition-colors",
+                      isSelectedServer
+                        ? "bg-accent text-accent-foreground"
+                        : "hover:bg-muted/60",
+                      !server.enabled && "opacity-70",
+                    )}
+                    onClick={() =>
+                      activateServer(server.id, isSelectedServer)
+                    }
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        activateServer(server.id, isSelectedServer);
+                      }
+                    }}
+                  >
+                    <button
+                      type="button"
+                      className="mt-[3px] inline-flex size-5 shrink-0 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        toggleServerExpanded(server.id);
+                      }}
+                      aria-label={`${expanded ? "Collapse" : "Expand"} ${server.name} tools`}
+                      title={`${expanded ? "Collapse" : "Expand"} tools`}
+                    >
+                      {expanded ? (
+                        <ChevronDown className="size-4" />
+                      ) : (
+                        <ChevronRight className="size-4" />
+                      )}
+                    </button>
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-base font-medium leading-6">
+                        {server.name}
+                      </div>
+                      <div className="truncate text-sm text-muted-foreground">
+                        {server.transport} · {toolCount} active tool
+                        {toolCount === 1 ? "" : "s"}
+                      </div>
+                    </div>
+                    <Switch
+                      aria-label={`${server.name} MCP server`}
+                      checked={serverSwitchChecked}
+                      disabled={!mcpEnabled}
+                      onClick={(event) => event.stopPropagation()}
+                      onCheckedChange={(checked) =>
+                        updateServerEnabled(server.id, checked)
+                      }
+                      className="mt-0.5 shrink-0 cursor-pointer"
+                      title={
+                        server.enabled
+                          ? "Disable MCP server"
+                          : "Enable MCP server"
+                      }
+                    />
+                  </div>
+
+                  {expanded && visibleTools.length > 0 ? (
+                    <div className="grid gap-0">
+                      {visibleTools.map((tool) => {
+                        const exposedName = createMcpExposedToolName(
+                          server.name,
+                          tool.originalName,
+                        );
+                        const entryKey = getSavedToolEntryKey(
+                          server.id,
+                          tool.originalName,
+                        );
+                        const selected =
+                          selectedSavedToolEntry?.server.id ===
+                            server.id &&
+                          selectedSavedToolEntry.tool.originalName ===
+                            tool.originalName;
+                        return (
+                          <div
+                            key={entryKey}
+                            role="button"
+                            tabIndex={0}
+                            className={cn(
+                              "group flex min-w-0 cursor-pointer items-start gap-2 px-2 py-2 outline-none transition-colors",
+                              selected
+                                ? "bg-accent text-accent-foreground"
+                                : "hover:bg-muted/60",
+                            )}
+                            onClick={() => {
+                              if (hasChanges) return;
+                              setSelectedToolEntryKey(entryKey);
+                            }}
+                            onKeyDown={(event) => {
+                              if (
+                                event.key === "Enter" ||
+                                event.key === " "
+                              ) {
+                                event.preventDefault();
+                                if (!hasChanges)
+                                  setSelectedToolEntryKey(entryKey);
+                              }
+                            }}
+                            title={
+                              hasChanges
+                                ? "Save or reset changes before viewing tool details."
+                                : tool.description
+                            }
+                          >
+                            <Wrench className="mt-1 size-4 shrink-0 text-muted-foreground" />
+                            <div className="min-w-0 flex-1">
+                              <div className="truncate text-base leading-6">
+                                {tool.originalName}
+                              </div>
+                              <div className="mt-0.5 break-all font-mono text-sm leading-5 text-muted-foreground">
+                                {exposedName}
+                              </div>
+                              {tool.description ? (
+                                <div className="mt-1 line-clamp-2 text-sm leading-5 text-muted-foreground">
+                                  {tool.description}
+                                </div>
+                              ) : null}
+                            </div>
+                            <PermissionSelect
+                              value={getMcpToolPermission(
+                                toolsSettings,
+                                exposedName,
+                              )}
+                              onChange={(permission) =>
+                                setMcpToolPermission(
+                                  exposedName,
+                                  permission,
+                                )
+                              }
+                            />
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })}
+
+            {savedServers.length === 0 && (
+              <div className="m-2 rounded-sm border border-dashed px-3 py-4 text-center text-base text-muted-foreground">
+                No MCP servers configured.
+              </div>
+            )}
+
+            {savedServers.length > 0 &&
+              visibleSavedServers.length === 0 && (
+                <div className="m-2 rounded-sm border border-dashed px-3 py-4 text-center text-base text-muted-foreground">
+                  No MCP servers match your search.
+                </div>
+              )}
+          </div>
+        </div>
+
+        <div className="shrink-0 border-t bg-card p-2">
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            className="h-[36px] w-full"
+            onClick={() => {
+              setSelectedToolEntryKey(null);
+              requestAddServer();
+            }}
+          >
+            <Plus className="size-4" />
+            Add server
+          </Button>
+        </div>
+      </aside>
+    ),
+    [
+      activateServer,
+      expandedServerIds,
+      isNewServer,
+      mcpEnabled,
+      requestAddServer,
+      savedServers.length,
+      selectedSavedToolEntry,
+      selectedServerId,
+      serverSearch,
+      setMcpToolPermission,
+      toggleServerExpanded,
+      toolsSettings,
+      updateGlobalEnabled,
+      updateServerEnabled,
+      visibleSavedServers,
+    ],
+  );
+
   return (
     <>
       <Dialog embedded={embedded} open={open} onOpenChange={requestClose}>
@@ -507,253 +821,7 @@ export const McpDialog = memo(function McpDialog({
           ) : null}
 
           <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden md:grid-cols-[400px_minmax(0,1fr)]">
-            <aside className="flex min-h-0 flex-col border-b bg-card md:border-b-0 md:border-r">
-              <div className="shrink-0 border-b border-border bg-card p-2">
-                <div className="relative">
-                  <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-                  <Input
-                    value={serverSearch}
-                    onChange={(event) => setServerSearch(event.target.value)}
-                    placeholder="Search MCP servers"
-                    aria-label="Search MCP servers"
-                    autoFocus={false}
-                    className="h-9 pl-8 pr-8"
-                  />
-                  {serverSearch ? (
-                    <button
-                      type="button"
-                      className="absolute right-2 top-1/2 inline-flex size-5 -translate-y-1/2 items-center justify-center text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                      onClick={() => setServerSearch("")}
-                      title="Clear server search"
-                    >
-                      <X className="size-3.5" />
-                    </button>
-                  ) : null}
-                </div>
-              </div>
-
-              <div className="min-h-0 flex-1 overflow-y-auto">
-                <div
-                  role="button"
-                  tabIndex={0}
-                  className="flex cursor-pointer items-center justify-between gap-3 border-b border-border bg-transparent px-2 py-2 text-base outline-none transition-colors hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-ring"
-                  onClick={() => updateGlobalEnabled(!mcpEnabled)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" || event.key === " ") {
-                      event.preventDefault();
-                      updateGlobalEnabled(!mcpEnabled);
-                    }
-                  }}
-                >
-                  <span className="min-w-0">
-                    <span className="flex items-center gap-1.5 font-medium select-none min-h-8">
-                      Enable MCP globally
-                      <InfoTooltip label="Enable MCP globally">
-                        Master switch for MCP. When disabled, all server
-                        switches appear off and all MCP tools stay out of model
-                        context, but saved values are preserved.
-                      </InfoTooltip>
-                    </span>
-                  </span>
-                  <Switch
-                    checked={mcpEnabled}
-                    onClick={(event) => event.stopPropagation()}
-                    onCheckedChange={updateGlobalEnabled}
-                    className="shrink-0 cursor-pointer"
-                  />
-                </div>
-
-                <div>
-                  {visibleSavedServers.map((server) => {
-                    const savedEnabledTools = getSavedEnabledTools(server);
-                    const visibleTools = savedEnabledTools;
-                    const toolCount = savedEnabledTools.length;
-                    const serverSwitchChecked = mcpEnabled
-                      ? server.enabled
-                      : false;
-                    const expanded = expandedServerIds.has(server.id);
-                    const isSelectedServer =
-                      !isNewServer &&
-                      !selectedSavedToolEntry &&
-                      selectedServerId === server.id;
-
-                    return (
-                      <div key={server.id} className="border-b last:border-b-0">
-                        <div
-                          role="button"
-                          tabIndex={0}
-                          className={cn(
-                            "group flex min-w-0 cursor-pointer select-none items-start gap-2 px-2 py-2 outline-none transition-colors",
-                            isSelectedServer
-                              ? "bg-accent text-accent-foreground"
-                              : "hover:bg-muted/60",
-                            !server.enabled && "opacity-70",
-                          )}
-                          onClick={() =>
-                            activateServer(server.id, isSelectedServer)
-                          }
-                          onKeyDown={(event) => {
-                            if (event.key === "Enter" || event.key === " ") {
-                              event.preventDefault();
-                              activateServer(server.id, isSelectedServer);
-                            }
-                          }}
-                        >
-                          <button
-                            type="button"
-                            className="mt-[3px] inline-flex size-5 shrink-0 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              toggleServerExpanded(server.id);
-                            }}
-                            aria-label={`${expanded ? "Collapse" : "Expand"} ${server.name} tools`}
-                            title={`${expanded ? "Collapse" : "Expand"} tools`}
-                          >
-                            {expanded ? (
-                              <ChevronDown className="size-4" />
-                            ) : (
-                              <ChevronRight className="size-4" />
-                            )}
-                          </button>
-                          <div className="min-w-0 flex-1">
-                            <div className="truncate text-base font-medium leading-6">
-                              {server.name}
-                            </div>
-                            <div className="truncate text-sm text-muted-foreground">
-                              {server.transport} · {toolCount} active tool
-                              {toolCount === 1 ? "" : "s"}
-                            </div>
-                          </div>
-                          <Switch
-                            aria-label={`${server.name} MCP server`}
-                            checked={serverSwitchChecked}
-                            disabled={!mcpEnabled}
-                            onClick={(event) => event.stopPropagation()}
-                            onCheckedChange={(checked) =>
-                              updateServerEnabled(server.id, checked)
-                            }
-                            className="mt-0.5 shrink-0 cursor-pointer"
-                            title={
-                              server.enabled
-                                ? "Disable MCP server"
-                                : "Enable MCP server"
-                            }
-                          />
-                        </div>
-
-                        {expanded && visibleTools.length > 0 ? (
-                          <div className="grid gap-0">
-                            {visibleTools.map((tool) => {
-                              const exposedName = createMcpExposedToolName(
-                                server.name,
-                                tool.originalName,
-                              );
-                              const entryKey = getSavedToolEntryKey(
-                                server.id,
-                                tool.originalName,
-                              );
-                              const selected =
-                                selectedSavedToolEntry?.server.id ===
-                                  server.id &&
-                                selectedSavedToolEntry.tool.originalName ===
-                                  tool.originalName;
-                              return (
-                                <div
-                                  key={entryKey}
-                                  role="button"
-                                  tabIndex={0}
-                                  className={cn(
-                                    "group flex min-w-0 cursor-pointer items-start gap-2 px-2 py-2 outline-none transition-colors",
-                                    selected
-                                      ? "bg-accent text-accent-foreground"
-                                      : "hover:bg-muted/60",
-                                  )}
-                                  onClick={() => {
-                                    if (hasChanges) return;
-                                    setSelectedToolEntryKey(entryKey);
-                                  }}
-                                  onKeyDown={(event) => {
-                                    if (
-                                      event.key === "Enter" ||
-                                      event.key === " "
-                                    ) {
-                                      event.preventDefault();
-                                      if (!hasChanges)
-                                        setSelectedToolEntryKey(entryKey);
-                                    }
-                                  }}
-                                  title={
-                                    hasChanges
-                                      ? "Save or reset changes before viewing tool details."
-                                      : tool.description
-                                  }
-                                >
-                                  <Wrench className="mt-1 size-4 shrink-0 text-muted-foreground" />
-                                  <div className="min-w-0 flex-1">
-                                    <div className="truncate text-base leading-6">
-                                      {tool.originalName}
-                                    </div>
-                                    <div className="mt-0.5 break-all font-mono text-sm leading-5 text-muted-foreground">
-                                      {exposedName}
-                                    </div>
-                                    {tool.description ? (
-                                      <div className="mt-1 line-clamp-2 text-sm leading-5 text-muted-foreground">
-                                        {tool.description}
-                                      </div>
-                                    ) : null}
-                                  </div>
-                                  <PermissionSelect
-                                    value={getMcpToolPermission(
-                                      toolsSettings,
-                                      exposedName,
-                                    )}
-                                    onChange={(permission) =>
-                                      setMcpToolPermission(
-                                        exposedName,
-                                        permission,
-                                      )
-                                    }
-                                  />
-                                </div>
-                              );
-                            })}
-                          </div>
-                        ) : null}
-                      </div>
-                    );
-                  })}
-
-                  {savedServers.length === 0 && (
-                    <div className="m-2 rounded-sm border border-dashed px-3 py-4 text-center text-base text-muted-foreground">
-                      No MCP servers configured.
-                    </div>
-                  )}
-
-                  {savedServers.length > 0 &&
-                    visibleSavedServers.length === 0 && (
-                      <div className="m-2 rounded-sm border border-dashed px-3 py-4 text-center text-base text-muted-foreground">
-                        No MCP servers match your search.
-                      </div>
-                    )}
-                </div>
-              </div>
-
-              <div className="shrink-0 border-t bg-card p-2">
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  className="h-[36px] w-full"
-                  onClick={() => {
-                    setSelectedToolEntryKey(null);
-                    requestAddServer();
-                  }}
-                >
-                  <Plus className="size-4" />
-                  Add server
-                </Button>
-              </div>
-            </aside>
+            {sidebar}
 
             <SettingsDetailPane contentWidthClassName={contentWidthClassName}>
               {selectedSavedToolEntry ? (
@@ -920,26 +988,16 @@ export const McpDialog = memo(function McpDialog({
                             />
                           </div>
 
-                          <div className="grid gap-2">
-                            <FieldLabel
-                              label="Args, one per line"
-                              description="Arguments passed to the command. Put each argument on a separate line."
-                            />
-                            <Textarea
-                              aria-label="Args, one per line"
-                              className="min-h-24 font-mono text-xs"
-                              placeholder={
-                                "-y\n@modelcontextprotocol/server-filesystem\nC:/Users/..."
-                              }
-                              value={activeServerText?.args ?? ""}
-                              onChange={(event) =>
-                                updateActiveServerText(
-                                  "args",
-                                  event.target.value,
-                                )
-                              }
-                            />
-                          </div>
+                          <McpMultilineEditor
+                            label="Args, one per line"
+                            description="Arguments passed to the command. Put each argument on a separate line."
+                            className="h-24"
+                            placeholder={
+                              "-y\n@modelcontextprotocol/server-filesystem\nC:/Users/..."
+                            }
+                            value={activeServerText?.args ?? ""}
+                            onChange={updateActiveServerArgs}
+                          />
 
                           <div className="grid gap-2">
                             <FieldLabel
@@ -956,24 +1014,14 @@ export const McpDialog = memo(function McpDialog({
                             />
                           </div>
 
-                          <div className="grid gap-2">
-                            <FieldLabel
-                              label="Environment variables"
-                              description="KEY=value entries passed to the server process. Use for API keys, tokens, secrets, flags, or environment-based config."
-                            />
-                            <Textarea
-                              aria-label="Environment variables"
-                              className="min-h-20 font-mono text-xs"
-                              placeholder="API_KEY=..."
-                              value={activeServerText?.env ?? ""}
-                              onChange={(event) =>
-                                updateActiveServerText(
-                                  "env",
-                                  event.target.value,
-                                )
-                              }
-                            />
-                          </div>
+                          <McpMultilineEditor
+                            label="Environment variables"
+                            description="KEY=value entries passed to the server process. Use for API keys, tokens, secrets, flags, or environment-based config."
+                            className="h-20"
+                            placeholder="API_KEY=..."
+                            value={activeServerText?.env ?? ""}
+                            onChange={updateActiveServerEnv}
+                          />
                         </>
                       ) : (
                         <>
@@ -991,24 +1039,14 @@ export const McpDialog = memo(function McpDialog({
                             />
                           </div>
 
-                          <div className="grid gap-2">
-                            <FieldLabel
-                              label="Headers"
-                              description="HTTP headers sent to the server. Put one key=value entry per line, for example Authorization=Bearer ..."
-                            />
-                            <Textarea
-                              aria-label="Headers"
-                              className="min-h-20 font-mono text-xs"
-                              placeholder="Authorization=Bearer ..."
-                              value={activeServerText?.headers ?? ""}
-                              onChange={(event) =>
-                                updateActiveServerText(
-                                  "headers",
-                                  event.target.value,
-                                )
-                              }
-                            />
-                          </div>
+                          <McpMultilineEditor
+                            label="Headers"
+                            description="HTTP headers sent to the server. Put one key=value entry per line, for example Authorization=Bearer ..."
+                            className="h-20"
+                            placeholder="Authorization=Bearer ..."
+                            value={activeServerText?.headers ?? ""}
+                            onChange={updateActiveServerHeaders}
+                          />
                         </>
                       )}
 

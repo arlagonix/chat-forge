@@ -78,6 +78,7 @@
   --code-attr: oklch(0.46 0.1 35);
   --code-built-in: oklch(0.43 0.11 300);
 
+  --code-editor-background: var(--muted);
   --code-editor-cursor: var(--foreground);
   --code-editor-selection-background: oklch(0.84 0.004 95);
   --code-editor-selection-match-background: oklch(0.9 0.003 95);
@@ -132,6 +133,11 @@
   --code-attr: #9cdcfe;
   --code-built-in: #4ec9b0;
 
+  --code-editor-background: color-mix(
+    in oklab,
+    var(--input) 30%,
+    transparent
+  );
   --code-editor-cursor: #d4d4d4;
   --code-editor-selection-background: #3c3c3c;
   --code-editor-selection-match-background: #303030;
@@ -186,23 +192,9 @@
 
 
 .system-prompt-code-editor {
-  --system-prompt-editor-background: var(--muted);
-  background-color: var(--system-prompt-editor-background);
   border-top-width: 0;
   border-bottom-width: 0;
   border-radius: 0;
-}
-
-.dark .system-prompt-code-editor {
-  --system-prompt-editor-background: color-mix(
-    in oklab,
-    var(--input) 30%,
-    transparent
-  );
-}
-
-.system-prompt-code-editor .cm-gutters {
-  background-color: var(--system-prompt-editor-background);
 }
 
 @layer base {
@@ -308,6 +300,19 @@
 
   .chat-composer-surface[data-dragging-attachments="true"] {
     background: color-mix(in oklab, var(--primary) 8%, var(--card) 64%);
+  }
+
+  .molten-code-editor {
+    background: var(--code-editor-background);
+  }
+
+  .molten-code-editor .cm-gutters {
+    background: var(--code-editor-background);
+  }
+
+  .molten-code-editor .cm-editor:not(.cm-focused) .cm-activeLine,
+  .molten-code-editor .cm-editor:not(.cm-focused) .cm-activeLineGutter {
+    background: transparent !important;
   }
 
   .molten-code-editor .cm-cursor,
