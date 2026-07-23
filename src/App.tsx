@@ -4221,7 +4221,9 @@ export default function Home() {
           <div
             className="molten-forge-loading-text text-muted-foreground"
             aria-label="Loading app data"
-          />
+          >
+            Loading...
+          </div>
         </div>
       </main>
     );
@@ -4767,7 +4769,7 @@ export default function Home() {
               aria-label="Loading chat"
               aria-live="polite"
             >
-              <div className="select-none px-8 py-4 text-[30px] font-bold leading-tight text-muted-foreground">
+              <div className="molten-forge-loading-text select-none px-8 py-4 text-muted-foreground">
                 Loading...
               </div>
             </div>

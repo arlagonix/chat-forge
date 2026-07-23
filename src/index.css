@@ -494,8 +494,30 @@
     animation: molten-forge-loading-fade 1s linear infinite alternate;
   }
 
-  .molten-forge-loading-text::before {
-    content: "Loading...";
+  .dark .molten-forge-loading-text {
+    background-image: radial-gradient(
+      circle,
+      #ffcc70 0%,
+      #f6a85f 24%,
+      #e17349 46%,
+      #c84830 72%,
+      #c84830 100%
+    );
+    background-size: 240% 240%;
+    background-position: 20% 50%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    -webkit-text-fill-color: transparent;
+    animation:
+      molten-forge-lava-flow 15s linear infinite,
+      molten-forge-loading-fade 1s linear infinite alternate;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .dark .molten-forge-loading-text {
+      animation: none;
+    }
   }
 
   @keyframes generating-gradient-slide {
