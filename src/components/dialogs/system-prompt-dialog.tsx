@@ -12,6 +12,7 @@ import {
 import { UnsavedChangesDialog } from "@/components/unsaved-changes-dialog";
 import { labelForError } from "@/lib/ai-chat/chat-utils";
 import { saveSystemPrompt } from "@/lib/ai-chat/storage";
+import { cn } from "@/lib/utils";
 
 type SystemPromptDialogProps = {
   open: boolean;
@@ -22,6 +23,7 @@ type SystemPromptDialogProps = {
   showError: (title: string, description?: string) => void;
   embedded?: boolean;
   onDirtyChange?: (dirty: boolean) => void;
+  contentWidthClassName?: string;
 };
 
 export const SystemPromptDialog = memo(function SystemPromptDialog({
@@ -33,6 +35,7 @@ export const SystemPromptDialog = memo(function SystemPromptDialog({
   showError,
   embedded = false,
   onDirtyChange,
+  contentWidthClassName,
 }: SystemPromptDialogProps) {
   const [draftValue, setDraftValue] = useState(value);
   const [unsavedChangesDialogOpen, setUnsavedChangesDialogOpen] =
@@ -82,44 +85,58 @@ export const SystemPromptDialog = memo(function SystemPromptDialog({
           ) : null}
 
           <div className="flex min-h-0 flex-1 flex-col">
-            <CodeEditor
-              value={draftValue}
-              onChange={setDraftValue}
-              className="min-h-0 flex-1 rounded-none border-0"
-              ariaLabel="System prompt"
-            />
+            <div
+              className={cn(
+                "mx-auto flex min-h-0 w-full min-w-0 flex-1 flex-col px-4",
+                embedded ? contentWidthClassName : undefined,
+              )}
+            >
+              <CodeEditor
+                value={draftValue}
+                onChange={setDraftValue}
+                className="system-prompt-code-editor min-h-0 flex-1 rounded-none bg-muted dark:bg-input/30"
+                ariaLabel="System prompt"
+              />
+            </div>
           </div>
 
-          <DialogFooter className="shrink-0 border-t bg-card px-4 py-2">
-            <Button
-              type="button"
-              variant="secondary"
-              disabled={!hasChanges}
-              onClick={() => setDraftValue(value)}
+          <footer className="shrink-0 border-t">
+            <DialogFooter
+              className={cn(
+                "mx-auto w-full min-w-0 px-4 py-2",
+                embedded ? contentWidthClassName : undefined,
+              )}
             >
-              Reset
-            </Button>
-            <Button
-              type="button"
-              disabled={!hasChanges}
-              onClick={async () => {
-                try {
-                  await saveSystemPrompt(draftValue);
-                  onValueChange(draftValue);
-                  showSuccess("System prompt saved.");
-                  if (!embedded) onOpenChange(false);
-                } catch (error) {
-                  console.error("Failed to save system prompt:", error);
-                  showError(
-                    "Failed to save system prompt",
-                    labelForError(error),
-                  );
-                }
-              }}
-            >
-              Save
-            </Button>
-          </DialogFooter>
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={!hasChanges}
+                onClick={() => setDraftValue(value)}
+              >
+                Reset
+              </Button>
+              <Button
+                type="button"
+                disabled={!hasChanges}
+                onClick={async () => {
+                  try {
+                    await saveSystemPrompt(draftValue);
+                    onValueChange(draftValue);
+                    showSuccess("System prompt saved.");
+                    if (!embedded) onOpenChange(false);
+                  } catch (error) {
+                    console.error("Failed to save system prompt:", error);
+                    showError(
+                      "Failed to save system prompt",
+                      labelForError(error),
+                    );
+                  }
+                }}
+              >
+                Save
+              </Button>
+            </DialogFooter>
+          </footer>
         </DialogContent>
       </Dialog>
       <UnsavedChangesDialog

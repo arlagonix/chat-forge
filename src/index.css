@@ -184,6 +184,27 @@
   --color-sidebar-ring: var(--sidebar-ring);
 }
 
+
+.system-prompt-code-editor {
+  --system-prompt-editor-background: var(--muted);
+  background-color: var(--system-prompt-editor-background);
+  border-top-width: 0;
+  border-bottom-width: 0;
+  border-radius: 0;
+}
+
+.dark .system-prompt-code-editor {
+  --system-prompt-editor-background: color-mix(
+    in oklab,
+    var(--input) 30%,
+    transparent
+  );
+}
+
+.system-prompt-code-editor .cm-gutters {
+  background-color: var(--system-prompt-editor-background);
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

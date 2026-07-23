@@ -4290,6 +4290,7 @@ export default function Home() {
         settingsPage = (
           <SystemPromptDialog
             embedded
+            contentWidthClassName={chatWidthClassName}
             open
             value={systemPrompt}
             onOpenChange={() => {}}
