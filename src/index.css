@@ -250,14 +250,43 @@
     -webkit-app-region: no-drag;
   }
 
+  .chat-bottom-overlay {
+    isolation: isolate;
+  }
+
+  .chat-bottom-overlay::before,
+  .chat-bottom-overlay::after {
+    content: "";
+    position: absolute;
+    inset-inline: 0;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .chat-bottom-overlay::before {
+    top: 0;
+    height: 3rem;
+    background: linear-gradient(
+      to bottom,
+      transparent 0%,
+      color-mix(in oklab, var(--background) 96%, transparent) 100%
+    );
+  }
+
+  .chat-bottom-overlay::after {
+    top: 3rem;
+    bottom: 0;
+    background: color-mix(in oklab, var(--background) 96%, transparent);
+  }
+
   .chat-composer-surface {
-    background: color-mix(in oklab, var(--card) 82%, transparent);
-    -webkit-backdrop-filter: blur(18px) saturate(140%);
-    backdrop-filter: blur(18px) saturate(140%);
+    background: color-mix(in oklab, var(--card) 64%, transparent);
+    -webkit-backdrop-filter: blur(9px) saturate(115%);
+    backdrop-filter: blur(9px) saturate(115%);
   }
 
   .chat-composer-surface[data-dragging-attachments="true"] {
-    background: color-mix(in oklab, var(--primary) 8%, var(--card) 74%);
+    background: color-mix(in oklab, var(--primary) 8%, var(--card) 64%);
   }
 
   .molten-code-editor .cm-cursor,

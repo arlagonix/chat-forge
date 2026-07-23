@@ -13,6 +13,10 @@ import {
   titleFromMessage,
 } from "@/lib/ai-chat/chat-utils";
 import {
+  isTemporaryChat,
+  TEMPORARY_CHAT_TITLE,
+} from "@/lib/ai-chat/temporary-chat";
+import {
   createEmptyChat,
   deleteChat,
   saveActiveChatId,
@@ -305,14 +309,16 @@ export function useChatActions({
 
   async function cloneChat(chatId: string) {
     const sourceChat = chats.find((chat) => chat.id === chatId);
-    if (!sourceChat) return;
+    if (!sourceChat || isTemporaryChat(sourceChat)) return;
 
     const now = new Date().toISOString();
     const chat = buildClonedChat(
       sourceChat,
       createEmptyChat(),
       now,
-      chats.map((candidate) => candidate.title),
+      chats
+        .filter((candidate) => !isTemporaryChat(candidate))
+        .map((candidate) => candidate.title),
     );
 
     saveCurrentChatScrollSnapshot();
@@ -355,8 +361,8 @@ export function useChatActions({
     const now = new Date().toISOString();
     updateChat(chatId, (chat) => ({
       ...chat,
-      title: "New chat",
-      titleMode: "auto",
+      title: isTemporaryChat(chat) ? TEMPORARY_CHAT_TITLE : "New chat",
+      titleMode: isTemporaryChat(chat) ? "manual" : "auto",
       messages: [],
       activeSkillNames: [],
       updatedAt: now,
@@ -373,11 +379,14 @@ export function useChatActions({
     const remainingChats = sortChatsByUpdatedAt(
       chats.filter((chat) => chat.id !== chatId),
     );
+    const remainingPersistentChats = remainingChats.filter(
+      (chat) => !isTemporaryChat(chat),
+    );
 
-    // When the last chat is removed, fall back to the unsaved "New chat"
-    // draft state rather than auto-creating an empty chat.
-    if (remainingChats.length === 0) {
-      setChats([]);
+    // When the last persisted chat is removed, fall back to the unsaved
+    // "New chat" draft while preserving any in-memory temporary chat.
+    if (remainingPersistentChats.length === 0 && activeChatId === chatId) {
+      setChats(remainingChats);
       setActiveChatId(undefined);
       setIsNewChatDraft(true);
       resetChatScrollState();
@@ -392,15 +401,23 @@ export function useChatActions({
 
     const nextActiveId =
       activeChatId === chatId
-        ? remainingChats[0].id
-        : (activeChatId ?? remainingChats[0].id);
+        ? remainingPersistentChats[0]?.id
+        : (activeChatId ?? remainingPersistentChats[0]?.id);
 
     setChats(remainingChats);
     setActiveChatId(nextActiveId);
 
+    const nextPersistentActiveId = remainingPersistentChats.some(
+      (chat) => chat.id === nextActiveId,
+    )
+      ? nextActiveId
+      : remainingPersistentChats[0]?.id;
+
     try {
       await deleteChat(chatId);
-      await saveActiveChatId(nextActiveId);
+      if (nextPersistentActiveId) {
+        await saveActiveChatId(nextPersistentActiveId);
+      }
     } catch (error) {
       console.error("Failed to delete chat:", error);
     }
@@ -426,6 +443,10 @@ export function useChatActions({
 
   async function branchChatFromMessage(messageId: string) {
     if (!activeChat) return;
+    if (isTemporaryChat(activeChat)) {
+      showInfo("Save the temporary chat before creating a branch.");
+      return;
+    }
 
     if (isChatGenerating(activeChat.id)) {
       showInfo("Wait until generation finishes before branching messages.");
@@ -448,7 +469,9 @@ export function useChatActions({
       baseChat: createEmptyChat(),
       messages: branchedMessages,
       now,
-      existingTitles: chats.map((candidate) => candidate.title),
+      existingTitles: chats
+        .filter((candidate) => !isTemporaryChat(candidate))
+        .map((candidate) => candidate.title),
       fileToolAutoApprovalDefaults,
     });
 
@@ -622,12 +645,16 @@ export function useChatActions({
   }
 
   function renameChat(chatId: string, title: string) {
-    updateChat(chatId, (chat) => renameChatWithoutActivityUpdate(chat, title));
+    updateChat(chatId, (chat) =>
+      isTemporaryChat(chat)
+        ? chat
+        : renameChatWithoutActivityUpdate(chat, title),
+    );
   }
 
   function toggleChatPinned(chatId: string) {
     updateChat(chatId, (chat) => {
-      if (chat.folderId) return chat;
+      if (isTemporaryChat(chat) || chat.folderId) return chat;
 
       return {
         ...chat,

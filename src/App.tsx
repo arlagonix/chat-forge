@@ -4,7 +4,9 @@ import {
   ArrowLeft,
   ChevronDown,
   Menu,
+  MessageSquareDashed,
   Plus,
+  Save,
   Settings,
   Settings2,
 } from "lucide-react";
@@ -61,6 +63,16 @@ import {
 } from "@/components/settings/settings-sidebar";
 import { SkillsDialog } from "@/components/skills-dialog";
 import { ToolsDialog } from "@/components/tools-dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { UnsavedChangesDialog } from "@/components/unsaved-changes-dialog";
 import { WindowControls } from "@/components/window-controls";
@@ -181,6 +193,14 @@ import {
   saveToolsSettings,
 } from "@/lib/ai-chat/storage";
 import { createLoadSkillAssistantMessage } from "@/lib/ai-chat/skill-load-messages";
+import {
+  buildTemporaryChat,
+  convertTemporaryChatToPersistent,
+  filterPersistentComposerDrafts,
+  hasTemporaryChatContent,
+  isTemporaryChat,
+  TEMPORARY_CHAT_TITLE,
+} from "@/lib/ai-chat/temporary-chat";
 import {
   generateTitleFromChatContext,
   resolveTitleGenerationProvider,
@@ -542,6 +562,12 @@ export default function Home() {
   const [loadedSkills, setLoadedSkills] = useState<LoadedSkillInfo[]>([]);
   const [loadedAgents, setLoadedAgents] = useState<LoadedAgentInfo[]>([]);
   const [chats, setChats] = useState<ChatSession[]>([]);
+  const chatsRef = useRef<ChatSession[]>([]);
+  const temporaryChatIdsRef = useRef<Set<string>>(new Set());
+  const [temporaryChatResetDialogOpen, setTemporaryChatResetDialogOpen] =
+    useState(false);
+  const [isSavingTemporaryChat, setIsSavingTemporaryChat] = useState(false);
+  const temporaryChatSavePromiseRef = useRef<Promise<void> | null>(null);
   const [projectInstructionsByChatId, setProjectInstructionsByChatId] =
     useState<Record<string, ProjectInstructionsState | undefined>>({});
   const projectInstructionsByChatIdRef = useRef<
@@ -595,6 +621,9 @@ export default function Home() {
     initialComposerDrafts,
   );
   const [composerAttachmentsByKey, setComposerAttachmentsByKey] = useState<
+    Record<string, ChatAttachment[]>
+  >({});
+  const composerAttachmentsByKeyRef = useRef<
     Record<string, ChatAttachment[]>
   >({});
   const [newChatDraftWorkspaceRoots, setNewChatDraftWorkspaceRoots] = useState<
@@ -931,6 +960,14 @@ export default function Home() {
   }
 
   const sortedChats = useMemo(() => sortChatsByUpdatedAt(chats), [chats]);
+  const persistentChats = useMemo(
+    () => sortedChats.filter((chat) => !isTemporaryChat(chat)),
+    [sortedChats],
+  );
+  const temporaryChat = useMemo(
+    () => sortedChats.find((chat) => isTemporaryChat(chat)),
+    [sortedChats],
+  );
 
   const activeChat = useMemo(() => {
     if (isNewChatDraft) return undefined;
@@ -938,6 +975,28 @@ export default function Home() {
       sortedChats.find((chat) => chat.id === activeChatId) ?? sortedChats[0]
     );
   }, [isNewChatDraft, activeChatId, sortedChats]);
+  const isTemporaryChatActive = isTemporaryChat(activeChat);
+
+  useEffect(() => {
+    chatsRef.current = chats;
+    temporaryChatIdsRef.current = new Set(
+      chats.filter((chat) => isTemporaryChat(chat)).map((chat) => chat.id),
+    );
+  }, [chats]);
+
+  useEffect(() => {
+    composerAttachmentsByKeyRef.current = composerAttachmentsByKey;
+  }, [composerAttachmentsByKey]);
+
+  const persistComposerDrafts = useCallback(
+    (drafts: Record<string, string>) => {
+      saveComposerDrafts(
+        filterPersistentComposerDrafts(drafts, temporaryChatIdsRef.current),
+      );
+    },
+    [],
+  );
+
   const activeOrDraftAutoApprove = isNewChatDraft
     ? newChatDraftSettings?.autoApprove === true
     : activeChat?.autoApprove === true;
@@ -1452,6 +1511,7 @@ export default function Home() {
     closeMessageContextMenu,
     setVisualStreamingMessageIds,
     messageOffsetResolverRef,
+    persistActiveChatScroll: !isTemporaryChatActive,
   });
 
   useLayoutEffect(() => {
@@ -1578,6 +1638,7 @@ export default function Home() {
         savedChatSnapshotsRef.current = Object.fromEntries(
           nextChats.map((chat) => [chat.id, JSON.stringify(chat)]),
         );
+        chatsRef.current = nextChats;
         setChats(nextChats);
         setActiveChatId(nextActiveChatId);
         setIsNewChatDraft(startInNewChatDraft);
@@ -1587,6 +1648,7 @@ export default function Home() {
         console.error("Failed to load app data:", error);
         const fallbackProvider = normalizeProviderForState(defaultProvider);
         savedChatSnapshotsRef.current = {};
+        chatsRef.current = [];
         setProvidersState({
           providers: [fallbackProvider],
           activeProviderId: fallbackProvider.id,
@@ -1724,11 +1786,17 @@ export default function Home() {
   }, [modesState]);
 
   useEffect(() => {
-    if (!didHydrateRef.current || !activeChatId) return;
+    if (
+      !didHydrateRef.current ||
+      !activeChatId ||
+      isTemporaryChatActive
+    ) {
+      return;
+    }
     saveActiveChatId(activeChatId).catch((error) =>
       console.error("Failed to save active chat id:", error),
     );
-  }, [activeChatId]);
+  }, [activeChatId, isTemporaryChatActive]);
 
   useEffect(() => {
     return () => {
@@ -1740,12 +1808,13 @@ export default function Home() {
         window.clearTimeout(chatSaveTimeoutRef.current);
       }
 
-      saveComposerDrafts(composerDraftsRef.current);
+      persistComposerDrafts(composerDraftsRef.current);
     };
-  }, []);
+  }, [persistComposerDrafts]);
 
   useEffect(() => {
-    if (!didHydrateRef.current || chats.length === 0) return;
+    const chatsToPersist = chats.filter((chat) => !isTemporaryChat(chat));
+    if (!didHydrateRef.current || chatsToPersist.length === 0) return;
 
     if (chatSaveTimeoutRef.current !== null) {
       window.clearTimeout(chatSaveTimeoutRef.current);
@@ -1759,7 +1828,7 @@ export default function Home() {
       const nextSnapshots: Record<string, string> = {};
       const changedChats: ChatSession[] = [];
 
-      for (const chat of chats) {
+      for (const chat of chatsToPersist) {
         const snapshot = JSON.stringify(chat);
         nextSnapshots[chat.id] = snapshot;
 
@@ -2207,7 +2276,9 @@ export default function Home() {
         return nextChat;
       });
 
-      return didChange ? nextChats : currentChats;
+      if (!didChange) return currentChats;
+      chatsRef.current = nextChats;
+      return nextChats;
     });
   }
 
@@ -2257,10 +2328,10 @@ export default function Home() {
 
       composerDraftSaveTimeoutRef.current = window.setTimeout(() => {
         composerDraftSaveTimeoutRef.current = null;
-        saveComposerDrafts(composerDraftsRef.current);
+        persistComposerDrafts(composerDraftsRef.current);
       }, 250);
     },
-    [isNewChatDraft, activeChatId],
+    [isNewChatDraft, activeChatId, persistComposerDrafts],
   );
 
   const updateActiveComposerAttachments = useCallback(
@@ -2272,6 +2343,7 @@ export default function Home() {
         const next = { ...current };
         if (attachments.length === 0) delete next[key];
         else next[key] = attachments;
+        composerAttachmentsByKeyRef.current = next;
         return next;
       });
     },
@@ -2354,7 +2426,7 @@ export default function Home() {
       nextDrafts[composerEditState.chatId] = composerEditState.previousDraft;
     }
     composerDraftsRef.current = nextDrafts;
-    saveComposerDrafts(nextDrafts);
+    persistComposerDrafts(nextDrafts);
     setComposerAttachmentsByKey((current) => {
       const next = { ...current };
       if (composerEditState.previousAttachments.length === 0) {
@@ -2362,10 +2434,16 @@ export default function Home() {
       } else {
         next[composerEditState.chatId] = composerEditState.previousAttachments;
       }
+      composerAttachmentsByKeyRef.current = next;
       return next;
     });
     setComposerEditState(null);
-  }, [activeChat?.id, composerEditState, editingMessageId]);
+  }, [
+    activeChat?.id,
+    composerEditState,
+    editingMessageId,
+    persistComposerDrafts,
+  ]);
 
   const {
     sendMessage,
@@ -2661,10 +2739,11 @@ export default function Home() {
       const nextDrafts = { ...composerDraftsRef.current };
       delete nextDrafts[NEW_CHAT_DRAFT_KEY];
       composerDraftsRef.current = nextDrafts;
-      saveComposerDrafts(nextDrafts);
+      persistComposerDrafts(nextDrafts);
       setComposerAttachmentsByKey((current) => {
         const next = { ...current };
         delete next[NEW_CHAT_DRAFT_KEY];
+        composerAttachmentsByKeyRef.current = next;
         return next;
       });
       setNewChatDraftWorkspaceRoots([]);
@@ -2700,6 +2779,7 @@ export default function Home() {
       appSettings.chatFolders,
       saveCurrentChatScrollSnapshot,
       resetChatScrollState,
+      persistComposerDrafts,
       showError,
     ],
   );
@@ -2897,9 +2977,252 @@ export default function Home() {
     createNewChat();
   }
 
+  function resetChatDetailViews() {
+    setSelectedAgentChatId(undefined);
+    setSelectedAgentSidebarId(undefined);
+    setSelectedAgentSidebarStack([]);
+    setSelectedToolSidebarDetails(undefined);
+    setSelectedGenerationInfoVariant(undefined);
+    setIsContextUsageSidebarOpen(false);
+    setIsChatCapabilitiesSidebarOpen(false);
+    pendingAgentSubchatSwitchRef.current = null;
+  }
+
+  const cleanupTemporaryChatFiles = useCallback(
+    async (chat: ChatSession) => {
+      const messageAttachments = chat.messages.flatMap((message) =>
+        message.role === "user" ? (message.attachments ?? []) : [],
+      );
+      const composerAttachments =
+        composerAttachmentsByKeyRef.current[chat.id] ?? [];
+      const attachments = [...messageAttachments, ...composerAttachments];
+
+      const cleanupResults = await Promise.allSettled([
+        attachments.length > 0 && window.moltenForgeAI
+          ? window.moltenForgeAI.deleteTemporaryAttachments({ attachments })
+          : Promise.resolve(),
+        deleteChat(chat.id),
+      ]);
+
+      for (const result of cleanupResults) {
+        if (result.status === "rejected") {
+          console.warn(
+            "Failed to clean up temporary chat files:",
+            result.reason,
+          );
+        }
+      }
+    },
+    [],
+  );
+
+  function removeTemporaryChatState(chat: ChatSession) {
+    if (isChatGenerating(chat.id)) stopChatGeneration(chat.id);
+    if (composerEditState?.chatId === chat.id) {
+      setComposerEditState(null);
+      setEditingMessageId(null);
+    }
+
+    void cleanupTemporaryChatFiles(chat);
+    forgetChatScrollSnapshot(chat.id);
+    temporaryChatIdsRef.current.delete(chat.id);
+    chatsRef.current = chatsRef.current.filter(
+      (candidate) => candidate.id !== chat.id,
+    );
+    setChats((currentChats) =>
+      currentChats.filter((candidate) => candidate.id !== chat.id),
+    );
+
+    const nextDrafts = { ...composerDraftsRef.current };
+    delete nextDrafts[chat.id];
+    composerDraftsRef.current = nextDrafts;
+    persistComposerDrafts(nextDrafts);
+
+    const nextAttachments = {
+      ...composerAttachmentsByKeyRef.current,
+    };
+    delete nextAttachments[chat.id];
+    composerAttachmentsByKeyRef.current = nextAttachments;
+    setComposerAttachmentsByKey(nextAttachments);
+
+    setProjectInstructionsByChatId((current) => {
+      if (!(chat.id in current)) return current;
+      const next = { ...current };
+      delete next[chat.id];
+      projectInstructionsByChatIdRef.current = next;
+      return next;
+    });
+    setCompletedGenerationChatIds((currentChatIds) =>
+      currentChatIds.filter((chatId) => chatId !== chat.id),
+    );
+  }
+
+  function createFreshTemporaryChat(existingChat?: ChatSession) {
+    if (existingChat) removeTemporaryChatState(existingChat);
+
+    const temporary = buildTemporaryChat(
+      applyNewChatDraftSettings({
+        baseChat: createEmptyChat(),
+        draftSettings: undefined,
+        modeId: DEFAULT_MODE_ID,
+        folderId: undefined,
+        workspaceRoots: [],
+        fileToolAutoApprovalDefaults:
+          buildFileToolAutoApprovalFromToolsSettings(toolsSettings),
+      }),
+    );
+
+    temporaryChatIdsRef.current.add(temporary.id);
+    chatsRef.current = [
+      temporary,
+      ...chatsRef.current.filter((chat) => !isTemporaryChat(chat)),
+    ];
+    saveCurrentChatScrollSnapshot();
+    setChats((currentChats) => [
+      temporary,
+      ...currentChats.filter((chat) => !isTemporaryChat(chat)),
+    ]);
+    setActiveChatId(temporary.id);
+    setIsNewChatDraft(false);
+    setEditingMessageId(null);
+    resetChatDetailViews();
+    resetChatScrollState();
+    setTemporaryChatResetDialogOpen(false);
+    window.requestAnimationFrame(focusDraftTextarea);
+  }
+
+  function openTemporaryChat() {
+    if (temporaryChatSavePromiseRef.current) {
+      showInfo("Wait until the temporary chat is saved.");
+      return;
+    }
+
+    if (!temporaryChat) {
+      createFreshTemporaryChat();
+      return;
+    }
+
+    if (!isTemporaryChatActive) {
+      saveCurrentChatScrollSnapshot();
+      setActiveChatId(temporaryChat.id);
+      setIsNewChatDraft(false);
+      setEditingMessageId(null);
+      resetChatDetailViews();
+      resetChatScrollState();
+      window.requestAnimationFrame(focusDraftTextarea);
+      return;
+    }
+
+    const draft = composerDraftsRef.current[temporaryChat.id] ?? "";
+    const attachments =
+      composerAttachmentsByKeyRef.current[temporaryChat.id] ?? [];
+    const needsConfirmation = hasTemporaryChatContent({
+      chat: temporaryChat,
+      draft,
+      attachments,
+      isGenerating: isChatGenerating(temporaryChat.id),
+    });
+
+    if (needsConfirmation) {
+      setTemporaryChatResetDialogOpen(true);
+      return;
+    }
+
+    createFreshTemporaryChat(temporaryChat);
+  }
+
+  function saveTemporaryChatAsRegular() {
+    if (
+      !activeChat ||
+      !isTemporaryChat(activeChat) ||
+      temporaryChatSavePromiseRef.current
+    ) {
+      return;
+    }
+
+    setIsSavingTemporaryChat(true);
+
+    const saveOperation = (async () => {
+      try {
+        const latestTemporaryChat =
+          chatsRef.current.find((chat) => chat.id === activeChat.id) ??
+          activeChat;
+        const savedAt = new Date().toISOString();
+        const savedChat = convertTemporaryChatToPersistent(
+          latestTemporaryChat,
+          savedAt,
+        );
+
+        await saveChat(savedChat);
+
+        temporaryChatIdsRef.current.delete(savedChat.id);
+        chatsRef.current = chatsRef.current.map((chat) =>
+          chat.id === savedChat.id
+            ? convertTemporaryChatToPersistent(chat, savedAt)
+            : chat,
+        );
+        setChats((currentChats) =>
+          currentChats.map((chat) =>
+            chat.id === savedChat.id
+              ? convertTemporaryChatToPersistent(chat, savedAt)
+              : chat,
+          ),
+        );
+
+        savedChatSnapshotsRef.current[savedChat.id] = JSON.stringify(savedChat);
+        saveComposerDrafts(composerDraftsRef.current);
+
+        if (activeChatIdRef.current === savedChat.id) {
+          try {
+            await saveActiveChatId(savedChat.id);
+          } catch (error) {
+            console.warn("Failed to save the active chat id:", error);
+          }
+        }
+
+        showSuccess("Temporary chat saved.");
+      } catch (error) {
+        console.error("Failed to save temporary chat:", error);
+        showError("Failed to save temporary chat", labelForError(error));
+      } finally {
+        setIsSavingTemporaryChat(false);
+      }
+    })();
+
+    temporaryChatSavePromiseRef.current = saveOperation;
+    void saveOperation.finally(() => {
+      if (temporaryChatSavePromiseRef.current === saveOperation) {
+        temporaryChatSavePromiseRef.current = null;
+      }
+    });
+  }
+
+  const temporaryChatButtonTitle = temporaryChat
+    ? isTemporaryChatActive
+      ? "Start a new temporary chat"
+      : "Open temporary chat"
+    : "New temporary chat";
+
+  useEffect(() => {
+    const cleanupCurrentTemporaryChat = () => {
+      if (temporaryChatSavePromiseRef.current) return;
+
+      const chat = chatsRef.current.find((candidate) =>
+        isTemporaryChat(candidate),
+      );
+      if (chat) void cleanupTemporaryChatFiles(chat);
+    };
+
+    window.addEventListener("beforeunload", cleanupCurrentTemporaryChat);
+    return () => {
+      window.removeEventListener("beforeunload", cleanupCurrentTemporaryChat);
+      cleanupCurrentTemporaryChat();
+    };
+  }, [cleanupTemporaryChatFiles]);
+
   function createNewChatWithSameSettings(chatId: string) {
     const sourceChat = chats.find((chat) => chat.id === chatId);
-    if (!sourceChat) return;
+    if (!sourceChat || isTemporaryChat(sourceChat)) return;
 
     const settings = buildNewChatDraftSettings(sourceChat);
     const folderId = settings.folderId;
@@ -2997,13 +3320,14 @@ export default function Home() {
         delete nextDrafts[NEW_CHAT_DRAFT_KEY];
         if (nextDraft.length > 0) nextDrafts[chat.id] = nextDraft;
         composerDraftsRef.current = nextDrafts;
-        saveComposerDrafts(nextDrafts);
+        persistComposerDrafts(nextDrafts);
 
         setComposerAttachmentsByKey((current) => {
           const next = { ...current };
           const draftAttachments = next[NEW_CHAT_DRAFT_KEY] ?? [];
           delete next[NEW_CHAT_DRAFT_KEY];
           if (draftAttachments.length > 0) next[chat.id] = draftAttachments;
+          composerAttachmentsByKeyRef.current = next;
           return next;
         });
 
@@ -3051,6 +3375,7 @@ export default function Home() {
       newChatDraftWorkspaceRoots,
       resetChatScrollState,
       saveCurrentChatScrollSnapshot,
+      persistComposerDrafts,
       setEditingMessageId,
       toolsSettings,
       isNewChatDraft,
@@ -3061,7 +3386,9 @@ export default function Home() {
   );
 
   async function removeChatAndResetDraftState(chatId: string) {
-    const willOpenNewChatDraft = chats.every((chat) => chat.id === chatId);
+    const willOpenNewChatDraft = persistentChats.every(
+      (chat) => chat.id === chatId,
+    );
     if (willOpenNewChatDraft) {
       setNewChatDraftWorkspaceRoots([]);
       setNewChatDraftFolderId(undefined);
@@ -3243,18 +3570,21 @@ export default function Home() {
     );
     if (!folderExists) return;
 
-    updateChat(chatId, (chat) => ({
-      ...chat,
-      folderId,
-      isPinned: false,
-    }));
+    updateChat(chatId, (chat) =>
+      isTemporaryChat(chat)
+        ? chat
+        : {
+            ...chat,
+            folderId,
+            isPinned: false,
+          },
+    );
   }
 
   function removeChatFromFolder(chatId: string) {
-    updateChat(chatId, (chat) => ({
-      ...chat,
-      folderId: undefined,
-    }));
+    updateChat(chatId, (chat) =>
+      isTemporaryChat(chat) ? chat : { ...chat, folderId: undefined },
+    );
   }
 
   async function deleteFolder(folderId: string, mode: "move" | "delete") {
@@ -3305,11 +3635,14 @@ export default function Home() {
 
     if (activeChatWasDeleted) {
       resetChatScrollState();
-      if (remainingChats.length > 0) {
-        setActiveChatId(remainingChats[0].id);
+      const nextPersistentChat = remainingChats.find(
+        (chat) => !isTemporaryChat(chat),
+      );
+      if (nextPersistentChat) {
+        setActiveChatId(nextPersistentChat.id);
         setIsNewChatDraft(false);
         try {
-          await saveActiveChatId(remainingChats[0].id);
+          await saveActiveChatId(nextPersistentChat.id);
         } catch (error) {
           console.error("Failed to save active chat id:", error);
         }
@@ -3399,6 +3732,10 @@ export default function Home() {
   async function generateChatTitle(chatId: string) {
     const chat = chats.find((item) => item.id === chatId);
     if (!chat) return;
+    if (isTemporaryChat(chat)) {
+      showInfo("Save the temporary chat before generating a title.");
+      return;
+    }
 
     if (isChatGenerating(chatId) || titleGenerationChatIds.includes(chatId)) {
       showInfo("Wait until generation finishes before generating a title.");
@@ -3797,6 +4134,22 @@ export default function Home() {
   const activeComposerEditState =
     composerEditState?.chatId === activeChat?.id ? composerEditState : null;
 
+  const closeWindowAfterTemporaryCleanup = useCallback(async () => {
+    await temporaryChatSavePromiseRef.current;
+
+    const chat = chatsRef.current.find((candidate) =>
+      isTemporaryChat(candidate),
+    );
+    if (chat) {
+      if (isChatGenerating(chat.id)) stopChatGeneration(chat.id);
+      await cleanupTemporaryChatFiles(chat);
+      chatsRef.current = chatsRef.current.filter(
+        (candidate) => candidate.id !== chat.id,
+      );
+    }
+    await window.moltenForgeDesktop?.closeWindow();
+  }, [cleanupTemporaryChatFiles, isChatGenerating, stopChatGeneration]);
+
   const commitSettingsNavigation = useCallback(
     (target: SettingsSection | "chat" | "new-chat" | "close") => {
       setSettingsPageDirty(false);
@@ -3804,7 +4157,7 @@ export default function Home() {
       setSettingsDiscardDialogOpen(false);
 
       if (target === "close") {
-        void window.moltenForgeDesktop?.closeWindow();
+        void closeWindowAfterTemporaryCleanup();
         return;
       }
 
@@ -3817,7 +4170,7 @@ export default function Home() {
 
       setSettingsSection(target);
     },
-    [createNewChatWithEmptyDraftState],
+    [closeWindowAfterTemporaryCleanup, createNewChatWithEmptyDraftState],
   );
 
   const requestSettingsNavigation = useCallback(
@@ -3847,8 +4200,13 @@ export default function Home() {
       requestSettingsNavigation("close");
       return;
     }
-    void window.moltenForgeDesktop?.closeWindow();
-  }, [appView, requestSettingsNavigation, settingsPageDirty]);
+    void closeWindowAfterTemporaryCleanup();
+  }, [
+    appView,
+    closeWindowAfterTemporaryCleanup,
+    requestSettingsNavigation,
+    settingsPageDirty,
+  ]);
 
   if (!mounted) {
     return (
@@ -4169,7 +4527,7 @@ export default function Home() {
       />
       <ChatSidebar
         appName={APP_NAME}
-        chats={sortedChats}
+        chats={persistentChats}
         folders={appSettings.chatFolders}
         activeChatId={activeChat?.id}
         isCollapsed={isSidebarCollapsed}
@@ -4204,9 +4562,12 @@ export default function Home() {
           void removeChatAndResetDraftState(chatId);
         }}
         onCreateNewChat={createNewChatWithEmptyDraftState}
+        onOpenTemporaryChat={openTemporaryChat}
+        temporaryChatButtonTitle={temporaryChatButtonTitle}
         onCreateChatInFolder={createNewChatInFolder}
         onCreateChatWithSameSettings={createNewChatWithSameSettings}
         onOpenSettings={() => setSettingsOpen(true)}
+        onCloseWindow={requestWindowClose}
         onCreateFolder={createFolder}
         onRenameFolder={renameFolder}
         onDeleteFolder={deleteFolder}
@@ -4260,8 +4621,20 @@ export default function Home() {
                   >
                     <Plus className="size-4" />
                   </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    className="app-region-no-drag shrink-0"
+                    onClick={openTemporaryChat}
+                    title={temporaryChatButtonTitle}
+                    aria-label={temporaryChatButtonTitle}
+                  >
+                    <MessageSquareDashed className="size-4" />
+                  </Button>
                   <AppMenu
                     onCreateNewChat={createNewChatWithEmptyDraftState}
+                    onCloseWindow={requestWindowClose}
                     triggerClassName="shrink-0"
                   />
                   <Button
@@ -4317,10 +4690,24 @@ export default function Home() {
                 onOpenRoot={openWorkspaceRoot}
               />
             </div>
-            <div className="min-w-0 text-center">
+            <div className="flex min-w-0 items-center justify-center gap-1 text-center">
               <div className="truncate text-sm font-medium leading-5 text-foreground">
                 {headerTitle}
               </div>
+              {isTemporaryChatActive && !selectedAgentChat ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  className="app-region-no-drag size-7 shrink-0 translate-y-px"
+                  disabled={isSavingTemporaryChat}
+                  onClick={saveTemporaryChatAsRegular}
+                  title="Save temporary chat"
+                  aria-label="Save temporary chat"
+                >
+                  <Save className="size-3.5" />
+                </Button>
+              ) : null}
             </div>
             <div className="flex min-w-0 items-center justify-end gap-1">
               <Button
@@ -4430,6 +4817,7 @@ export default function Home() {
                   scrollElementRef={chatScrollRef}
                   offsetResolverRef={messageOffsetResolverRef}
                   isSending={isSending}
+                  disableBranching={isTemporaryChatActive}
                   editingMessageId={editingMessageId}
                   copiedMessageId={copiedMessageId}
                   messageContextMenu={messageContextMenu}
@@ -4506,7 +4894,7 @@ export default function Home() {
               data-chat-bottom-overlay
               className="chat-bottom-overlay pointer-events-none absolute -inset-x-4 bottom-0 z-20 pt-12"
             >
-              <div ref={bottomPanelRef} className="pointer-events-auto px-4">
+              <div ref={bottomPanelRef} className="pointer-events-auto relative z-10 px-4">
                 <div className="relative">
                   {hasMessages &&
                   !selectedAgentChat &&
@@ -4718,6 +5106,30 @@ export default function Home() {
         </div>
       ) : null}
 
+      <AlertDialog
+        open={temporaryChatResetDialogOpen}
+        onOpenChange={setTemporaryChatResetDialogOpen}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Start a new temporary chat?</AlertDialogTitle>
+            <AlertDialogDescription>
+              The current temporary chat and its unsaved contents will be
+              discarded.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (temporaryChat) createFreshTemporaryChat(temporaryChat);
+              }}
+            >
+              Start new chat
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </main>
   );
 }

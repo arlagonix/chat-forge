@@ -8,6 +8,7 @@ import {
   serializeModesState,
 } from "./modes";
 import { defaultProvider } from "./provider-presets";
+import { isTemporaryChat } from "./temporary-chat";
 import type {
   AgentExportResult,
   AgentImportResult,
@@ -1514,13 +1515,16 @@ export async function loadChats(): Promise<ChatSession[]> {
 
   if (api) {
     const chats = await api.loadChats();
-    return sortChatsByUpdatedAt(chats);
+    return sortChatsByUpdatedAt(chats.filter((chat) => !isTemporaryChat(chat)));
   }
 
-  return legacyLoadChats();
+  const chats = await legacyLoadChats();
+  return sortChatsByUpdatedAt(chats.filter((chat) => !isTemporaryChat(chat)));
 }
 
 export async function saveChat(chat: ChatSession): Promise<void> {
+  if (isTemporaryChat(chat)) return;
+
   const api = await ensureJsonStorageReady();
 
   if (api) {

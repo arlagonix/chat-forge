@@ -8,6 +8,7 @@ import {
   FolderOpen,
   Loader2,
   Menu,
+  MessageSquareDashed,
   MoreHorizontal,
   Pin,
   PinOff,
@@ -110,9 +111,12 @@ type ChatSidebarProps = {
   onRemoveChat: (chatId: string) => void;
   onCloneChat: (chatId: string) => void;
   onCreateNewChat: () => void;
+  onOpenTemporaryChat: () => void;
+  temporaryChatButtonTitle: string;
   onCreateChatInFolder: (folderId: string) => void;
   onCreateChatWithSameSettings: (chatId: string) => void;
   onOpenSettings: () => void;
+  onCloseWindow: () => void;
   onClearChat: (chatId: string) => void;
   onCreateFolder: (name: string) => void;
   onRenameFolder: (folderId: string, name: string) => void;
@@ -248,9 +252,12 @@ export const ChatSidebar = memo(function ChatSidebar({
   onRemoveChat,
   onCloneChat,
   onCreateNewChat,
+  onOpenTemporaryChat,
+  temporaryChatButtonTitle,
   onCreateChatInFolder,
   onCreateChatWithSameSettings,
   onOpenSettings,
+  onCloseWindow,
   onClearChat,
   onCreateFolder,
   onRenameFolder,
@@ -600,6 +607,7 @@ export const ChatSidebar = memo(function ChatSidebar({
     return (
       <AppMenu
         onCreateNewChat={onCreateNewChat}
+        onCloseWindow={onCloseWindow}
         triggerClassName={triggerClassName}
       />
     );
@@ -1448,17 +1456,30 @@ export const ChatSidebar = memo(function ChatSidebar({
           </div>
         </div>
 
-        <div className="grid gap-2 border-t p-3">
-          <Button
-            type="button"
-            variant="secondary"
-            className="w-full justify-center"
-            onClick={onCreateNewChat}
-            title="New chat (Ctrl+N)"
-          >
-            <Plus className="size-4" />
-            New chat
-          </Button>
+        <div className="border-t p-3">
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="secondary"
+              className="min-w-0 flex-1 justify-center"
+              onClick={onCreateNewChat}
+              title="New chat (Ctrl+N)"
+            >
+              <Plus className="size-4" />
+              New chat
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="shrink-0"
+              onClick={onOpenTemporaryChat}
+              title={temporaryChatButtonTitle}
+              aria-label={temporaryChatButtonTitle}
+            >
+              <MessageSquareDashed className="size-4" />
+            </Button>
+          </div>
         </div>
       </aside>
 

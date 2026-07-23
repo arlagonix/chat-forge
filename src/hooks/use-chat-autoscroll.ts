@@ -117,10 +117,12 @@ export function useChatAutoscroll({
   closeMessageContextMenu,
   setVisualStreamingMessageIds,
   messageOffsetResolverRef,
+  persistActiveChatScroll = true,
 }: {
   activeChatId?: string;
   generatingChatIds: string[];
   messages: unknown[];
+  persistActiveChatScroll?: boolean;
   closeMessageContextMenu: () => void;
   setVisualStreamingMessageIds: Dispatch<SetStateAction<string[]>>;
   // Optional resolver published by the virtualized message list: maps a
@@ -158,6 +160,7 @@ export function useChatAutoscroll({
   const autoScrollEnabledRef = useRef(false);
   const activeChatIdRef = useRef(activeChatId);
   const generatingChatIdsRef = useRef(generatingChatIds);
+  const persistActiveChatScrollRef = useRef(persistActiveChatScroll);
   const readerScrollLockRef = useRef<{
     chatId: string;
     anchor: ReaderScrollAnchor | null;
@@ -170,6 +173,7 @@ export function useChatAutoscroll({
 
   activeChatIdRef.current = activeChatId;
   generatingChatIdsRef.current = generatingChatIds;
+  persistActiveChatScrollRef.current = persistActiveChatScroll;
 
   function getChatDistanceFromBottom() {
     const scrollElement = chatScrollRef.current;
@@ -700,7 +704,7 @@ export function useChatAutoscroll({
 
   function saveCurrentChatScrollSnapshot() {
     const chatId = activeChatIdRef.current;
-    if (!chatId) return;
+    if (!chatId || !persistActiveChatScrollRef.current) return;
 
     saveChatScrollSnapshot(chatId);
   }

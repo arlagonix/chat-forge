@@ -580,6 +580,8 @@ export type ChatSession = {
   id: string;
   title: string;
   titleMode?: ChatTitleMode;
+  /** In-memory chat that must never be persisted or restored. */
+  isTemporary?: boolean;
   isPinned?: boolean;
   folderId?: string;
   messages: ChatMessage[];

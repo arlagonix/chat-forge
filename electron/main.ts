@@ -3851,6 +3851,35 @@ async function cleanupOrphanedAttachmentDirectories() {
   return { deleted };
 }
 
+async function cleanupOrphanedChatWorkspaces(
+  persistedChatIds: Iterable<string>,
+) {
+  const chatWorkspacesDir = getStoragePaths().chatWorkspacesDir;
+  await fs.mkdir(chatWorkspacesDir, { recursive: true });
+
+  const persistedWorkspaceNames = new Set(
+    [...persistedChatIds].map((chatId) => sanitizeFileNamePart(chatId)),
+  );
+  const entries = await fs.readdir(chatWorkspacesDir, {
+    withFileTypes: true,
+  });
+  let deleted = 0;
+
+  for (const entry of entries) {
+    if (!entry.isDirectory() || persistedWorkspaceNames.has(entry.name)) {
+      continue;
+    }
+
+    await fs.rm(path.join(chatWorkspacesDir, entry.name), {
+      recursive: true,
+      force: true,
+    });
+    deleted += 1;
+  }
+
+  return { deleted };
+}
+
 function collectAttachmentDeleteCandidates(request: unknown) {
   if (isPlainObject(request)) {
     const values = [
@@ -4200,6 +4229,13 @@ async function loadJsonChats() {
     console.error("Failed to clean up orphaned attachment directories:", error);
   }
   const summaries = await readChatIndex();
+  try {
+    await cleanupOrphanedChatWorkspaces(
+      summaries.map((summary) => summary.id),
+    );
+  } catch (error) {
+    console.error("Failed to clean up orphaned chat workspaces:", error);
+  }
   const chats: JsonRecord[] = [];
 
   for (const summary of summaries) {
@@ -4218,6 +4254,7 @@ async function saveJsonChat(chat: unknown) {
   if (!isPlainObject(chat) || typeof chat.id !== "string") {
     throw new Error("A valid chat with an id is required.");
   }
+  if (chat.isTemporary === true) return;
 
   const chatId = chat.id;
 

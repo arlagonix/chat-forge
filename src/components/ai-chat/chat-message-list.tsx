@@ -198,6 +198,7 @@ type ChatMessageListProps = {
   // position even when the anchored message is not currently mounted.
   offsetResolverRef?: RefObject<((messageId: string) => number | null) | null>;
   isSending: boolean;
+  disableBranching?: boolean;
   editingMessageId: string | null;
   copiedMessageId: string | null;
   messageContextMenu: MessageContextMenuState | null;
@@ -759,6 +760,7 @@ const ChatMessageItem = memo(
     message,
     activeChatId,
     isSending,
+    disableBranching = false,
     editingMessageId,
     copiedMessageId,
     messageContextMenu,
@@ -1368,7 +1370,7 @@ const ChatMessageItem = memo(
               <button
                 type="button"
                 className="flex w-full items-center gap-2  px-2 py-1.5 text-left hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
-                disabled={isSending || isMessageStreaming}
+                disabled={disableBranching || isSending || isMessageStreaming}
                 onClick={() => {
                   void onBranchFromMessage(message.id);
                   onCloseMessageContextMenu();
@@ -1444,7 +1446,7 @@ const ChatMessageItem = memo(
               size="icon-sm"
               label="Branch from here"
               onClick={() => onBranchFromMessage(message.id)}
-              disabled={isSending}
+              disabled={disableBranching || isSending}
             >
               <GitBranch className="size-3" />
             </TooltipIconButton>
@@ -1605,7 +1607,7 @@ const ChatMessageItem = memo(
                   size="icon-sm"
                   label="Branch from here"
                   onClick={() => onBranchFromMessage(message.id)}
-                  disabled={isSending || isMessageStreaming}
+                  disabled={disableBranching || isSending || isMessageStreaming}
                 >
                   <GitBranch className="size-3" />
                 </TooltipIconButton>
@@ -1696,6 +1698,7 @@ const ChatMessageItem = memo(
     if (previous.message !== next.message) return false;
     if (previous.activeChatId !== next.activeChatId) return false;
     if (previous.isSending !== next.isSending) return false;
+    if (previous.disableBranching !== next.disableBranching) return false;
     if (previous.toolDisplayKey !== next.toolDisplayKey) return false;
     if (previous.skillDisplayKey !== next.skillDisplayKey) return false;
     if (previous.agentDisplayKey !== next.agentDisplayKey) return false;
