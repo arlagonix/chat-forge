@@ -92,5 +92,11 @@
     "vite-plugin-electron": "^0.28.6",
     "vite-plugin-electron-renderer": "^1.0.0",
     "vitest": "^3.0.5"
+  },
+  "allowScripts": {
+    "electron@41.3.0": true,
+    "electron-winstaller@5.4.0": true,
+    "tesseract.js@7.0.0": true,
+    "esbuild@0.27.7": true
   }
 }

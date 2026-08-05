@@ -545,6 +545,18 @@ export type TitleGenerationModelPreference = {
   model: string;
 };
 
+export type BackgroundTheme = "light" | "dark";
+
+export type ManagedBackgroundImage = {
+  path: string;
+  originalName: string;
+};
+
+export type AppBackgroundImages = {
+  light?: ManagedBackgroundImage;
+  dark?: ManagedBackgroundImage;
+};
+
 export type AppSettings = {
   chatTitleGenerationMode: ChatTitleGenerationMode;
   titleGenerationModel?: TitleGenerationModelPreference;
@@ -553,6 +565,7 @@ export type AppSettings = {
   thinkingAutoCollapse?: boolean;
   renderMarkdownWhileStreaming?: boolean;
   chatWidth?: ChatWidth;
+  backgroundImages?: AppBackgroundImages;
 };
 
 export type ChatWorkspaceRoot = {

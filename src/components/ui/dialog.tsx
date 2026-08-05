@@ -102,7 +102,7 @@ function DialogContent({
         data-slot="dialog-content"
         className={cn(
           className,
-          "relative inset-auto top-auto left-auto z-auto h-full max-h-none min-h-0 w-full max-w-none translate-x-0 translate-y-0 overflow-hidden rounded-none border-0 bg-background p-0 shadow-none sm:max-w-none",
+          "relative inset-auto top-auto left-auto z-auto h-full max-h-none min-h-0 w-full max-w-none translate-x-0 translate-y-0 overflow-hidden rounded-none border-0 p-0 shadow-none sm:max-w-none",
         )}
       >
         {children}

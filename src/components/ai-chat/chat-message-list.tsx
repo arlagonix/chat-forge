@@ -487,10 +487,10 @@ export const GenerationInfoSidebar = memo(function GenerationInfoSidebar({
 
   return (
     <aside
-      className="z-20 flex h-dvh min-w-[560px] shrink-0 flex-col border-l bg-background text-base leading-6 shadow-xl"
+      className="app-glass-panel-strong z-20 flex h-dvh min-w-[560px] shrink-0 flex-col border-l text-base leading-6 shadow-xl"
       style={{ width: width ?? 680 }}
     >
-      <div className="flex min-w-0 items-center border-b bg-card">
+      <div className="app-glass-card flex min-w-0 items-center border-b">
         <div
           data-right-sidebar-titlebar
           className="app-region-drag flex min-w-0 flex-1 select-none items-center gap-3 py-1 pl-4 pr-2"
@@ -1105,7 +1105,7 @@ const ChatMessageItem = memo(
               "grid gap-2 bg-transparent",
               insideThinkingToolGroup || insideRuntimeGroup
                 ? ""
-                : "rounded-sm border border-dashed bg-muted/70 px-2 py-2 shadow-xs",
+                : "app-glass-panel-medium rounded-sm border border-dashed px-2 py-2 shadow-xs",
             )}
           >
             {groupLabel ? (
@@ -1132,7 +1132,7 @@ const ChatMessageItem = memo(
         return (
           <div
             key={`${key}:runtime-group`}
-            className="grid gap-2 border border-dashed rounded-sm bg-muted/70 px-2 py-2 shadow-xs"
+            className="app-glass-panel-medium grid gap-2 border border-dashed rounded-sm px-2 py-2 shadow-xs"
           >
             {group.groups.map((baseGroup) =>
               renderProcessStepGroup(baseGroup, { insideRuntimeGroup: true }),
@@ -1146,7 +1146,7 @@ const ChatMessageItem = memo(
         return (
           <div
             key={key}
-            className="grid gap-2 rounded-sm border border-dashed bg-muted/70 px-2 py-2 shadow-xs"
+            className="grid gap-2 app-glass-panel-medium rounded-sm border border-dashed px-2 py-2 shadow-xs"
           >
             {renderProcessStep(group.thinkingStep)}
             {group.toolGroups.map((toolGroup) =>
@@ -1254,8 +1254,8 @@ const ChatMessageItem = memo(
                 className={cn(
                   "min-w-0 text-base leading-6 [overflow-wrap:anywhere] w-full ",
                   message.role === "user"
-                    ? "max-h-[32rem] overflow-y-auto overflow-x-hidden chat-message-scrollbar rounded-sm bg-primary/90 px-4 py-3 text-primary-foreground shadow-xs"
-                    : "min-w-0 max-w-full overflow-visible px-0 py-1 text-card-foreground shadow-xs",
+                    ? "app-glass-message-user max-h-[32rem] overflow-y-auto overflow-x-hidden chat-message-scrollbar rounded-sm px-4 py-3 text-primary-foreground shadow-xs"
+                    : "app-glass-message min-w-0 max-w-full overflow-visible px-0 py-1 text-card-foreground shadow-xs",
                   status === "error" && "border-destructive/50",
                 )}
                 data-message-view-mode={isSourceView ? "source" : "rendered"}

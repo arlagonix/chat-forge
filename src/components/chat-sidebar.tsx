@@ -1319,7 +1319,7 @@ export const ChatSidebar = memo(function ChatSidebar({
         data-sidebar
         style={width ? { width } : undefined}
         className={cn(
-          "relative shrink-0 flex-col border-r bg-card",
+          "app-glass-card relative shrink-0 flex-col border-r",
           !width && "w-80",
           isCollapsed ? "flex md:hidden" : "flex",
         )}
@@ -1367,7 +1367,7 @@ export const ChatSidebar = memo(function ChatSidebar({
               value={chatSearchQuery}
               onChange={(event) => setChatSearchQuery(event.target.value)}
               placeholder="Search chats"
-              className="h-8 pl-7 pr-8 text-sm"
+              className="h-8 pl-7 pr-8 text-sm shadow-none"
             />
             {chatSearchQuery ? (
               <button

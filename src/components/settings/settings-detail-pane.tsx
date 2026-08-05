@@ -24,7 +24,7 @@ export function SettingsDetailPane({
     <SettingsDetailWidthContext.Provider value={contentWidthClassName}>
       <section
         className={cn(
-          "settings-detail-pane h-full min-h-0 min-w-0 overflow-y-auto overscroll-contain bg-background chat-message-scrollbar",
+          "settings-detail-pane app-glass-panel-strong h-full min-h-0 min-w-0 overflow-y-auto overscroll-contain chat-message-scrollbar",
           className,
         )}
         {...props}
@@ -42,7 +42,7 @@ export function SettingsDetailHeader({
   const contentWidthClassName = useContext(SettingsDetailWidthContext);
 
   return (
-    <header className="sticky top-0 z-20 shrink-0 border-b bg-background">
+    <header className="sticky top-0 z-20 shrink-0 border-b bg-transparent">
       <div
         className={cn("mx-auto w-full min-w-0", contentWidthClassName, className)}
         {...props}
@@ -77,7 +77,7 @@ export function SettingsDetailFooter({
   const contentWidthClassName = useContext(SettingsDetailWidthContext);
 
   return (
-    <footer className="sticky bottom-0 z-20 shrink-0 border-t bg-background">
+    <footer className="sticky bottom-0 z-20 shrink-0 border-t bg-transparent">
       <DialogFooter
         className={cn("mx-auto w-full min-w-0", contentWidthClassName, className)}
         {...props}

@@ -6,6 +6,7 @@ import {
   ipcMain,
   Menu,
   nativeTheme,
+  protocol,
   shell,
   type MenuItemConstructorOptions,
   type OpenDialogOptions,
@@ -103,6 +104,20 @@ process.env.APP_ROOT = APP_ROOT;
 export const VITE_DEV_SERVER_URL = process.env["VITE_DEV_SERVER_URL"];
 export const MAIN_DIST = path.join(APP_ROOT, "dist-electron");
 export const RENDERER_DIST = path.join(APP_ROOT, "dist");
+
+const BACKGROUND_IMAGE_SCHEME = "molten-forge-background";
+
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: BACKGROUND_IMAGE_SCHEME,
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      corsEnabled: true,
+    },
+  },
+]);
 
 function getPackagedAppRoot() {
   // In production, this points to the real packaged app root, including app.asar.
@@ -348,6 +363,18 @@ type TitleGenerationModelPreference = {
   model: string;
 };
 
+type BackgroundTheme = "light" | "dark";
+
+type ManagedBackgroundImage = {
+  path: string;
+  originalName: string;
+};
+
+type AppBackgroundImages = {
+  light?: ManagedBackgroundImage;
+  dark?: ManagedBackgroundImage;
+};
+
 type AppSettings = {
   chatTitleGenerationMode: "local" | "ai";
   titleGenerationModel?: TitleGenerationModelPreference;
@@ -356,6 +383,7 @@ type AppSettings = {
   thinkingAutoCollapse?: boolean;
   renderMarkdownWhileStreaming?: boolean;
   chatWidth?: ChatWidth;
+  backgroundImages?: AppBackgroundImages;
 };
 
 type ToolLoadError = {
@@ -489,6 +517,7 @@ const DEFAULT_APP_SETTINGS: AppSettings = {
   thinkingAutoCollapse: false,
   renderMarkdownWhileStreaming: true,
   chatWidth: "896",
+  backgroundImages: undefined,
 };
 
 function normalizeChatWidth(value: unknown): ChatWidth {
@@ -1049,6 +1078,30 @@ function normalizeChatFolders(value: unknown): ChatFolder[] {
     .filter((folder): folder is ChatFolder => folder !== undefined);
 }
 
+function normalizeManagedBackgroundImage(
+  value: unknown,
+): ManagedBackgroundImage | undefined {
+  if (!isPlainObject(value)) return undefined;
+
+  const imagePath = safeString(value.path).trim();
+  const originalName = safeString(value.originalName).trim();
+  return imagePath
+    ? { path: imagePath, originalName: originalName || "Custom image" }
+    : undefined;
+}
+
+function normalizeBackgroundImages(
+  value: unknown,
+): AppBackgroundImages | undefined {
+  if (!isPlainObject(value)) return undefined;
+
+  const light = normalizeManagedBackgroundImage(value.light);
+  const dark = normalizeManagedBackgroundImage(value.dark);
+  return light || dark
+    ? { ...(light ? { light } : {}), ...(dark ? { dark } : {}) }
+    : undefined;
+}
+
 function normalizeAppSettings(value: unknown): AppSettings {
   if (!isPlainObject(value)) return DEFAULT_APP_SETTINGS;
 
@@ -1077,6 +1130,7 @@ function normalizeAppSettings(value: unknown): AppSettings {
         ? value.renderMarkdownWhileStreaming
         : true,
     chatWidth: normalizeChatWidth(value.chatWidth),
+    backgroundImages: normalizeBackgroundImages(value.backgroundImages),
   };
 }
 
@@ -2387,6 +2441,7 @@ function getStoragePaths() {
     agentsDir: path.join(root, "agents"),
     backupsDir: path.join(root, "backups"),
     attachmentsDir: path.join(root, "attachments"),
+    backgroundsDir: path.join(root, "backgrounds"),
     chatWorkspacesDir: path.join(root, "chat-workspaces"),
   };
 }
@@ -4095,6 +4150,7 @@ async function ensureStorageDirectories() {
   await fs.mkdir(paths.skillsDir, { recursive: true });
   await fs.mkdir(paths.agentsDir, { recursive: true });
   await fs.mkdir(paths.attachmentsDir, { recursive: true });
+  await fs.mkdir(paths.backgroundsDir, { recursive: true });
   await fs.mkdir(paths.chatWorkspacesDir, { recursive: true });
 }
 
@@ -4166,6 +4222,223 @@ async function writeSettingsPatch(patch: JsonRecord) {
       { backup: true },
     );
   });
+}
+
+const BACKGROUND_IMAGE_MAX_BYTES = 25 * 1024 * 1024;
+const BACKGROUND_IMAGE_EXTENSIONS = new Set([
+  ".jpg",
+  ".jpeg",
+  ".png",
+  ".webp",
+  ".avif",
+]);
+
+function getBackgroundImageMimeType(extension: string) {
+  if (extension === ".png") return "image/png";
+  if (extension === ".webp") return "image/webp";
+  if (extension === ".avif") return "image/avif";
+  return "image/jpeg";
+}
+
+function normalizeBackgroundTheme(value: unknown): BackgroundTheme {
+  if (value === "light" || value === "dark") return value;
+  throw new Error("Background theme must be light or dark.");
+}
+
+function normalizeManagedBackgroundPath(value: unknown) {
+  const imagePath = safeString(value).trim();
+  if (!imagePath) return undefined;
+
+  const root = path.resolve(getStoragePaths().backgroundsDir);
+  const resolved = path.resolve(imagePath);
+  const relative = path.relative(root, resolved);
+  if (
+    relative === "" ||
+    relative.startsWith("..") ||
+    path.isAbsolute(relative)
+  ) {
+    return undefined;
+  }
+
+  return resolved;
+}
+
+function getBackgroundImagePaths(settings: AppSettings) {
+  return [
+    settings.backgroundImages?.light?.path,
+    settings.backgroundImages?.dark?.path,
+  ]
+    .map(normalizeManagedBackgroundPath)
+    .filter((imagePath): imagePath is string => Boolean(imagePath));
+}
+
+async function removeManagedBackgroundFiles(pathsToRemove: Iterable<string>) {
+  for (const rawPath of pathsToRemove) {
+    const managedPath = normalizeManagedBackgroundPath(rawPath);
+    if (!managedPath) continue;
+    await fs.rm(managedPath, { force: true }).catch((error) => {
+      console.warn(
+        "Failed to remove managed background image",
+        managedPath,
+        error,
+      );
+    });
+  }
+}
+
+async function saveAppSettingsWithBackgroundCleanup(value: unknown) {
+  const nextSettings = normalizeAppSettings(value);
+
+  await queueStorageWrite(async () => {
+    await initializeJsonStorageIfNeeded();
+    const settings = await readSettingsFile();
+    const previousSettings = normalizeAppSettings(settings.appSettings);
+
+    await writeJsonAtomic(
+      getStoragePaths().settings,
+      { ...settings, appSettings: nextSettings },
+      { backup: true },
+    );
+
+    const retainedPaths = new Set(getBackgroundImagePaths(nextSettings));
+    const removedPaths = getBackgroundImagePaths(previousSettings).filter(
+      (imagePath) => !retainedPaths.has(imagePath),
+    );
+    await removeManagedBackgroundFiles(removedPaths);
+  });
+}
+
+async function selectManagedBackgroundImage(themeValue: unknown) {
+  const theme = normalizeBackgroundTheme(themeValue);
+  const browserWindow =
+    BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
+  const options: OpenDialogOptions = {
+    title: `Choose ${theme} background image`,
+    properties: ["openFile"],
+    filters: [
+      {
+        name: "Images",
+        extensions: ["jpg", "jpeg", "png", "webp", "avif"],
+      },
+    ],
+  };
+  const result = browserWindow
+    ? await dialog.showOpenDialog(browserWindow, options)
+    : await dialog.showOpenDialog(options);
+
+  if (result.canceled || result.filePaths.length === 0) {
+    return { cancelled: true as const };
+  }
+
+  const sourcePath = result.filePaths[0];
+  const extension = path.extname(sourcePath).toLowerCase();
+  if (!BACKGROUND_IMAGE_EXTENSIONS.has(extension)) {
+    throw new Error("Choose a JPG, PNG, WebP, or AVIF image.");
+  }
+
+  const sourceStat = await fs.stat(sourcePath);
+  if (!sourceStat.isFile()) throw new Error("The selected path is not a file.");
+  if (sourceStat.size > BACKGROUND_IMAGE_MAX_BYTES) {
+    throw new Error("Background images must be 25 MB or smaller.");
+  }
+
+  const backgroundsDir = getStoragePaths().backgroundsDir;
+  await fs.mkdir(backgroundsDir, { recursive: true });
+  const managedPath = path.join(
+    backgroundsDir,
+    `background-${theme}-${Date.now()}-${randomUUID()}${extension}`,
+  );
+  const temporaryPath = `${managedPath}.tmp`;
+
+  let imageUrl: string;
+  try {
+    await fs.copyFile(sourcePath, temporaryPath);
+    await fs.rename(temporaryPath, managedPath);
+    imageUrl = buildManagedBackgroundUrl(managedPath);
+  } catch (error) {
+    await fs.rm(temporaryPath, { force: true }).catch(() => {});
+    await fs.rm(managedPath, { force: true }).catch(() => {});
+    throw error;
+  }
+
+  return {
+    cancelled: false as const,
+    image: {
+      path: managedPath,
+      originalName: path.basename(sourcePath) || `Custom ${theme} background`,
+    } satisfies ManagedBackgroundImage,
+    url: imageUrl,
+  };
+}
+
+function buildManagedBackgroundUrl(managedPath: string) {
+  const normalizedPath = normalizeManagedBackgroundPath(managedPath);
+  if (!normalizedPath) {
+    throw new Error("Background image path is outside managed storage.");
+  }
+
+  return `${BACKGROUND_IMAGE_SCHEME}://managed/${encodeURIComponent(
+    path.basename(normalizedPath),
+  )}`;
+}
+
+async function registerManagedBackgroundProtocol() {
+  await protocol.handle(BACKGROUND_IMAGE_SCHEME, async (request) => {
+    try {
+      const requestUrl = new URL(request.url);
+      if (requestUrl.hostname !== "managed") {
+        return new Response("Not found", { status: 404 });
+      }
+
+      const fileName = decodeURIComponent(requestUrl.pathname.slice(1));
+      if (!fileName || path.basename(fileName) !== fileName) {
+        return new Response("Not found", { status: 404 });
+      }
+
+      const managedPath = normalizeManagedBackgroundPath(
+        path.join(getStoragePaths().backgroundsDir, fileName),
+      );
+      if (!managedPath) {
+        return new Response("Not found", { status: 404 });
+      }
+
+      const extension = path.extname(managedPath).toLowerCase();
+      if (!BACKGROUND_IMAGE_EXTENSIONS.has(extension)) {
+        return new Response("Unsupported image format", { status: 415 });
+      }
+
+      const imageStat = await fs.stat(managedPath);
+      if (!imageStat.isFile() || imageStat.size > BACKGROUND_IMAGE_MAX_BYTES) {
+        return new Response("Not found", { status: 404 });
+      }
+
+      const bytes = await fs.readFile(managedPath);
+      return new Response(new Uint8Array(bytes), {
+        headers: {
+          "Content-Type": getBackgroundImageMimeType(extension),
+          "Cache-Control": "no-store",
+        },
+      });
+    } catch {
+      return new Response("Not found", { status: 404 });
+    }
+  });
+}
+
+async function resolveManagedBackgroundImage(imagePathValue: unknown) {
+  const managedPath = normalizeManagedBackgroundPath(imagePathValue);
+  if (!managedPath) return undefined;
+
+  try {
+    const imageStat = await fs.stat(managedPath);
+    if (!imageStat.isFile()) return undefined;
+    const extension = path.extname(managedPath).toLowerCase();
+    if (!BACKGROUND_IMAGE_EXTENSIONS.has(extension)) return undefined;
+    if (imageStat.size > BACKGROUND_IMAGE_MAX_BYTES) return undefined;
+    return buildManagedBackgroundUrl(managedPath);
+  } catch {
+    return undefined;
+  }
 }
 
 async function rebuildChatIndex() {
@@ -5978,7 +6251,7 @@ ipcMain.handle("storage:app-settings:load", async () => {
 });
 
 ipcMain.handle("storage:app-settings:save", async (_event, value: unknown) => {
-  await writeSettingsPatch({ appSettings: normalizeAppSettings(value) });
+  await saveAppSettingsWithBackgroundCleanup(value);
 });
 
 ipcMain.handle("storage:mcp-settings:load", async () => {
@@ -6228,6 +6501,16 @@ ipcMain.handle("mcp:cancel", async (_event, executionId: unknown) => {
   activeToolExecutions.delete(key);
   return { cancelled: true };
 });
+
+ipcMain.handle("backgrounds:select-image", async (_event, theme: unknown) =>
+  selectManagedBackgroundImage(theme),
+);
+
+ipcMain.handle(
+  "backgrounds:resolve-image",
+  async (_event, imagePath: unknown) =>
+    resolveManagedBackgroundImage(imagePath),
+);
 
 ipcMain.handle("workspace:select-folder", async () => selectWorkspaceFolder());
 
@@ -6518,6 +6801,7 @@ app.on("activate", () => {
 });
 
 app.whenReady().then(async () => {
+  await registerManagedBackgroundProtocol();
   nativeTheme.themeSource = await loadDesktopThemeSource();
   nativeTheme.on("updated", updateWindowBackgroundColors);
   Menu.setApplicationMenu(buildApplicationMenu());

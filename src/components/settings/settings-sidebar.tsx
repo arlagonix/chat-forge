@@ -77,7 +77,7 @@ export function SettingsSidebar({
 
   return (
     <aside
-      className="relative flex shrink-0 flex-col border-r bg-card"
+      className="app-glass-card relative flex shrink-0 flex-col border-r"
       style={{ width }}
     >
       <div

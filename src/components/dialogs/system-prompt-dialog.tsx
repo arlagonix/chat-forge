@@ -77,7 +77,12 @@ export const SystemPromptDialog = memo(function SystemPromptDialog({
   return (
     <>
       <Dialog embedded={embedded} open={open} onOpenChange={requestOpenChange}>
-        <DialogContent className="flex h-[min(1000px,calc(100dvh-2rem))] max-h-none flex-col gap-0 overflow-hidden p-0 sm:max-w-6xl">
+        <DialogContent
+          className={cn(
+            "flex h-[min(1000px,calc(100dvh-2rem))] max-h-none flex-col gap-0 overflow-hidden p-0 sm:max-w-6xl",
+            embedded ? "app-glass-panel-strong" : undefined,
+          )}
+        >
           {!embedded ? (
             <DialogHeader className="shrink-0 border-b px-5 py-4 pr-12">
               <DialogTitle>System prompt</DialogTitle>
@@ -94,7 +99,7 @@ export const SystemPromptDialog = memo(function SystemPromptDialog({
               <CodeEditor
                 value={draftValue}
                 onChange={setDraftValue}
-                className="system-prompt-code-editor min-h-0 flex-1 rounded-none bg-muted dark:bg-input/30"
+                className="system-prompt-code-editor min-h-0 flex-1 rounded-none"
                 ariaLabel="System prompt"
               />
             </div>

@@ -22,6 +22,7 @@ import type {
   LoadedAgentInfo,
   LoadedSkillInfo,
   LoadedToolInfo,
+  ManagedBackgroundImage,
   McpSettings,
   ModesState,
   PermissionMap,
@@ -60,6 +61,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   thinkingAutoCollapse: false,
   renderMarkdownWhileStreaming: true,
   chatWidth: "896",
+  backgroundImages: undefined,
 };
 
 function normalizeChatWidth(value: unknown): ChatWidth {
@@ -85,6 +87,41 @@ function normalizeTitleGenerationModel(
   const model = typeof record.model === "string" ? record.model.trim() : "";
 
   return providerId && model ? { providerId, model } : undefined;
+}
+
+function normalizeManagedBackgroundImage(
+  value: unknown,
+): ManagedBackgroundImage | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+
+  const record = value as Record<string, unknown>;
+  const imagePath = typeof record.path === "string" ? record.path.trim() : "";
+  const originalName =
+    typeof record.originalName === "string"
+      ? record.originalName.trim()
+      : "";
+
+  return imagePath
+    ? { path: imagePath, originalName: originalName || "Custom image" }
+    : undefined;
+}
+
+function normalizeBackgroundImages(
+  value: unknown,
+): AppSettings["backgroundImages"] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+
+  const record = value as Record<string, unknown>;
+  const light = normalizeManagedBackgroundImage(record.light);
+  const dark = normalizeManagedBackgroundImage(record.dark);
+
+  return light || dark
+    ? { ...(light ? { light } : {}), ...(dark ? { dark } : {}) }
+    : undefined;
 }
 
 export const DEFAULT_MCP_SETTINGS: McpSettings = {
@@ -608,6 +645,7 @@ export function normalizeAppSettings(
     thinkingAutoCollapse: value?.thinkingAutoCollapse ?? true,
     renderMarkdownWhileStreaming: value?.renderMarkdownWhileStreaming ?? true,
     chatWidth: normalizeChatWidth(value?.chatWidth),
+    backgroundImages: normalizeBackgroundImages(value?.backgroundImages),
   };
 }
 

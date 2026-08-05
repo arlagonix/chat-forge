@@ -412,3 +412,13 @@ contextBridge.exposeInMainWorld("moltenForgeMcp", {
     return ipcRenderer.invoke("mcp:cancel", executionId);
   },
 });
+
+contextBridge.exposeInMainWorld("moltenForgeBackgrounds", {
+  selectImage(theme: unknown) {
+    return ipcRenderer.invoke("backgrounds:select-image", theme);
+  },
+
+  resolveImage(imagePath: unknown) {
+    return ipcRenderer.invoke("backgrounds:resolve-image", imagePath);
+  },
+});

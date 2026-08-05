@@ -213,7 +213,7 @@ function ThinkingBlockComponent({
 
   return (
     <article className="flex w-full min-w-0 max-w-full justify-start">
-      <div className="w-full min-w-0 max-w-full overflow-hidden text-base leading-none text-muted-foreground [overflow-wrap:anywhere]">
+      <div className="app-glass-panel-medium w-full min-w-0 max-w-full overflow-hidden text-base leading-none text-muted-foreground [overflow-wrap:anywhere]">
         <button
           ref={headerRef}
           type="button"

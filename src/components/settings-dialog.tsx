@@ -6,6 +6,7 @@ import {
   Brain,
   Cpu,
   FileText,
+  Image as ImageIcon,
   Info,
   Layers3,
   Maximize2,
@@ -40,6 +41,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import type {
   AppFontFamily,
+  BackgroundTheme,
   ChatTitleGenerationMode,
   ChatWidth,
 } from "@/lib/ai-chat/types";
@@ -254,6 +256,65 @@ function SettingsButtonRow({
   );
 }
 
+function SettingsBackgroundRow({
+  theme,
+  imageName,
+  choosing,
+  disabled,
+  onChoose,
+  onClear,
+}: {
+  theme: BackgroundTheme;
+  imageName?: string;
+  choosing: boolean;
+  disabled: boolean;
+  onChoose: () => void;
+  onClear: () => void;
+}) {
+  const title = `${theme === "light" ? "Light" : "Dark"} background`;
+
+  return (
+    <div className="flex items-center justify-between gap-4 border-b p-3 last:border-b-0">
+      <div className="flex min-w-0 items-start gap-3">
+        <div className="mt-[5px] text-muted-foreground">
+          <ImageIcon className="size-4" />
+        </div>
+        <div className="min-w-0">
+          <div className="text-base font-medium leading-6">{title}</div>
+          <div
+            className="max-w-[34rem] truncate text-sm leading-5 text-muted-foreground"
+            title={imageName}
+          >
+            {imageName ?? "Default image"}
+          </div>
+        </div>
+      </div>
+      <div className="flex shrink-0 items-center gap-2">
+        {imageName ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            disabled={disabled}
+            onClick={onClear}
+          >
+            Clear
+          </Button>
+        ) : null}
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={disabled}
+          onClick={onChoose}
+        >
+          {choosing ? "Choosing…" : "Choose…"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function SettingsActionRow({
   icon,
   title,
@@ -304,6 +365,11 @@ type SettingsDialogProps = {
   chatWidth: ChatWidth;
   theme: ThemePreference;
   resolvedTheme: "light" | "dark";
+  lightBackgroundImageName?: string;
+  darkBackgroundImageName?: string;
+  backgroundPickerTheme?: BackgroundTheme;
+  onChooseBackgroundImage: (theme: BackgroundTheme) => void;
+  onClearBackgroundImage: (theme: BackgroundTheme) => void;
   onToggleAiTitleGeneration: (checked: boolean) => void;
   onTitleGenerationModelChange: (value: string) => void;
   onSetTheme: (theme: ThemePreference) => void;
@@ -336,6 +402,11 @@ export const SettingsDialog = memo(function SettingsDialog({
   chatWidth,
   theme,
   resolvedTheme,
+  lightBackgroundImageName,
+  darkBackgroundImageName,
+  backgroundPickerTheme,
+  onChooseBackgroundImage,
+  onClearBackgroundImage,
   onToggleAiTitleGeneration,
   onTitleGenerationModelChange,
   onSetTheme,
@@ -433,7 +504,7 @@ export const SettingsDialog = memo(function SettingsDialog({
               >
                 General
               </GroupHeading>
-              <div className="overflow-hidden rounded-lg border bg-card">
+              <div className="app-glass-panel-medium overflow-hidden rounded-lg border">
                 <SettingsSelectRow
                   icon={
                     resolvedTheme === "light" ? (
@@ -506,9 +577,37 @@ export const SettingsDialog = memo(function SettingsDialog({
                 labelClassName="text-base normal-case tracking-normal"
                 showDivider={false}
               >
+                Background
+              </GroupHeading>
+              <div className="app-glass-panel-medium overflow-hidden rounded-lg border">
+                <SettingsBackgroundRow
+                  theme="light"
+                  imageName={lightBackgroundImageName}
+                  choosing={backgroundPickerTheme === "light"}
+                  disabled={backgroundPickerTheme !== undefined}
+                  onChoose={() => onChooseBackgroundImage("light")}
+                  onClear={() => onClearBackgroundImage("light")}
+                />
+                <SettingsBackgroundRow
+                  theme="dark"
+                  imageName={darkBackgroundImageName}
+                  choosing={backgroundPickerTheme === "dark"}
+                  disabled={backgroundPickerTheme !== undefined}
+                  onChoose={() => onChooseBackgroundImage("dark")}
+                  onClear={() => onClearBackgroundImage("dark")}
+                />
+              </div>
+            </section>
+
+            <section className="grid gap-3">
+              <GroupHeading
+                className="mt-0"
+                labelClassName="text-base normal-case tracking-normal"
+                showDivider={false}
+              >
                 Title
               </GroupHeading>
-              <div className="overflow-hidden rounded-lg border bg-card">
+              <div className="app-glass-panel-medium overflow-hidden rounded-lg border">
                 <SettingsSwitchRow
                   icon={<SlidersHorizontal className="size-4" />}
                   title="Generate title"
@@ -537,7 +636,7 @@ export const SettingsDialog = memo(function SettingsDialog({
               >
                 About
               </GroupHeading>
-              <div className="overflow-hidden rounded-lg border bg-card">
+              <div className="app-glass-panel-medium overflow-hidden rounded-lg border">
                 <SettingsTextRow
                   icon={<Info className="size-4" />}
                   title="Version"

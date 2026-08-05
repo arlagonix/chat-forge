@@ -5,6 +5,7 @@ import type {
   AgentImportResult,
   AgentsSettings,
   AppSettings,
+  BackgroundTheme,
   ChatAttachment,
   ChatReasoningMetadata,
   ChatTokenUsage,
@@ -12,6 +13,7 @@ import type {
   LoadedAgentInfo,
   LoadedSkillInfo,
   LoadedToolInfo,
+  ManagedBackgroundImage,
   McpSettings,
   ModesState,
   SkillExportResult,
@@ -148,6 +150,17 @@ type ChatForgeIndexedDbSnapshot = {
 
 declare global {
   interface Window {
+    moltenForgeBackgrounds?: {
+      selectImage: (theme: BackgroundTheme) => Promise<
+        | { cancelled: true }
+        | {
+            cancelled: false;
+            image: ManagedBackgroundImage;
+            url: string;
+          }
+      >;
+      resolveImage: (imagePath: string) => Promise<string | undefined>;
+    };
     moltenForgeStorage?: {
       isInitialized: () => Promise<boolean>;
       migrateFromIndexedDb: (

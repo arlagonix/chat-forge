@@ -317,7 +317,7 @@ export const PendingAskUserPanel = memo(function PendingAskUserPanel({
     const customSelected = selected.includes(ASK_USER_CUSTOM_ANSWER_ID);
 
     return (
-      <div className="overflow-hidden rounded-sm border bg-background">
+      <div className="app-glass-background overflow-hidden rounded-sm border">
         <div className="divide-y">
           {activeQuestion.options.map((option) => (
             <QuestionChoice

@@ -522,8 +522,8 @@ export const McpDialog = memo(function McpDialog({
   // element stable avoids rebuilding the full server/tool list per keystroke.
   const sidebar = useMemo(
     () => (
-      <aside className="flex min-h-0 flex-col border-b bg-card md:border-b-0 md:border-r">
-        <div className="shrink-0 border-b border-border bg-card p-2">
+      <aside className="app-glass-card flex min-h-0 flex-col border-b md:border-b-0 md:border-r">
+        <div className="shrink-0 border-b border-border bg-transparent p-2">
           <div className="relative">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input
@@ -753,7 +753,7 @@ export const McpDialog = memo(function McpDialog({
           </div>
         </div>
 
-        <div className="shrink-0 border-t bg-card p-2">
+        <div className="shrink-0 border-t bg-transparent p-2">
           <Button
             type="button"
             variant="secondary"

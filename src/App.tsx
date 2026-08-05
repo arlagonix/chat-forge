@@ -17,6 +17,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
@@ -208,6 +209,7 @@ import {
 import type {
   AgentsSettings,
   AppSettings,
+  BackgroundTheme,
   ChatAgentCall,
   ChatAssistantVariant,
   ChatAttachment,
@@ -222,6 +224,7 @@ import type {
   LoadedAgentInfo,
   LoadedSkillInfo,
   LoadedToolInfo,
+  ManagedBackgroundImage,
   McpSettings,
   ModesState,
   ProviderConfig,
@@ -233,6 +236,8 @@ import type {
   ToolExecutionStatus,
   ToolsSettings,
 } from "@/lib/ai-chat/types";
+import backgroundMountainsDark from "@/assets/background-mountains-dark.jpg";
+import backgroundMountainsLight from "@/assets/background-mountains-light.jpg";
 import { useTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 
@@ -260,6 +265,62 @@ const TITLE_GENERATION_CHAT_DEFAULT_OPTION = {
 const SIDEBAR_COLLAPSED_STORAGE_KEY = "molten-forge-sidebar-collapsed";
 const LEFT_SIDEBAR_WIDTH_STORAGE_KEY = "molten-forge-left-sidebar-width";
 const RIGHT_SIDEBAR_WIDTH_STORAGE_KEY = "molten-forge-right-sidebar-width";
+
+const DEFAULT_BACKGROUND_IMAGE_URLS: Record<BackgroundTheme, string> = {
+  light: backgroundMountainsLight,
+  dark: backgroundMountainsDark,
+};
+
+type BackgroundImageUrls = Partial<Record<BackgroundTheme, string>>;
+
+function updateBackgroundImageSetting(
+  settings: AppSettings,
+  theme: BackgroundTheme,
+  image: ManagedBackgroundImage | undefined,
+): AppSettings {
+  const nextImages = { ...(settings.backgroundImages ?? {}) };
+  if (image) nextImages[theme] = image;
+  else delete nextImages[theme];
+
+  return {
+    ...settings,
+    backgroundImages:
+      nextImages.light || nextImages.dark ? nextImages : undefined,
+  };
+}
+
+async function resolveSavedBackgroundImages(settings: AppSettings): Promise<{
+  settings: AppSettings;
+  urls: BackgroundImageUrls;
+}> {
+  const api = window.moltenForgeBackgrounds;
+  if (!api) return { settings, urls: {} };
+
+  let nextSettings = settings;
+  const urls: BackgroundImageUrls = {};
+
+  for (const theme of ["light", "dark"] as const) {
+    const image = nextSettings.backgroundImages?.[theme];
+    if (!image) continue;
+
+    const url = await api.resolveImage(image.path);
+    if (url) urls[theme] = url;
+    else
+      nextSettings = updateBackgroundImageSetting(
+        nextSettings,
+        theme,
+        undefined,
+      );
+  }
+
+  return { settings: nextSettings, urls };
+}
+
+function buildBackgroundStyle(imageUrl: string): CSSProperties {
+  return {
+    "--app-background-image": `url(${JSON.stringify(imageUrl)})`,
+  } as CSSProperties;
+}
 
 function encodeTitleGenerationModelValue(
   preference: TitleGenerationModelPreference,
@@ -552,7 +613,16 @@ export default function Home() {
     thinkingAutoCollapse: false,
     renderMarkdownWhileStreaming: true,
     chatWidth: "896",
+    backgroundImages: undefined,
   });
+  const [backgroundImageUrls, setBackgroundImageUrls] =
+    useState<BackgroundImageUrls>({});
+  const [backgroundImagesResolved, setBackgroundImagesResolved] =
+    useState(false);
+  const [loadingBackgroundVisible, setLoadingBackgroundVisible] =
+    useState(false);
+  const [backgroundPickerTheme, setBackgroundPickerTheme] =
+    useState<BackgroundTheme>();
   const [mcpSettings, setMcpSettings] =
     useState<McpSettings>(DEFAULT_MCP_SETTINGS);
   const [modesState, setModesState] = useState<ModesState>(() =>
@@ -770,6 +840,53 @@ export default function Home() {
   const finishChatSwitchLoadingFrameRef = useRef<number | null>(null);
 
   const { theme, resolvedTheme, setTheme } = useTheme();
+
+  const activeBackgroundImageUrl =
+    backgroundImageUrls[resolvedTheme] ??
+    (mounted || backgroundImagesResolved
+      ? DEFAULT_BACKGROUND_IMAGE_URLS[resolvedTheme]
+      : undefined);
+  const appBackgroundStyle = useMemo(
+    () =>
+      activeBackgroundImageUrl
+        ? buildBackgroundStyle(activeBackgroundImageUrl)
+        : undefined,
+    [activeBackgroundImageUrl],
+  );
+
+  useEffect(() => {
+    if (mounted) return;
+
+    const imageUrl = activeBackgroundImageUrl;
+    if (!imageUrl) {
+      setLoadingBackgroundVisible(false);
+      return;
+    }
+
+    let cancelled = false;
+    setLoadingBackgroundVisible(false);
+
+    const revealBackground = () => {
+      window.requestAnimationFrame(() => {
+        if (!cancelled) setLoadingBackgroundVisible(true);
+      });
+    };
+
+    const image = new Image();
+    image.onload = revealBackground;
+    image.onerror = revealBackground;
+    image.src = imageUrl;
+
+    if (image.complete) {
+      revealBackground();
+    }
+
+    return () => {
+      cancelled = true;
+      image.onload = null;
+      image.onerror = null;
+    };
+  }, [activeBackgroundImageUrl, mounted]);
 
   useEffect(() => {
     document.title = APP_TITLE;
@@ -1557,6 +1674,26 @@ export default function Home() {
 
     async function hydrate() {
       try {
+        const appSettingsPromise = loadAppSettings();
+        const resolvedBackgroundsPromise = appSettingsPromise.then(
+          resolveSavedBackgroundImages,
+        );
+
+        // Resolve the saved background independently from the rest of startup.
+        // This lets the loading screen use the user's image instead of briefly
+        // displaying the bundled default while tools, chats, and providers load.
+        void resolvedBackgroundsPromise.then(
+          (resolvedBackgrounds) => {
+            if (cancelled) return;
+            setAppSettings(resolvedBackgrounds.settings);
+            setBackgroundImageUrls(resolvedBackgrounds.urls);
+            setBackgroundImagesResolved(true);
+          },
+          () => {
+            if (!cancelled) setBackgroundImagesResolved(true);
+          },
+        );
+
         const [
           loadedProvidersState,
           loadedSystemPrompt,
@@ -1565,7 +1702,7 @@ export default function Home() {
           loadedToolsSettings,
           loadedSkillsSettings,
           loadedAgentsSettings,
-          loadedAppSettings,
+          resolvedBackgrounds,
           loadedMcpSettings,
           loadedModesState,
           loadedToolManifests,
@@ -1580,7 +1717,7 @@ export default function Home() {
           loadToolsSettings(),
           loadSkillsSettings(),
           loadAgentsSettings(),
-          loadAppSettings(),
+          resolvedBackgroundsPromise,
           loadMcpSettings(),
           loadModesState(),
           loadTools(),
@@ -1628,7 +1765,9 @@ export default function Home() {
         );
         setSkillsSettings(loadedSkillsSettings);
         setAgentsSettings(loadedAgentsSettings);
-        setAppSettings(loadedAppSettings);
+        setAppSettings(resolvedBackgrounds.settings);
+        setBackgroundImageUrls(resolvedBackgrounds.urls);
+        setBackgroundImagesResolved(true);
         setMcpSettings(loadedMcpSettings);
         setModesState(loadedModesState);
         setLoadedTools(loadedToolManifests);
@@ -1642,6 +1781,14 @@ export default function Home() {
         setChats(nextChats);
         setActiveChatId(nextActiveChatId);
         setIsNewChatDraft(startInNewChatDraft);
+
+        // Give React one paint with the resolved custom/default image on the
+        // loading screen before replacing it with the fully hydrated app.
+        await new Promise<void>((resolve) => {
+          window.requestAnimationFrame(() => resolve());
+        });
+        if (cancelled) return;
+
         didHydrateRef.current = true;
         setMounted(true);
       } catch (error) {
@@ -4208,16 +4355,65 @@ export default function Home() {
     settingsPageDirty,
   ]);
 
+  async function chooseBackgroundImage(theme: BackgroundTheme) {
+    if (backgroundPickerTheme) return;
+
+    const api = window.moltenForgeBackgrounds;
+    if (!api) {
+      showError(
+        "Background picker unavailable",
+        "Restart the desktop app and try again.",
+      );
+      return;
+    }
+
+    setBackgroundPickerTheme(theme);
+    try {
+      const result = await api.selectImage(theme);
+      if (result.cancelled) return;
+
+      setBackgroundImageUrls((current) => ({
+        ...current,
+        [theme]: result.url,
+      }));
+      setAppSettings((current) =>
+        updateBackgroundImageSetting(current, theme, result.image),
+      );
+    } catch (error) {
+      showError("Could not set background image", labelForError(error));
+    } finally {
+      setBackgroundPickerTheme(undefined);
+    }
+  }
+
+  function clearBackgroundImage(theme: BackgroundTheme) {
+    setBackgroundImageUrls((current) => {
+      const next = { ...current };
+      delete next[theme];
+      return next;
+    });
+    setAppSettings((current) =>
+      updateBackgroundImageSetting(current, theme, undefined),
+    );
+  }
+
   if (!mounted) {
     return (
-      <main className="relative flex h-dvh items-center justify-center bg-background text-foreground">
-        <div className="absolute inset-x-0 top-0 flex h-10 items-center pr-[100px]">
+      <main
+        className={cn(
+          "app-background-shell app-background-shell-loading relative flex h-dvh items-center justify-center text-foreground",
+          loadingBackgroundVisible &&
+            "app-background-shell-loading-image-visible",
+        )}
+        style={appBackgroundStyle}
+      >
+        <div className="absolute inset-x-0 top-0 z-10 flex h-10 items-center pr-[100px]">
           <div className="app-region-drag min-w-0 flex-1" aria-hidden="true" />
         </div>
         <WindowControls
           className="fixed right-0 top-1 z-[100]"
         />
-        <div className="flex flex-col items-center gap-4 text-center">
+        <div className="relative z-10 flex flex-col items-center gap-4 text-center">
           <div
             className="molten-forge-loading-text text-muted-foreground"
             aria-label="Loading app data"
@@ -4240,7 +4436,9 @@ export default function Home() {
       renderMarkdownWhileStreaming:
         DEFAULT_APP_SETTINGS.renderMarkdownWhileStreaming,
       chatWidth: DEFAULT_APP_SETTINGS.chatWidth,
+      backgroundImages: DEFAULT_APP_SETTINGS.backgroundImages,
     }));
+    setBackgroundImageUrls({});
   };
 
   if (appView === "settings") {
@@ -4385,7 +4583,7 @@ export default function Home() {
       case "general":
       default:
         settingsPage = (
-          <div className="h-full w-full px-4">
+          <div className="app-glass-panel-strong h-full w-full px-4">
             <div
               className={cn(
                 "mx-auto h-full w-full",
@@ -4409,6 +4607,17 @@ export default function Home() {
                 chatWidth={appSettings.chatWidth ?? "896"}
                 theme={theme}
                 resolvedTheme={resolvedTheme}
+                lightBackgroundImageName={
+                  appSettings.backgroundImages?.light?.originalName
+                }
+                darkBackgroundImageName={
+                  appSettings.backgroundImages?.dark?.originalName
+                }
+                backgroundPickerTheme={backgroundPickerTheme}
+                onChooseBackgroundImage={(backgroundTheme) =>
+                  void chooseBackgroundImage(backgroundTheme)
+                }
+                onClearBackgroundImage={clearBackgroundImage}
                 onToggleAiTitleGeneration={(checked) =>
                   setAppSettings((currentSettings) => ({
                     ...currentSettings,
@@ -4465,7 +4674,10 @@ export default function Home() {
     }
 
     return (
-      <main className="relative flex h-dvh min-h-0 overflow-hidden bg-background text-foreground">
+      <main
+        className="app-background-shell relative flex h-dvh min-h-0 overflow-hidden text-foreground"
+        style={appBackgroundStyle}
+      >
         <SettingsSidebar
           appName={APP_NAME}
           activeSection={settingsSection}
@@ -4479,8 +4691,8 @@ export default function Home() {
           onCloseWindow={requestWindowClose}
         />
 
-        <section className="relative flex min-h-0 min-w-0 flex-1 flex-col bg-background">
-          <div className="app-region-drag flex h-[41px] shrink-0 items-center border-b bg-card px-2 pr-[100px]">
+        <section className="relative flex min-h-0 min-w-0 flex-1 flex-col">
+          <div className="app-glass-card app-region-drag flex h-[41px] shrink-0 items-center border-b px-2 pr-[100px]">
             {isSettingsSidebarCollapsed ? (
               <Button
                 type="button"
@@ -4523,7 +4735,10 @@ export default function Home() {
   }
 
   return (
-    <main className="relative flex h-dvh min-h-0 overflow-hidden bg-background text-foreground">
+    <main
+      className="app-background-shell relative flex h-dvh min-h-0 overflow-hidden text-foreground"
+      style={appBackgroundStyle}
+    >
       <WindowControls
         className="fixed right-0 top-1 z-[100]"
         onCloseRequest={requestWindowClose}
@@ -4591,8 +4806,8 @@ export default function Home() {
         }}
       />
 
-      <section className="relative flex min-h-0 flex-1 flex-col bg-background px-4">
-        <div className="-mx-4 flex min-w-0 items-center border-b bg-card">
+      <section className="app-glass-panel-strong relative flex min-h-0 flex-1 flex-col px-4">
+        <div className="app-glass-card -mx-4 flex min-w-0 items-center border-b">
           <div
             data-main-titlebar
             data-sidebar-collapsed={isSidebarCollapsed ? "true" : "false"}

@@ -154,4 +154,41 @@ describe("chat storage normalization", () => {
     ).toBe("896");
   });
 
+  it("preserves managed light and dark background images", () => {
+    expect(
+      normalizeAppSettings({
+        backgroundImages: {
+          light: {
+            path: "  /app-data/background-light.jpg  ",
+            originalName: "  light.jpg  ",
+          },
+          dark: {
+            path: "/app-data/background-dark.webp",
+            originalName: "dark.webp",
+          },
+        },
+      }).backgroundImages,
+    ).toEqual({
+      light: {
+        path: "/app-data/background-light.jpg",
+        originalName: "light.jpg",
+      },
+      dark: {
+        path: "/app-data/background-dark.webp",
+        originalName: "dark.webp",
+      },
+    });
+  });
+
+  it("drops invalid managed background image entries", () => {
+    expect(
+      normalizeAppSettings({
+        backgroundImages: {
+          light: { path: "", originalName: "empty.jpg" },
+          dark: undefined,
+        },
+      }).backgroundImages,
+    ).toBeUndefined();
+  });
+
 });

@@ -611,12 +611,16 @@ export const ChatComposer = memo(
       >
         <div
           className={cn(
-            "chat-composer-surface mx-auto w-full rounded-sm border p-3 pt-0 shadow-sm",
+            "chat-composer-surface app-glass-edge-container mx-auto w-full rounded-sm border p-3 pt-0 shadow-sm",
             contentWidthClassName,
             isDraggingAttachments && "border-primary",
           )}
           data-dragging-attachments={isDraggingAttachments ? "true" : undefined}
         >
+          <div
+            aria-hidden="true"
+            className="app-glass-extended-backdrop app-glass-extended-backdrop-top"
+          />
           <div className="mx-auto grid w-full gap-2">
             <AttachmentChips
               attachments={attachments}

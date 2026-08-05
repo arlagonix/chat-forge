@@ -1957,8 +1957,8 @@ export const ToolsDialog = memo(function ToolsDialog({
           ) : null}
 
           <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden md:grid-cols-[400px_minmax(0,1fr)]">
-            <aside className="flex min-h-0 flex-col border-b bg-card md:border-b-0 md:border-r">
-              <div className="shrink-0 border-b border-border bg-card p-2">
+            <aside className="app-glass-card flex min-h-0 flex-col border-b md:border-b-0 md:border-r">
+              <div className="shrink-0 border-b border-border bg-transparent p-2">
                 <div className="relative">
                   <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
                   <Input
@@ -2105,7 +2105,7 @@ export const ToolsDialog = memo(function ToolsDialog({
                 )}
               </div>
 
-              <div className="flex shrink-0 gap-2 border-t bg-card p-2">
+              <div className="flex shrink-0 gap-2 border-t bg-transparent p-2">
                 <Button
                   type="button"
                   variant="secondary"
@@ -2815,7 +2815,7 @@ export const ToolsDialog = memo(function ToolsDialog({
                       />
                       {(currentToolTestResult ||
                         currentToolTestExecutionPreview) && (
-                        <div className="grid gap-3 rounded-sm border bg-card p-3">
+                        <div className="grid gap-3 app-glass-panel-medium rounded-sm border p-3">
                           <div className="flex items-center justify-between gap-3 text-sm text-muted-foreground">
                             {currentToolTestResult ? (
                               <span>

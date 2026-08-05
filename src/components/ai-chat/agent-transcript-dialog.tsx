@@ -209,8 +209,8 @@ function MiniChatMessage({
         className={cn(
           "min-w-0 max-w-full text-base leading-6 [overflow-wrap:anywhere]",
           isUser
-            ? "w-full rounded-sm bg-primary px-4 py-3 text-primary-foreground shadow-xs"
-            : "w-full px-0 py-1 text-card-foreground shadow-xs",
+            ? "app-glass-message-user w-full rounded-sm px-4 py-3 text-primary-foreground shadow-xs"
+            : "app-glass-message w-full px-0 py-1 text-card-foreground shadow-xs",
         )}
       >
         {isUser ? (
@@ -892,7 +892,7 @@ function AgentTranscriptStepsBody({
             "grid gap-2 bg-transparent",
             insideThinkingToolGroup || insideRuntimeGroup
               ? ""
-              : "rounded-sm border border-dashed bg-muted/70 px-2 py-2 shadow-xs",
+              : "app-glass-panel-medium rounded-sm border border-dashed px-2 py-2 shadow-xs",
           )}
         >
           {groupLabel ? (
@@ -917,7 +917,7 @@ function AgentTranscriptStepsBody({
       return (
         <div
           key={`${key}:runtime-group`}
-          className="grid gap-2 rounded-sm border border-dashed bg-muted/70 px-2 py-2 shadow-xs"
+          className="grid gap-2 app-glass-panel-medium rounded-sm border border-dashed px-2 py-2 shadow-xs"
         >
           {group.groups.map((baseGroup) =>
             renderBaseGroup(baseGroup, { insideRuntimeGroup: true }),
@@ -930,7 +930,7 @@ function AgentTranscriptStepsBody({
       return (
         <div
           key={`${group.thinkingStep.id}:tool-group`}
-          className="grid gap-2 rounded-sm border border-dashed bg-muted/70 px-2 py-2 shadow-xs"
+          className="grid gap-2 app-glass-panel-medium rounded-sm border border-dashed px-2 py-2 shadow-xs"
         >
           {renderStep(group.thinkingStep)}
           {group.toolGroups.map((toolGroup) =>
@@ -1179,10 +1179,10 @@ export const AgentTranscriptSidebar = memo(function AgentTranscriptSidebar({
 
   return (
     <aside
-      className="z-20 flex h-dvh min-w-[560px] shrink-0 flex-col border-l bg-background text-base leading-6 shadow-xl"
+      className="app-glass-panel-strong z-20 flex h-dvh min-w-[560px] shrink-0 flex-col border-l text-base leading-6 shadow-xl"
       style={{ width: width ?? 440 }}
     >
-      <div className="flex min-w-0 items-center border-b bg-card">
+      <div className="app-glass-card flex min-w-0 items-center border-b">
         <div
           data-right-sidebar-titlebar
           className="app-region-drag flex min-w-0 flex-1 select-none items-center gap-3 py-1 pl-4 pr-2"

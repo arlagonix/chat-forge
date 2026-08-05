@@ -78,7 +78,7 @@
   --code-attr: oklch(0.46 0.1 35);
   --code-built-in: oklch(0.43 0.11 300);
 
-  --code-editor-background: var(--muted);
+  --code-editor-background: var(--app-glass-card);
   --code-editor-cursor: var(--foreground);
   --code-editor-selection-background: oklch(0.84 0.004 95);
   --code-editor-selection-match-background: oklch(0.9 0.003 95);
@@ -90,6 +90,34 @@
   --destructive-foreground: oklch(0.97 0.01 27);
 
   --radius: 0.5rem;
+
+  /* Use the original semantic colors unchanged; only add alpha. */
+  --app-background-overlay: oklch(from var(--background) l c h / 0.42);
+  --app-background-vignette: oklch(from var(--background) l c h / 0.22);
+  --app-glass-background: oklch(from var(--background) l c h / 0.90);
+  --app-glass-card: oklch(from var(--card) l c h / 0.95);
+  --app-glass-strong: oklch(from var(--background) l c h / 0.88);
+  --app-glass-medium: oklch(from var(--card) l c h / 0.90);
+  --app-glass-subtle: oklch(from var(--muted) l c h / 0.82);
+  --app-glass-tool: oklch(from var(--muted) l c h / 0.78);
+  --app-glass-message: oklch(from var(--card) l c h / 0.76);
+  --app-glass-user-message: oklch(from var(--primary) l c h / 0.90);
+  --app-glass-table: oklch(from var(--card) l c h / 0.92);
+
+  /* Glass filter tuning is independent from surface tint/opacity. */
+  /* The full-size content tint stays sharp; bounded child surfaces blur. */
+  --app-glass-blur-strong: 0px;
+  --app-glass-blur-card: 16px;
+  --app-glass-blur-background: 16px;
+  --app-glass-blur-medium: 16px;
+  --app-glass-blur-subtle: 16px;
+  --app-glass-blur-message: 16px;
+  --app-glass-blur-tool: 16px;
+  --app-glass-blur-table: 16px;
+  --app-glass-blur-modal: 16px;
+  --app-glass-blur-edge: 16px;
+  --app-glass-saturation: 110%;
+  --app-glass-saturation-subtle: 105%;
 }
 
 :root[data-chat-font="mono"] {
@@ -133,11 +161,7 @@
   --code-attr: #9cdcfe;
   --code-built-in: #4ec9b0;
 
-  --code-editor-background: color-mix(
-    in oklab,
-    var(--input) 30%,
-    transparent
-  );
+  --code-editor-background: var(--app-glass-card);
   --code-editor-cursor: #d4d4d4;
   --code-editor-selection-background: #3c3c3c;
   --code-editor-selection-match-background: #303030;
@@ -147,6 +171,18 @@
 
   --destructive: #f87171;
   --destructive-foreground: #ffffff;
+
+  --app-background-overlay: color-mix(in oklab, #090d12 48%, transparent);
+  --app-background-vignette: color-mix(in oklab, #05080b 52%, transparent);
+  --app-glass-background: color-mix(in oklab, var(--background) 80%, transparent);
+  --app-glass-card: color-mix(in oklab, var(--card) 70%, transparent);
+  --app-glass-strong: color-mix(in oklab, var(--background) 80%, transparent);
+  --app-glass-medium: color-mix(in oklab, var(--card) 70%, transparent);
+  --app-glass-subtle: color-mix(in oklab, var(--muted) 55%, transparent);
+  --app-glass-tool: color-mix(in oklab, var(--muted) 49%, transparent);
+  --app-glass-message: color-mix(in oklab, var(--card) 54%, transparent);
+  --app-glass-user-message: color-mix(in oklab, var(--primary) 86%, transparent);
+  --app-glass-table: color-mix(in oklab, var(--card) 78%, transparent);
 }
 
 @theme inline {
@@ -263,6 +299,209 @@
     -webkit-app-region: no-drag;
   }
 
+  .app-background-shell {
+    background-color: var(--background);
+    background-image:
+      radial-gradient(ellipse at center, transparent 28%, var(--app-background-vignette) 100%),
+      linear-gradient(var(--app-background-overlay), var(--app-background-overlay)),
+      var(--app-background-image);
+    background-position: center;
+    background-repeat: no-repeat;
+    background-size: cover;
+    box-shadow: inset 0 0 10rem color-mix(in oklab, black 28%, transparent);
+  }
+
+  .app-background-shell-loading {
+    isolation: isolate;
+    overflow: hidden;
+    background-image: none;
+    box-shadow: none;
+  }
+
+  .app-background-shell-loading::before,
+  .app-background-shell-loading::after {
+    content: "";
+    position: absolute;
+    pointer-events: none;
+  }
+
+  .app-background-shell-loading::before {
+    inset: -32px;
+    z-index: 0;
+    background-image: var(--app-background-image, none);
+    background-position: center;
+    background-repeat: no-repeat;
+    background-size: cover;
+    filter: blur(16px);
+    transform: scale(1.04);
+    opacity: 0;
+    transition: opacity 220ms ease-out;
+    will-change: opacity;
+  }
+
+  .app-background-shell-loading.app-background-shell-loading-image-visible::before {
+    opacity: 1;
+  }
+
+  .app-background-shell-loading::after {
+    inset: 0;
+    z-index: 0;
+    background-image:
+      radial-gradient(
+        ellipse at center,
+        transparent 28%,
+        var(--app-background-vignette) 100%
+      ),
+      linear-gradient(
+        var(--app-background-overlay),
+        var(--app-background-overlay)
+      );
+  }
+
+  .app-glass-panel-strong {
+    /* Full-window tint only. Blur belongs to bounded child surfaces. */
+    background-color: var(--app-glass-strong);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  .app-glass-card {
+    background-color: var(--app-glass-card);
+    -webkit-backdrop-filter: blur(var(--app-glass-blur-card))
+      saturate(var(--app-glass-saturation));
+    backdrop-filter: blur(var(--app-glass-blur-card))
+      saturate(var(--app-glass-saturation));
+  }
+
+  .app-glass-background {
+    background-color: var(--app-glass-background);
+    -webkit-backdrop-filter: blur(var(--app-glass-blur-background))
+      saturate(var(--app-glass-saturation));
+    backdrop-filter: blur(var(--app-glass-blur-background))
+      saturate(var(--app-glass-saturation));
+  }
+
+  .app-glass-panel-medium {
+    background-color: var(--app-glass-medium);
+    -webkit-backdrop-filter: blur(var(--app-glass-blur-medium))
+      saturate(var(--app-glass-saturation));
+    backdrop-filter: blur(var(--app-glass-blur-medium))
+      saturate(var(--app-glass-saturation));
+  }
+
+  .app-glass-panel-subtle {
+    background-color: var(--app-glass-subtle);
+    -webkit-backdrop-filter: blur(var(--app-glass-blur-subtle))
+      saturate(var(--app-glass-saturation-subtle));
+    backdrop-filter: blur(var(--app-glass-blur-subtle))
+      saturate(var(--app-glass-saturation-subtle));
+  }
+
+  .app-glass-message {
+    background-color: var(--app-glass-message);
+    -webkit-backdrop-filter: blur(var(--app-glass-blur-message))
+      saturate(var(--app-glass-saturation-subtle));
+    backdrop-filter: blur(var(--app-glass-blur-message))
+      saturate(var(--app-glass-saturation-subtle));
+  }
+
+  .app-glass-message-user {
+    background-color: var(--app-glass-user-message);
+    -webkit-backdrop-filter: blur(var(--app-glass-blur-message))
+      saturate(var(--app-glass-saturation-subtle));
+    backdrop-filter: blur(var(--app-glass-blur-message))
+      saturate(var(--app-glass-saturation-subtle));
+  }
+
+  .app-glass-tool {
+    background-color: var(--app-glass-tool);
+    -webkit-backdrop-filter: blur(var(--app-glass-blur-tool))
+      saturate(var(--app-glass-saturation-subtle));
+    backdrop-filter: blur(var(--app-glass-blur-tool))
+      saturate(var(--app-glass-saturation-subtle));
+  }
+
+  /*
+   * Edge surfaces sample nearby pixels with an oversized masked backdrop.
+   * The mask is used instead of overflow clipping so Chromium applies the
+   * blur before trimming the extended area.
+   */
+  .app-glass-edge-container {
+    position: relative;
+    isolation: isolate;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  .app-glass-edge-container
+    > :not(.app-glass-extended-backdrop) {
+    position: relative;
+    z-index: 1;
+  }
+
+  .app-glass-extended-backdrop {
+    position: absolute;
+    inset-inline: 0;
+    top: 0;
+    z-index: 0;
+    pointer-events: none;
+    -webkit-backdrop-filter: blur(var(--app-glass-blur-edge))
+      saturate(var(--app-glass-saturation));
+    backdrop-filter: blur(var(--app-glass-blur-edge))
+      saturate(var(--app-glass-saturation));
+  }
+
+  .app-glass-extended-backdrop-bottom {
+    height: 200%;
+    -webkit-mask-image: linear-gradient(
+      to bottom,
+      black 0% 50%,
+      transparent 50% 100%
+    );
+    mask-image: linear-gradient(
+      to bottom,
+      black 0% 50%,
+      transparent 50% 100%
+    );
+  }
+
+  .app-glass-extended-backdrop-top {
+    top: -100%;
+    height: 200%;
+    -webkit-mask-image: linear-gradient(
+      to bottom,
+      transparent 0% 50%,
+      black 50% 100%
+    );
+    mask-image: linear-gradient(
+      to bottom,
+      transparent 0% 50%,
+      black 50% 100%
+    );
+  }
+
+  @supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+    .app-glass-panel-strong,
+    .app-glass-background {
+      background-color: var(--background);
+    }
+
+    .app-glass-card,
+    .app-glass-panel-medium,
+    .app-glass-message {
+      background-color: var(--card);
+    }
+
+    .app-glass-panel-subtle,
+    .app-glass-tool {
+      background-color: var(--muted);
+    }
+
+    .app-glass-message-user {
+      background-color: var(--primary);
+    }
+  }
+
   .chat-bottom-overlay {
     isolation: isolate;
   }
@@ -276,26 +515,17 @@
     z-index: 0;
   }
 
-  .chat-bottom-overlay::before {
-    top: 0;
-    height: 3rem;
-    background: linear-gradient(
-      to bottom,
-      transparent 0%,
-      color-mix(in oklab, var(--background) 96%, transparent) 100%
-    );
-  }
-
+  .chat-bottom-overlay::before,
   .chat-bottom-overlay::after {
-    top: 3rem;
-    bottom: 0;
-    background: color-mix(in oklab, var(--background) 96%, transparent);
+    display: none;
   }
 
   .chat-composer-surface {
-    background: color-mix(in oklab, var(--card) 64%, transparent);
-    -webkit-backdrop-filter: blur(9px) saturate(115%);
-    backdrop-filter: blur(9px) saturate(115%);
+    background: var(--app-glass-medium);
+    -webkit-backdrop-filter: blur(var(--app-glass-blur-medium))
+      saturate(var(--app-glass-saturation));
+    backdrop-filter: blur(var(--app-glass-blur-medium))
+      saturate(var(--app-glass-saturation));
   }
 
   .chat-composer-surface[data-dragging-attachments="true"] {
@@ -611,23 +841,14 @@
 
 @layer components {
   .glass-surface,
-  aside[data-sidebar],
   aside[class*="border-l"][class*="bg-background"] {
-    background-color: color-mix(
-      in oklab,
-      var(--background) 84%,
-      transparent
-    );
-    backdrop-filter: blur(18px) saturate(1.35);
-    -webkit-backdrop-filter: blur(18px) saturate(1.35);
-    box-shadow:
-      inset 0 1px 0 color-mix(in oklab, white 18%, transparent),
-      0 18px 48px color-mix(in oklab, black 12%, transparent);
+    background-color: var(--app-glass-background);
+    -webkit-backdrop-filter: blur(var(--app-glass-blur-modal))
+      saturate(var(--app-glass-saturation));
+    backdrop-filter: blur(var(--app-glass-blur-modal))
+      saturate(var(--app-glass-saturation));
   }
 
-  aside[data-sidebar] {
-    box-shadow: 0 18px 48px color-mix(in oklab, black 12%, transparent);
-  }
 
   [data-slot="popover-content"].glass-surface {
     background-color: color-mix(in oklab, var(--popover) 88%, transparent);
@@ -755,6 +976,11 @@
 
   .chat-markdown table {
     @apply w-max min-w-full table-auto border-collapse;
+    background-color: var(--app-glass-table);
+    -webkit-backdrop-filter: blur(var(--app-glass-blur-table))
+      saturate(var(--app-glass-saturation-subtle));
+    backdrop-filter: blur(var(--app-glass-blur-table))
+      saturate(var(--app-glass-saturation-subtle));
   }
 
   .chat-markdown th,
@@ -780,7 +1006,8 @@
   }
 
   .chat-markdown th {
-    @apply bg-muted font-medium;
+    @apply font-medium;
+    background-color: var(--app-glass-medium);
   }
 
   .chat-markdown code {
@@ -811,7 +1038,7 @@
 
   .chat-code-block {
     @apply relative my-2 w-full min-w-0 max-w-full overflow-visible rounded-none border;
-    background: var(--code-bg);
+    background: var(--app-glass-medium);
     border-color: var(--border);
     color: var(--code-fg);
   }
@@ -829,7 +1056,7 @@
     gap: 0.75rem;
     padding: 8px 12px;
     border-bottom: 1px solid var(--border);
-    background: var(--code-bg);
+    background: var(--app-glass-medium);
     border-radius: 0;
   }
 

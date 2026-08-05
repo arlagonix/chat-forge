@@ -516,7 +516,7 @@ function PermissionRows({
     return (
       <div
         key={item.name}
-        className="flex min-w-0 items-start gap-3 rounded-sm border bg-card px-3 py-2"
+        className="flex min-w-0 items-start gap-3 app-glass-panel-medium rounded-sm border px-3 py-2"
       >
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-center gap-1.5">
@@ -568,7 +568,7 @@ function PermissionRows({
         </Button>
       </div>
       <div className="grid gap-1.5">
-        <div className="flex min-w-0 items-start gap-3 rounded-sm border bg-card px-3 py-2">
+        <div className="flex min-w-0 items-start gap-3 app-glass-panel-medium rounded-sm border px-3 py-2">
           <div className="min-w-0 flex-1">
             <div className="flex min-w-0 items-center gap-1.5">
               <div className="truncate text-base font-medium leading-6">
@@ -651,7 +651,7 @@ function SkillAvailabilityRows({
         </Button>
       </div>
       <div className="grid gap-1.5">
-        <div className="flex min-w-0 items-start gap-3 rounded-sm border bg-card px-3 py-2">
+        <div className="flex min-w-0 items-start gap-3 app-glass-panel-medium rounded-sm border px-3 py-2">
           <div className="min-w-0 flex-1">
             <div className="flex min-w-0 items-center gap-1.5">
               <div className="truncate text-base font-medium leading-6">
@@ -686,7 +686,7 @@ function SkillAvailabilityRows({
             return (
               <div
                 key={item.name}
-                className="flex min-w-0 items-start gap-3 rounded-sm border bg-card px-3 py-2"
+                className="flex min-w-0 items-start gap-3 app-glass-panel-medium rounded-sm border px-3 py-2"
               >
                 <div className="min-w-0 flex-1">
                   <div className="flex min-w-0 items-center gap-1.5">
@@ -1130,8 +1130,8 @@ export const ModesDialog = memo(function ModesDialog({
           ) : null}
 
           <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden md:grid-cols-[400px_minmax(0,1fr)]">
-            <aside className="flex min-h-0 flex-col border-b bg-card md:border-b-0 md:border-r">
-              <div className="shrink-0 border-b border-border bg-card p-2">
+            <aside className="app-glass-card flex min-h-0 flex-col border-b md:border-b-0 md:border-r">
+              <div className="shrink-0 border-b border-border bg-transparent p-2">
                 <div className="relative">
                   <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
                   <Input
@@ -1211,7 +1211,7 @@ export const ModesDialog = memo(function ModesDialog({
                 </div>
               </div>
 
-              <div className="flex shrink-0 border-t bg-card p-2">
+              <div className="flex shrink-0 border-t bg-transparent p-2">
                 <Button
                   type="button"
                   variant="secondary"
