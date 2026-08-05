@@ -3,8 +3,10 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   BookOpen,
   Check,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
   Copy,
   GitBranch,
   Info,
@@ -753,11 +755,15 @@ type ChatMessageItemProps = Omit<
   "messages" | "scrollElementRef" | "offsetResolverRef"
 > & {
   message: ChatMessage;
+  isUserMessageExpanded: boolean;
+  onToggleUserMessageExpanded: (messageId: string) => void;
 };
 
 const ChatMessageItem = memo(
   function ChatMessageItem({
     message,
+    isUserMessageExpanded,
+    onToggleUserMessageExpanded,
     activeChatId,
     isSending,
     disableBranching = false,
@@ -802,6 +808,9 @@ const ChatMessageItem = memo(
         ? (activeVariant?.content ?? "")
         : message.content;
     const [isSourceView, setIsSourceView] = useState(false);
+    const userMessageBodyRef = useRef<HTMLDivElement | null>(null);
+    const [isUserMessageCollapsible, setIsUserMessageCollapsible] =
+      useState(false);
     const reasoning = activeVariant?.reasoning ?? "";
     const toolCalls = activeVariant?.toolCalls ?? [];
     const toolResults = activeVariant?.toolResults ?? [];
@@ -854,6 +863,37 @@ const ChatMessageItem = memo(
       () => groupVisibleAssistantProcessSteps(visibleProcessSteps),
       [visibleProcessSteps],
     );
+
+    useLayoutEffect(() => {
+      if (message.role !== "user") {
+        setIsUserMessageCollapsible(false);
+        return;
+      }
+
+      const body = userMessageBodyRef.current;
+      if (!body) return;
+
+      const updateCollapsibleState = () => {
+        const rootFontSize = Number.parseFloat(
+          window.getComputedStyle(document.documentElement).fontSize,
+        );
+        const collapsedHeight = 32 * (rootFontSize || 16);
+        const nextCollapsible =
+          body.getBoundingClientRect().height > collapsedHeight + 1;
+
+        setIsUserMessageCollapsible((current) =>
+          current === nextCollapsible ? current : nextCollapsible,
+        );
+      };
+
+      updateCollapsibleState();
+      if (typeof ResizeObserver === "undefined") return;
+
+      const resizeObserver = new ResizeObserver(updateCollapsibleState);
+      resizeObserver.observe(body);
+
+      return () => resizeObserver.disconnect();
+    }, [isSourceView, message]);
 
     const renderProcessStep = (step: VisibleAssistantProcessStep) => {
       const isLatestProcessStep = step.sourceStepIds.includes(
@@ -1239,7 +1279,7 @@ const ChatMessageItem = memo(
 
         {(message.role === "user" ||
           (!hasInlineAssistantMessageSteps && content.trim().length > 0)) && (
-          <>
+          <div className="grid min-w-0 gap-1">
             <article
               className={cn(
                 "flex min-w-0 max-w-full",
@@ -1252,25 +1292,38 @@ const ChatMessageItem = memo(
               <div
                 data-message-content
                 className={cn(
-                  "min-w-0 text-base leading-6 [overflow-wrap:anywhere] w-full ",
+                  "min-w-0 text-base leading-6 [overflow-wrap:anywhere] w-full",
                   message.role === "user"
-                    ? "app-glass-message-user max-h-[32rem] overflow-y-auto overflow-x-hidden chat-message-scrollbar rounded-sm px-4 py-3 text-primary-foreground shadow-xs"
+                    ? cn(
+                        "app-glass-message-user overflow-x-hidden rounded-sm px-4 py-3 text-primary-foreground shadow-xs",
+                        isUserMessageExpanded
+                          ? "overflow-y-visible"
+                          : "max-h-[32rem] overflow-y-hidden",
+                      )
                     : "app-glass-message min-w-0 max-w-full overflow-visible px-0 py-1 text-card-foreground shadow-xs",
                   status === "error" && "border-destructive/50",
                 )}
                 data-message-view-mode={isSourceView ? "source" : "rendered"}
               >
-                {message.role === "user" && message.attachments?.length ? (
-                  <AttachmentChips
-                    attachments={message.attachments}
-                    readOnly
-                    tone="onPrimary"
-                    className={cn(content && "mb-3")}
-                  />
-                ) : null}
-                {isSourceView ? (
+                {message.role === "user" ? (
+                  <div ref={userMessageBodyRef}>
+                    {message.attachments?.length ? (
+                      <AttachmentChips
+                        attachments={message.attachments}
+                        readOnly
+                        tone="onPrimary"
+                        className={cn(content && "mb-3")}
+                      />
+                    ) : null}
+                    {isSourceView ? (
+                      <SourceMarkdownContent content={content} />
+                    ) : (
+                      <UserMessageContent content={message.content} />
+                    )}
+                  </div>
+                ) : isSourceView ? (
                   <SourceMarkdownContent content={content} />
-                ) : message.role === "assistant" ? (
+                ) : (
                   <SmoothAssistantMessageContent
                     content={content}
                     messageId={`${message.id}:content`}
@@ -1291,12 +1344,30 @@ const ChatMessageItem = memo(
                       )
                     }
                   />
-                ) : (
-                  <UserMessageContent content={message.content} />
                 )}
               </div>
             </article>
-          </>
+
+            {message.role === "user" && isUserMessageCollapsible ? (
+              <div className="flex justify-end">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 gap-1 px-2 text-xs text-muted-foreground"
+                  aria-expanded={isUserMessageExpanded}
+                  onClick={() => onToggleUserMessageExpanded(message.id)}
+                >
+                  {isUserMessageExpanded ? (
+                    <ChevronUp className="size-3.5" />
+                  ) : (
+                    <ChevronDown className="size-3.5" />
+                  )}
+                  {isUserMessageExpanded ? "Show less" : "Show more"}
+                </Button>
+              </div>
+            ) : null}
+          </div>
         )}
 
         {messageContextMenu?.messageId === message.id &&
@@ -1696,6 +1767,9 @@ const ChatMessageItem = memo(
   },
   (previous, next) => {
     if (previous.message !== next.message) return false;
+    if (previous.isUserMessageExpanded !== next.isUserMessageExpanded) {
+      return false;
+    }
     if (previous.activeChatId !== next.activeChatId) return false;
     if (previous.isSending !== next.isSending) return false;
     if (previous.disableBranching !== next.disableBranching) return false;
@@ -1786,10 +1860,11 @@ const ChatMessageItem = memo(
 // Controls the gap between virtualized message rows. This must be applied
 // through the virtualizer because items are absolutely positioned.
 const MESSAGE_GAP_PX = 32;
-const VIRTUAL_MESSAGE_OVERSCAN = 6;
+const VIRTUAL_MESSAGE_OVERSCAN = 10;
 const ESTIMATED_TEXT_CHARS_PER_LINE = 80;
 const ESTIMATED_LINE_HEIGHT_PX = 22;
 const ESTIMATED_COLLAPSED_BLOCK_HEIGHT_PX = 54;
+const ESTIMATED_COLLAPSED_USER_MESSAGE_MAX_HEIGHT_PX = 600;
 
 function estimateTextHeight(text: string) {
   const lines = Math.max(
@@ -1812,7 +1887,10 @@ function estimateProcessStepHeight(step: VisibleAssistantProcessStep) {
 
 function estimateMessageHeight(message: ChatMessage) {
   if (message.role === "user") {
-    return Math.min(4000, 80 + estimateTextHeight(message.content));
+    return Math.min(
+      ESTIMATED_COLLAPSED_USER_MESSAGE_MAX_HEIGHT_PX,
+      80 + estimateTextHeight(message.content),
+    );
   }
 
   const activeVariant = getActiveVariant(message);
@@ -1852,7 +1930,13 @@ export const ChatMessageList = memo(function ChatMessageList({
   ...itemProps
 }: ChatMessageListProps) {
   const listRef = useRef<HTMLDivElement | null>(null);
+  const messagesRef = useRef(messages);
+  messagesRef.current = messages;
+  const measuredHeightsRef = useRef(new Map<string, number>());
   const [scrollMargin, setScrollMargin] = useState(0);
+  const [expandedUserMessageIds, setExpandedUserMessageIds] = useState(
+    () => new Set<string>(),
+  );
   // The scroll container is an ancestor; React attaches its ref only after this
   // component's layout effects run, so on the first mount the virtualizer
   // initializes against a null element and renders nothing. Once the element is
@@ -1862,15 +1946,87 @@ export const ChatMessageList = memo(function ChatMessageList({
 
   const timelineItemCount = messages.length;
 
-  const virtualizer = useVirtualizer({
+  const estimateSize = useCallback(
+    (index: number) => {
+      const message = messagesRef.current[index];
+      if (!message) return ESTIMATED_COLLAPSED_BLOCK_HEIGHT_PX;
+
+      return (
+        measuredHeightsRef.current.get(message.id) ??
+        estimateMessageHeight(message)
+      );
+    },
+    [],
+  );
+
+  const getItemKey = useCallback(
+    (index: number) => messagesRef.current[index]?.id ?? index,
+    [],
+  );
+
+  const measureElement = useCallback(
+    (element: HTMLDivElement, entry: ResizeObserverEntry | undefined) => {
+      const measuredHeight =
+        entry?.borderBoxSize?.[0]?.blockSize ??
+        element.getBoundingClientRect().height;
+      const messageId = element.dataset.messageId;
+
+      if (messageId && Number.isFinite(measuredHeight)) {
+        measuredHeightsRef.current.set(messageId, measuredHeight);
+      }
+
+      return measuredHeight;
+    },
+    [],
+  );
+
+  const virtualizer = useVirtualizer<HTMLDivElement, HTMLDivElement>({
     count: timelineItemCount,
     getScrollElement: () => scrollElementRef.current,
-    estimateSize: (index) => estimateMessageHeight(messages[index]),
+    estimateSize,
+    measureElement,
     overscan: VIRTUAL_MESSAGE_OVERSCAN,
     gap: MESSAGE_GAP_PX,
     scrollMargin,
-    getItemKey: (index) => messages[index].id,
+    getItemKey,
+    useFlushSync: false,
+    directDomUpdates: true,
+    directDomUpdatesMode: "position",
   });
+
+  const setListElement = useCallback(
+    (element: HTMLDivElement | null) => {
+      listRef.current = element;
+      virtualizer.containerRef(element);
+    },
+    [virtualizer],
+  );
+
+  const toggleUserMessageExpanded = useCallback((messageId: string) => {
+    setExpandedUserMessageIds((current) => {
+      const next = new Set(current);
+      if (next.has(messageId)) next.delete(messageId);
+      else next.add(messageId);
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    const activeMessageIds = new Set(messages.map((message) => message.id));
+
+    for (const messageId of measuredHeightsRef.current.keys()) {
+      if (!activeMessageIds.has(messageId)) {
+        measuredHeightsRef.current.delete(messageId);
+      }
+    }
+
+    setExpandedUserMessageIds((current) => {
+      const next = new Set(
+        [...current].filter((messageId) => activeMessageIds.has(messageId)),
+      );
+      return next.size === current.size ? current : next;
+    });
+  }, [messages]);
 
   useEffect(() => {
     if (scrollElementRef.current) {
@@ -1936,24 +2092,25 @@ export const ChatMessageList = memo(function ChatMessageList({
 
   return (
     <div
-      ref={listRef}
+      ref={setListElement}
       className="relative w-full min-w-0"
-      style={{ height: virtualizer.getTotalSize() }}
     >
       {virtualItems.map((virtualItem) => (
         <div
           key={virtualItem.key}
           data-index={virtualItem.index}
+          data-message-id={messages[virtualItem.index].id}
           ref={virtualizer.measureElement}
-          // Position with `top` rather than `transform`: a transform would
-          // establish a containing block, which breaks `position: sticky`
-          // descendants (code-block headers) and re-anchors `position: fixed`
-          // popups (message context menu) to the item instead of the viewport.
+          // The virtualizer writes `top` directly in position mode. Avoiding
+          // transforms preserves sticky code headers and viewport-fixed menus.
           className="absolute left-0 w-full min-w-0"
-          style={{ top: virtualItem.start - scrollMargin }}
         >
           <ChatMessageItem
             message={messages[virtualItem.index]}
+            isUserMessageExpanded={expandedUserMessageIds.has(
+              messages[virtualItem.index].id,
+            )}
+            onToggleUserMessageExpanded={toggleUserMessageExpanded}
             {...itemProps}
           />
         </div>
