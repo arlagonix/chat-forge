@@ -1925,6 +1925,7 @@ function estimateMessageHeight(message: ChatMessage) {
 
 export const ChatMessageList = memo(function ChatMessageList({
   messages,
+  activeChatId,
   scrollElementRef,
   offsetResolverRef,
   ...itemProps
@@ -1933,6 +1934,7 @@ export const ChatMessageList = memo(function ChatMessageList({
   const messagesRef = useRef(messages);
   messagesRef.current = messages;
   const measuredHeightsRef = useRef(new Map<string, number>());
+  const previousActiveChatIdRef = useRef(activeChatId);
   const [scrollMargin, setScrollMargin] = useState(0);
   const [expandedUserMessageIds, setExpandedUserMessageIds] = useState(
     () => new Set<string>(),
@@ -1960,8 +1962,13 @@ export const ChatMessageList = memo(function ChatMessageList({
   );
 
   const getItemKey = useCallback(
-    (index: number) => messagesRef.current[index]?.id ?? index,
-    [],
+    (index: number) => {
+      const messageId = messagesRef.current[index]?.id;
+      return messageId
+        ? `${activeChatId}:${messageId}`
+        : `${activeChatId}:${index}`;
+    },
+    [activeChatId],
   );
 
   const measureElement = useCallback(
@@ -2010,6 +2017,46 @@ export const ChatMessageList = memo(function ChatMessageList({
       return next;
     });
   }, []);
+
+  const measureMountedMessageRows = useCallback(() => {
+    const list = listRef.current;
+    if (!list) return;
+
+    for (const element of list.querySelectorAll<HTMLDivElement>(
+      "[data-virtual-message-row]",
+    )) {
+      virtualizer.measureElement(element);
+    }
+  }, [virtualizer]);
+
+  // A chat may keep generating while it is not the active view. When we
+  // switch back, TanStack Virtual can still hold measurements from the
+  // previous activation even though those messages have grown substantially.
+  // Invalidate both our cached heights and the virtualizer's measurements,
+  // then measure the rows that are actually mounted. A pair of animation-frame
+  // passes catches late layout changes from markdown/tool content without
+  // rendering the whole conversation.
+  useLayoutEffect(() => {
+    if (previousActiveChatIdRef.current === activeChatId) return;
+    previousActiveChatIdRef.current = activeChatId;
+
+    measuredHeightsRef.current.clear();
+    virtualizer.measure();
+    measureMountedMessageRows();
+
+    let secondFrame: number | null = null;
+    const firstFrame = window.requestAnimationFrame(() => {
+      measureMountedMessageRows();
+      secondFrame = window.requestAnimationFrame(measureMountedMessageRows);
+    });
+
+    return () => {
+      window.cancelAnimationFrame(firstFrame);
+      if (secondFrame !== null) {
+        window.cancelAnimationFrame(secondFrame);
+      }
+    };
+  }, [activeChatId, measureMountedMessageRows, virtualizer]);
 
   useEffect(() => {
     const activeMessageIds = new Set(messages.map((message) => message.id));
@@ -2100,6 +2147,7 @@ export const ChatMessageList = memo(function ChatMessageList({
           key={virtualItem.key}
           data-index={virtualItem.index}
           data-message-id={messages[virtualItem.index].id}
+          data-virtual-message-row
           ref={virtualizer.measureElement}
           // The virtualizer writes `top` directly in position mode. Avoiding
           // transforms preserves sticky code headers and viewport-fixed menus.
@@ -2111,6 +2159,7 @@ export const ChatMessageList = memo(function ChatMessageList({
               messages[virtualItem.index].id,
             )}
             onToggleUserMessageExpanded={toggleUserMessageExpanded}
+            activeChatId={activeChatId}
             {...itemProps}
           />
         </div>
