@@ -139,6 +139,17 @@ describe("chat storage normalization", () => {
   });
 
 
+  it("defaults background images to enabled", () => {
+    expect(normalizeAppSettings({}).backgroundImagesEnabled).toBe(true);
+  });
+
+  it("preserves disabled background images", () => {
+    expect(
+      normalizeAppSettings({ backgroundImagesEnabled: false })
+        .backgroundImagesEnabled,
+    ).toBe(false);
+  });
+
   it("defaults chat width to the current 896px layout", () => {
     expect(normalizeAppSettings({}).chatWidth).toBe("896");
   });

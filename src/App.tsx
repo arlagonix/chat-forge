@@ -613,6 +613,7 @@ export default function Home() {
     thinkingAutoCollapse: false,
     renderMarkdownWhileStreaming: true,
     chatWidth: "896",
+    backgroundImagesEnabled: true,
     backgroundImages: undefined,
   });
   const [backgroundImageUrls, setBackgroundImageUrls] =
@@ -841,11 +842,13 @@ export default function Home() {
 
   const { theme, resolvedTheme, setTheme } = useTheme();
 
-  const activeBackgroundImageUrl =
-    backgroundImageUrls[resolvedTheme] ??
-    (mounted || backgroundImagesResolved
-      ? DEFAULT_BACKGROUND_IMAGE_URLS[resolvedTheme]
-      : undefined);
+  const backgroundImagesEnabled = appSettings.backgroundImagesEnabled ?? true;
+  const activeBackgroundImageUrl = backgroundImagesEnabled
+    ? backgroundImageUrls[resolvedTheme] ??
+      (mounted || backgroundImagesResolved
+        ? DEFAULT_BACKGROUND_IMAGE_URLS[resolvedTheme]
+        : undefined)
+    : undefined;
   const appBackgroundStyle = useMemo(
     () =>
       activeBackgroundImageUrl
@@ -4402,6 +4405,7 @@ export default function Home() {
       <main
         className={cn(
           "app-background-shell app-background-shell-loading relative flex h-dvh items-center justify-center text-foreground",
+          !backgroundImagesEnabled && "app-background-shell-image-disabled",
           loadingBackgroundVisible &&
             "app-background-shell-loading-image-visible",
         )}
@@ -4436,6 +4440,7 @@ export default function Home() {
       renderMarkdownWhileStreaming:
         DEFAULT_APP_SETTINGS.renderMarkdownWhileStreaming,
       chatWidth: DEFAULT_APP_SETTINGS.chatWidth,
+      backgroundImagesEnabled: DEFAULT_APP_SETTINGS.backgroundImagesEnabled,
       backgroundImages: DEFAULT_APP_SETTINGS.backgroundImages,
     }));
     setBackgroundImageUrls({});
@@ -4607,6 +4612,7 @@ export default function Home() {
                 chatWidth={appSettings.chatWidth ?? "896"}
                 theme={theme}
                 resolvedTheme={resolvedTheme}
+                backgroundImagesEnabled={backgroundImagesEnabled}
                 lightBackgroundImageName={
                   appSettings.backgroundImages?.light?.originalName
                 }
@@ -4614,6 +4620,12 @@ export default function Home() {
                   appSettings.backgroundImages?.dark?.originalName
                 }
                 backgroundPickerTheme={backgroundPickerTheme}
+                onBackgroundImagesEnabledChange={(checked) =>
+                  setAppSettings((currentSettings) => ({
+                    ...currentSettings,
+                    backgroundImagesEnabled: checked,
+                  }))
+                }
                 onChooseBackgroundImage={(backgroundTheme) =>
                   void chooseBackgroundImage(backgroundTheme)
                 }
@@ -4675,7 +4687,10 @@ export default function Home() {
 
     return (
       <main
-        className="app-background-shell relative flex h-dvh min-h-0 overflow-hidden text-foreground"
+        className={cn(
+          "app-background-shell relative flex h-dvh min-h-0 overflow-hidden text-foreground",
+          !backgroundImagesEnabled && "app-background-shell-image-disabled",
+        )}
         style={appBackgroundStyle}
       >
         <SettingsSidebar
@@ -4736,7 +4751,10 @@ export default function Home() {
 
   return (
     <main
-      className="app-background-shell relative flex h-dvh min-h-0 overflow-hidden text-foreground"
+      className={cn(
+        "app-background-shell relative flex h-dvh min-h-0 overflow-hidden text-foreground",
+        !backgroundImagesEnabled && "app-background-shell-image-disabled",
+      )}
       style={appBackgroundStyle}
     >
       <WindowControls

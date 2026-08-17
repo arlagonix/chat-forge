@@ -565,6 +565,7 @@ export type AppSettings = {
   thinkingAutoCollapse?: boolean;
   renderMarkdownWhileStreaming?: boolean;
   chatWidth?: ChatWidth;
+  backgroundImagesEnabled?: boolean;
   backgroundImages?: AppBackgroundImages;
 };
 

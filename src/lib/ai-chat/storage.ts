@@ -61,6 +61,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   thinkingAutoCollapse: false,
   renderMarkdownWhileStreaming: true,
   chatWidth: "896",
+  backgroundImagesEnabled: true,
   backgroundImages: undefined,
 };
 
@@ -645,6 +646,10 @@ export function normalizeAppSettings(
     thinkingAutoCollapse: value?.thinkingAutoCollapse ?? true,
     renderMarkdownWhileStreaming: value?.renderMarkdownWhileStreaming ?? true,
     chatWidth: normalizeChatWidth(value?.chatWidth),
+    backgroundImagesEnabled:
+      typeof value?.backgroundImagesEnabled === "boolean"
+        ? value.backgroundImagesEnabled
+        : true,
     backgroundImages: normalizeBackgroundImages(value?.backgroundImages),
   };
 }

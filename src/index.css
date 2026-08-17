@@ -311,11 +311,21 @@
     box-shadow: inset 0 0 10rem color-mix(in oklab, black 28%, transparent);
   }
 
+  .app-background-shell.app-background-shell-image-disabled {
+    background-image: none;
+    box-shadow: none;
+  }
+
   .app-background-shell-loading {
     isolation: isolate;
     overflow: hidden;
     background-image: none;
     box-shadow: none;
+  }
+
+  .app-background-shell-loading.app-background-shell-image-disabled::before,
+  .app-background-shell-loading.app-background-shell-image-disabled::after {
+    display: none;
   }
 
   .app-background-shell-loading::before,

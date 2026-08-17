@@ -383,6 +383,7 @@ type AppSettings = {
   thinkingAutoCollapse?: boolean;
   renderMarkdownWhileStreaming?: boolean;
   chatWidth?: ChatWidth;
+  backgroundImagesEnabled?: boolean;
   backgroundImages?: AppBackgroundImages;
 };
 
@@ -517,6 +518,7 @@ const DEFAULT_APP_SETTINGS: AppSettings = {
   thinkingAutoCollapse: false,
   renderMarkdownWhileStreaming: true,
   chatWidth: "896",
+  backgroundImagesEnabled: true,
   backgroundImages: undefined,
 };
 
@@ -1130,6 +1132,10 @@ function normalizeAppSettings(value: unknown): AppSettings {
         ? value.renderMarkdownWhileStreaming
         : true,
     chatWidth: normalizeChatWidth(value.chatWidth),
+    backgroundImagesEnabled:
+      typeof value.backgroundImagesEnabled === "boolean"
+        ? value.backgroundImagesEnabled
+        : true,
     backgroundImages: normalizeBackgroundImages(value.backgroundImages),
   };
 }

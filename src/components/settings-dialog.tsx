@@ -365,9 +365,11 @@ type SettingsDialogProps = {
   chatWidth: ChatWidth;
   theme: ThemePreference;
   resolvedTheme: "light" | "dark";
+  backgroundImagesEnabled: boolean;
   lightBackgroundImageName?: string;
   darkBackgroundImageName?: string;
   backgroundPickerTheme?: BackgroundTheme;
+  onBackgroundImagesEnabledChange: (checked: boolean) => void;
   onChooseBackgroundImage: (theme: BackgroundTheme) => void;
   onClearBackgroundImage: (theme: BackgroundTheme) => void;
   onToggleAiTitleGeneration: (checked: boolean) => void;
@@ -402,9 +404,11 @@ export const SettingsDialog = memo(function SettingsDialog({
   chatWidth,
   theme,
   resolvedTheme,
+  backgroundImagesEnabled,
   lightBackgroundImageName,
   darkBackgroundImageName,
   backgroundPickerTheme,
+  onBackgroundImagesEnabledChange,
   onChooseBackgroundImage,
   onClearBackgroundImage,
   onToggleAiTitleGeneration,
@@ -580,6 +584,13 @@ export const SettingsDialog = memo(function SettingsDialog({
                 Background
               </GroupHeading>
               <div className="app-glass-panel-medium overflow-hidden rounded-lg border">
+                <SettingsSwitchRow
+                  icon={<ImageIcon className="size-4" />}
+                  title="Show background image"
+                  description="Display the selected background image throughout the app."
+                  checked={backgroundImagesEnabled}
+                  onCheckedChange={onBackgroundImagesEnabledChange}
+                />
                 <SettingsBackgroundRow
                   theme="light"
                   imageName={lightBackgroundImageName}
