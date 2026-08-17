@@ -606,12 +606,12 @@ export const ChatComposer = memo(
           setIsDraggingAttachments(false);
           void getDroppedFileInputs(event).then(addFiles);
         }}
-        className="py-3 md:py-4"
+        className="relative py-3 md:py-4"
         data-draft-input
       >
         <div
           className={cn(
-            "chat-composer-surface app-glass-edge-container mx-auto w-full rounded-sm border p-3 pt-0 shadow-sm",
+            "chat-composer-surface app-glass-edge-container relative z-10 mx-auto w-full rounded-sm border p-3 pt-0 shadow-sm",
             contentWidthClassName,
             isDraggingAttachments && "border-primary",
           )}
@@ -852,6 +852,14 @@ export const ChatComposer = memo(
             </div>
           </div>
         </div>
+        <div
+          aria-hidden="true"
+          className={cn(
+            "chat-composer-bottom-blur pointer-events-none absolute inset-x-0 bottom-0 z-0 mx-auto h-4",
+            "md:h-5",
+            contentWidthClassName,
+          )}
+        />
       </form>
     );
   }),

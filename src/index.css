@@ -516,18 +516,9 @@
     isolation: isolate;
   }
 
-  .chat-bottom-overlay::before,
-  .chat-bottom-overlay::after {
-    content: "";
-    position: absolute;
-    inset-inline: 0;
-    pointer-events: none;
-    z-index: 0;
-  }
-
-  .chat-bottom-overlay::before,
-  .chat-bottom-overlay::after {
-    display: none;
+  .chat-composer-bottom-blur {
+    -webkit-backdrop-filter: blur(4px);
+    backdrop-filter: blur(4px);
   }
 
   .chat-composer-surface {
