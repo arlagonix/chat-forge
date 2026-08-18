@@ -14,7 +14,6 @@ import {
 import React, { isValidElement, ReactNode } from "react";
 import type { Components } from "react-markdown";
 import ReactMarkdown from "react-markdown";
-import rehypeHighlight from "rehype-highlight";
 import rehypeKatex from "rehype-katex";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize from "rehype-sanitize";
@@ -285,64 +284,6 @@ function languageFromNode(node: ReactNode): string | undefined {
   return languageFromNode(props.children);
 }
 
-function classNameWithLanguage(
-  className: string | undefined,
-  language?: string,
-) {
-  if (!language) return className;
-
-  const languageClass = `language-${language}`;
-  const existingClassName = className?.trim();
-
-  if (!existingClassName) return languageClass;
-
-  const classes = existingClassName.split(/\s+/);
-
-  if (classes.includes(languageClass)) return existingClassName;
-
-  return [...classes, languageClass].join(" ");
-}
-
-function withSemanticCodeLanguage(
-  node: ReactNode,
-  language?: string,
-): ReactNode {
-  if (!language) return node;
-
-  if (Array.isArray(node)) {
-    return node.map((child, index) => (
-      <React.Fragment key={index}>
-        {withSemanticCodeLanguage(child, language)}
-      </React.Fragment>
-    ));
-  }
-
-  if (!isValidElement(node)) return node;
-
-  const props = node.props as { className?: string; children?: ReactNode };
-
-  if (typeof node.type === "string" && node.type.toLowerCase() === "code") {
-    return React.cloneElement(
-      node as React.ReactElement<{
-        className?: string;
-        children?: ReactNode;
-      }>,
-      {
-        className: classNameWithLanguage(props.className, language),
-      },
-    );
-  }
-
-  if (props.children === undefined) return node;
-
-  return React.cloneElement(
-    node as React.ReactElement<{ className?: string; children?: ReactNode }>,
-    {
-      children: withSemanticCodeLanguage(props.children, language),
-    },
-  );
-}
-
 function nodeAsElement(node: Node | null): Element | null {
   if (!node) return null;
 
@@ -351,17 +292,6 @@ function nodeAsElement(node: Node | null): Element | null {
   }
 
   return node.parentElement;
-}
-
-function copyRangeIsInsideSingleCodeBlock(range: Range) {
-  const startElement = nodeAsElement(range.startContainer);
-  const endElement = nodeAsElement(range.endContainer);
-  const startPre = startElement?.closest("pre.chat-code-pre[data-language]");
-  const endPre = endElement?.closest("pre.chat-code-pre[data-language]");
-
-  if (!startPre || startPre !== endPre) return null;
-
-  return startPre as HTMLPreElement;
 }
 
 function sanitizeCopiedMarkdownHtml(container: HTMLElement) {
@@ -375,30 +305,6 @@ function sanitizeCopiedMarkdownHtml(container: HTMLElement) {
       ].join(","),
     )
     .forEach((node) => node.remove());
-
-  container.querySelectorAll("pre[data-language]").forEach((pre) => {
-    const language = pre.getAttribute("data-language")?.trim();
-    const code = pre.querySelector("code");
-
-    if (!language || !code) return;
-
-    code.className = classNameWithLanguage(code.className, language) ?? "";
-  });
-}
-
-function createCodeClipboardHtml(text: string, language?: string) {
-  const pre = document.createElement("pre");
-  const code = document.createElement("code");
-
-  if (language) {
-    pre.setAttribute("data-language", language);
-    code.className = `language-${language}`;
-  }
-
-  code.textContent = text;
-  pre.appendChild(code);
-
-  return pre.outerHTML;
 }
 
 const MERMAID_PNG_SCALE = 1;
@@ -559,7 +465,6 @@ function downloadBlob(blob: Blob, filename: string) {
 }
 
 type CodeBlockFrameProps = {
-  children: ReactNode;
   className?: string;
   copied: boolean;
   canPreview: boolean;
@@ -572,6 +477,7 @@ type CodeBlockFrameProps = {
   payload: string;
   suggestedFilename: string;
   wrapped: boolean;
+  syntaxHighlight: boolean;
   onRenderedSvg?: (svg: string | undefined) => void;
   onCopyCode: () => void;
   onDownloadCode: () => void;
@@ -581,7 +487,6 @@ type CodeBlockFrameProps = {
 };
 
 function CodeBlockFrame({
-  children,
   className,
   copied,
   canPreview,
@@ -594,6 +499,7 @@ function CodeBlockFrame({
   payload,
   suggestedFilename,
   wrapped,
+  syntaxHighlight,
   onRenderedSvg,
   onCopyCode,
   onDownloadCode,
@@ -746,26 +652,27 @@ function CodeBlockFrame({
         </div>
       ) : (
         <CodeBlockSourceView
+          code={payload}
           wrapped={wrapped}
-          className={isFullscreen ? "min-h-0 flex-1 overflow-auto" : undefined}
+          className={isFullscreen ? "min-h-0 flex-1" : undefined}
           language={language ? displayLanguage : undefined}
-        >
-          {withSemanticCodeLanguage(
-            children,
-            language ? displayLanguage : undefined,
-          )}
-        </CodeBlockSourceView>
+          syntaxHighlight={syntaxHighlight}
+        />
       )}
     </div>
   );
 }
 
-function CodeBlock({
-  children,
+export function StandaloneCodeBlock({
+  code,
+  language,
   className,
+  syntaxHighlight = true,
 }: {
-  children: ReactNode;
+  code: string;
+  language?: string;
   className?: string;
+  syntaxHighlight?: boolean;
 }) {
   const [copied, setCopied] = React.useState(false);
   const [wrapped, setWrapped] = React.useState(true);
@@ -776,8 +683,6 @@ function CodeBlock({
   const [fullscreenWrapped, setFullscreenWrapped] = React.useState(true);
   const [fullscreenOpen, setFullscreenOpen] = React.useState(false);
   const [renderedSvg, setRenderedSvg] = React.useState<string>();
-  const code = React.Children.toArray(children).map(textFromNode).join("");
-  const language = languageFromNode(children);
   const displayLanguage = normalizeCodeLanguage(language);
   const payload = codePayload(code);
   const suggestedFilename = filenameForLanguage(language);
@@ -883,6 +788,7 @@ function CodeBlock({
         payload={payload}
         suggestedFilename={suggestedFilename}
         wrapped={wrapped}
+        syntaxHighlight={syntaxHighlight}
         onRenderedSvg={setRenderedSvg}
         onCopyCode={() => {
           void copyCode(displayMode);
@@ -893,9 +799,7 @@ function CodeBlock({
         onFullscreenClick={openFullscreen}
         onToggleDisplayMode={toggleDisplayMode}
         onToggleWrapped={toggleWrapped}
-      >
-        {children}
-      </CodeBlockFrame>
+      />
 
       <CodeBlockPreviewDialog
         open={fullscreenOpen}
@@ -917,6 +821,7 @@ function CodeBlock({
           payload={payload}
           suggestedFilename={suggestedFilename}
           wrapped={fullscreenWrapped}
+          syntaxHighlight={syntaxHighlight}
           onRenderedSvg={setRenderedSvg}
           onCopyCode={() => {
             void copyCode(fullscreenDisplayMode);
@@ -927,30 +832,43 @@ function CodeBlock({
           onFullscreenClick={() => setFullscreenOpen(false)}
           onToggleDisplayMode={toggleFullscreenDisplayMode}
           onToggleWrapped={toggleFullscreenWrapped}
-        >
-          {children}
-        </CodeBlockFrame>
+        />
       </CodeBlockPreviewDialog>
     </>
   );
 }
 
+function CodeBlock({
+  children,
+  className,
+  syntaxHighlight = true,
+}: {
+  children: ReactNode;
+  className?: string;
+  syntaxHighlight?: boolean;
+}) {
+  const code = React.Children.toArray(children).map(textFromNode).join("");
+  const language = languageFromNode(children);
+
+  return (
+    <StandaloneCodeBlock
+      code={code}
+      language={language}
+      className={className}
+      syntaxHighlight={syntaxHighlight}
+    />
+  );
+}
+
 const REMARK_PLUGINS: PluggableList = [remarkGfm, remarkMath];
 
-const REHYPE_PLUGINS_WITH_HIGHLIGHT: PluggableList = [
-  rehypeRaw,
-  [rehypeSanitize, SAFE_HTML_SCHEMA],
-  rehypeKatex,
-  [rehypeHighlight, { detect: false, ignoreMissing: true }],
-];
-
-const REHYPE_PLUGINS_WITHOUT_HIGHLIGHT: PluggableList = [
+const REHYPE_PLUGINS: PluggableList = [
   rehypeRaw,
   [rehypeSanitize, SAFE_HTML_SCHEMA],
   rehypeKatex,
 ];
 
-const MARKDOWN_COMPONENTS: Components = {
+const MARKDOWN_COMPONENTS_BASE: Omit<Components, "pre"> = {
   a: ({ className, ...props }) => (
     <a
       className={cn("underline underline-offset-4", className)}
@@ -964,9 +882,6 @@ const MARKDOWN_COMPONENTS: Components = {
       {children}
     </code>
   ),
-  pre: ({ className, children }) => (
-    <CodeBlock className={className}>{children}</CodeBlock>
-  ),
   table: ({ className, ...props }) => (
     <div className="chat-markdown-table-scroll chat-message-scrollbar">
       <table className={cn(className)} {...props} />
@@ -974,13 +889,28 @@ const MARKDOWN_COMPONENTS: Components = {
   ),
 };
 
+const MARKDOWN_COMPONENTS: Components = {
+  ...MARKDOWN_COMPONENTS_BASE,
+  pre: ({ className, children }) => (
+    <CodeBlock className={className}>{children}</CodeBlock>
+  ),
+};
+
+const MARKDOWN_COMPONENTS_WITHOUT_CODE_HIGHLIGHT: Components = {
+  ...MARKDOWN_COMPONENTS_BASE,
+  pre: ({ className, children }) => (
+    <CodeBlock className={className} syntaxHighlight={false}>
+      {children}
+    </CodeBlock>
+  ),
+};
+
 const HUGE_MARKDOWN_THRESHOLD = 80_000;
 const VIRTUAL_MARKDOWN_BLOCK_MAX_CHARS = 6_000;
-const VIRTUAL_MARKDOWN_CODE_BLOCK_MAX_CHARS = 12_000;
 const VIRTUAL_MARKDOWN_BUILD_BUDGET_MS = 6;
 const VIRTUAL_MARKDOWN_OVERSCAN_PX = 900;
 const VIRTUAL_MARKDOWN_BLOCK_CACHE_PREFIX =
-  "molten-forge-virtual-markdown-blocks-v1";
+  "molten-forge-virtual-markdown-blocks-v3";
 const VIRTUAL_MARKDOWN_BLOCK_CACHE_MAX_ENTRIES = 48;
 
 const VIRTUAL_MARKDOWN_FENCE_PATTERN = /^ {0,3}(```+|~~~+)\s*([^`~\s]*)?/;
@@ -1137,8 +1067,15 @@ function estimateVirtualMarkdownBlockHeight(
   const lineHeight = kind === "code" ? 20 : 24;
   const charsPerLine = kind === "code" ? 96 : 88;
   const estimatedLines = Math.max(1, Math.ceil(contentLength / charsPerLine));
+  const estimatedHeight = Math.max(32, estimatedLines * lineHeight + 18);
 
-  return Math.max(32, estimatedLines * lineHeight + 18);
+  if (kind !== "code") return estimatedHeight;
+
+  const viewportHeight =
+    typeof window === "undefined" ? 800 : Math.max(1, window.innerHeight);
+  const codeViewerMaxHeight = Math.min(72 * 16, viewportHeight * 0.7);
+
+  return Math.min(estimatedHeight, codeViewerMaxHeight + 48);
 }
 
 function findScrollParent(element: HTMLElement | null): HTMLElement | Window {
@@ -1244,12 +1181,12 @@ function MarkdownRenderer({
   return (
     <ReactMarkdown
       remarkPlugins={REMARK_PLUGINS}
-      rehypePlugins={
+      rehypePlugins={REHYPE_PLUGINS}
+      components={
         skipSyntaxHighlight
-          ? REHYPE_PLUGINS_WITHOUT_HIGHLIGHT
-          : REHYPE_PLUGINS_WITH_HIGHLIGHT
+          ? MARKDOWN_COMPONENTS_WITHOUT_CODE_HIGHLIGHT
+          : MARKDOWN_COMPONENTS
       }
-      components={MARKDOWN_COMPONENTS}
     >
       {normalizeMarkdownContent(content)}
     </ReactMarkdown>
@@ -1259,25 +1196,28 @@ function MarkdownRenderer({
 function PlainCodeBlock({
   content,
   language,
+  syntaxHighlight = true,
 }: {
   content: string;
   language?: string;
+  syntaxHighlight?: boolean;
 }) {
   const parsed = parseFencedCodeBlock(content, language);
+  const displayLanguage = normalizeCodeLanguage(parsed.language);
 
   return (
     <div className="chat-code-block">
       <div className="chat-code-header" data-codeblock-ui="true">
         <span className="chat-code-language" data-codeblock-ui="true">
-          {parsed.language || "text"}
+          {displayLanguage}
         </span>
       </div>
-      <pre
-        className="chat-code-pre chat-code-pre-wrap"
-        data-language={parsed.language || undefined}
-      >
-        <code>{parsed.code}</code>
-      </pre>
+      <CodeBlockSourceView
+        code={parsed.code}
+        language={parsed.language ? displayLanguage : undefined}
+        wrapped
+        syntaxHighlight={syntaxHighlight}
+      />
     </div>
   );
 }
@@ -1294,7 +1234,13 @@ function VirtualMarkdownBlockView({
   const blockContent = content.slice(block.start, block.end);
 
   if (block.kind === "code") {
-    return <PlainCodeBlock content={blockContent} language={block.language} />;
+    return (
+      <PlainCodeBlock
+        content={blockContent}
+        language={block.language}
+        syntaxHighlight={!skipSyntaxHighlight}
+      />
+    );
   }
 
   return (
@@ -1399,18 +1345,14 @@ function createVirtualMarkdownBlocksBuilder({
       offset = lineEnd;
 
       if (inFence) {
-        const codeBlockIsTooLarge =
-          offset - blockStart >= VIRTUAL_MARKDOWN_CODE_BLOCK_MAX_CHARS;
         const closesFence =
           shouldCloseFence(line) && offset > blockStart + line.length;
 
-        if (closesFence || codeBlockIsTooLarge) {
+        if (closesFence) {
           createBlock(blockStart, offset, "code", fenceLanguage);
           blockStart = offset;
-          if (closesFence) {
-            inFence = false;
-            fenceLanguage = undefined;
-          }
+          inFence = false;
+          fenceLanguage = undefined;
         }
       } else if (
         (trimmed.length === 0 && offset > blockStart) ||
@@ -1653,9 +1595,7 @@ function VirtualizedMarkdownMessage({
               <VirtualMarkdownBlockView
                 block={block}
                 content={content}
-                skipSyntaxHighlight={
-                  skipSyntaxHighlight || block.kind === "code"
-                }
+                skipSyntaxHighlight={skipSyntaxHighlight}
               />
             </div>
           ))}
@@ -1690,21 +1630,22 @@ export const MarkdownMessage = React.memo(function MarkdownMessage({
 
       if (!root.contains(range.commonAncestorContainer)) return;
 
-      const codePre = copyRangeIsInsideSingleCodeBlock(range);
-      const selectedText = selection.toString();
-      let html: string;
-      let plainText = selectedText;
+      const startElement = nodeAsElement(range.startContainer);
+      const endElement = nodeAsElement(range.endContainer);
+      const startCodeViewer = startElement?.closest(".chat-code-viewer");
+      const endCodeViewer = endElement?.closest(".chat-code-viewer");
 
-      if (codePre) {
-        const language = codePre.getAttribute("data-language")?.trim();
-        html = createCodeClipboardHtml(selectedText, language || undefined);
-      } else {
-        const container = document.createElement("div");
-        container.appendChild(range.cloneContents());
-        sanitizeCopiedMarkdownHtml(container);
-        html = container.innerHTML;
-        plainText = container.textContent ?? selectedText;
-      }
+      // Let the browser/CodeMirror handle selections that live entirely inside
+      // a single virtualized code viewer. Rebuilding the clipboard from the DOM
+      // would only include CodeMirror's currently rendered viewport.
+      if (startCodeViewer && startCodeViewer === endCodeViewer) return;
+
+      const selectedText = selection.toString();
+      const container = document.createElement("div");
+      container.appendChild(range.cloneContents());
+      sanitizeCopiedMarkdownHtml(container);
+      const html = container.innerHTML;
+      const plainText = container.textContent ?? selectedText;
 
       event.preventDefault();
       event.clipboardData.setData("text/plain", plainText);

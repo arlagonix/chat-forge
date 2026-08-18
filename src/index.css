@@ -1058,6 +1058,10 @@
     padding: 8px 12px;
     border-bottom: 1px solid var(--border);
     background: var(--app-glass-medium);
+    -webkit-backdrop-filter: blur(var(--app-glass-blur-medium))
+      saturate(var(--app-glass-saturation));
+    backdrop-filter: blur(var(--app-glass-blur-medium))
+      saturate(var(--app-glass-saturation));
     border-radius: 0;
   }
 
@@ -1080,28 +1084,79 @@
 
   .chat-code-scroll {
     @apply block w-full min-w-0 max-w-full;
+    contain: layout paint;
   }
 
-  .chat-code-scroll-wrap {
-    overflow-x: hidden;
+  .chat-code-viewer {
+    @apply block w-full min-w-0 max-w-full overflow-hidden bg-transparent;
   }
 
-  .chat-code-scroll-nowrap {
-    overflow-x: auto;
+  .chat-code-viewer .cm-editor {
+    width: 100%;
+    max-width: 100%;
+    max-height: min(72rem, 70dvh);
+    background: transparent;
+  }
+
+  .chat-code-viewer .cm-scroller {
+    min-width: 0;
+    overflow: auto;
+  }
+
+  .chat-code-viewer .cm-content {
+    min-width: 100%;
+  }
+
+  .chat-code-viewer-test-fallback {
+    @apply m-0 w-full max-w-full bg-transparent p-3 font-mono text-sm leading-5;
+    max-height: min(72rem, 70dvh);
+  }
+
+  .chat-technical-text-block {
+    @apply w-full min-w-0 max-w-full overflow-hidden rounded-sm border bg-background/80;
+    contain: layout paint;
+  }
+
+  .chat-technical-text-code-viewer .cm-editor,
+  .chat-technical-text-code-viewer.chat-code-viewer-test-fallback {
+    max-height: min(50rem, 50dvh);
+    font-size: 0.75rem;
+  }
+
+  .chat-technical-text-code-viewer .cm-content {
+    padding-top: 0.5rem;
+    padding-bottom: 0.5rem;
+  }
+
+  .chat-mcp-test-output {
+    border: 0;
+    background: transparent;
+  }
+
+  .chat-mcp-test-output .chat-technical-text-code-viewer .cm-editor,
+  .chat-mcp-test-output
+    .chat-technical-text-code-viewer.chat-code-viewer-test-fallback {
+    max-height: 12rem;
   }
 
   .chat-tool-info-codeblock
     .chat-code-block:not(.chat-code-block-fullscreen)
-    .chat-code-scroll {
+    .chat-code-viewer
+    .cm-editor,
+  .chat-tool-info-codeblock
+    .chat-code-block:not(.chat-code-block-fullscreen)
+    .chat-code-viewer-test-fallback {
     max-height: min(50rem, 50dvh);
-    overflow-y: auto;
   }
 
   .chat-skill-content-codeblock
     .chat-code-block:not(.chat-code-block-fullscreen)
-    .chat-code-scroll {
+    .chat-code-viewer
+    .cm-editor,
+  .chat-skill-content-codeblock
+    .chat-code-block:not(.chat-code-block-fullscreen)
+    .chat-code-viewer-test-fallback {
     max-height: min(72rem, 70dvh);
-    overflow-y: auto;
   }
 
   .chat-code-pre {
@@ -1233,7 +1288,27 @@
   }
 
   .chat-code-block-fullscreen .chat-code-scroll {
-    @apply min-h-0 flex-1 overflow-auto;
+    @apply min-h-0 flex-1 overflow-hidden;
+  }
+
+  .chat-code-block-fullscreen .chat-code-viewer {
+    height: 100%;
+  }
+
+  .chat-code-block-fullscreen .chat-code-viewer .cm-editor {
+    height: 100%;
+    max-height: none;
+  }
+
+  .chat-code-block-fullscreen .chat-code-viewer .cm-scroller {
+    min-height: 0;
+    overflow: auto;
+  }
+
+  .chat-code-block-fullscreen .chat-code-viewer-test-fallback {
+    height: 100%;
+    max-height: none;
+    overflow: auto;
   }
 
   .chat-markdown .chat-code-preview {

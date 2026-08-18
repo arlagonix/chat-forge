@@ -33,6 +33,7 @@ import {
 import { createPortal } from "react-dom";
 
 import { AgentCallBlock } from "@/components/ai-chat/agent-call-block";
+import { ReadOnlyCodeViewer } from "@/components/ai-chat/code-viewer";
 import { AttachmentChips } from "@/components/ai-chat/attachment-chips";
 import { SmoothAssistantMessageContent } from "@/components/ai-chat/smooth-assistant-message";
 import { ThinkingBlock } from "@/components/ai-chat/thinking-block";
@@ -585,9 +586,15 @@ const UserMessageContent = memo(function UserMessageContent({
             ) : null}
           </DialogHeader>
           <div className="min-h-0 flex-1 overflow-auto p-5 chat-message-scrollbar">
-            <pre className="whitespace-pre-wrap break-words rounded-sm border bg-muted/30 p-4 font-mono text-sm leading-6">
-              <code>{skillInvocation.content}</code>
-            </pre>
+            <div className="overflow-hidden rounded-sm border bg-muted/30">
+              <ReadOnlyCodeViewer
+                code={skillInvocation.content}
+                language="markdown"
+                wrapped
+                syntaxHighlight={false}
+                ariaLabel={`Skill source: ${skillInvocation.name}`}
+              />
+            </div>
           </div>
         </DialogContent>
       </Dialog>
@@ -601,9 +608,14 @@ const SourceMarkdownContent = memo(function SourceMarkdownContent({
   content: string;
 }) {
   return (
-    <pre className="whitespace-pre-wrap break-words font-mono text-sm leading-6 sm:text-base">
-      {content}
-    </pre>
+    <ReadOnlyCodeViewer
+      code={content}
+      language="markdown"
+      wrapped
+      syntaxHighlight={false}
+      className="chat-message-source-code-viewer"
+      ariaLabel="Markdown source"
+    />
   );
 });
 

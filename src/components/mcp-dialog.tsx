@@ -26,7 +26,11 @@ import {
   type SetStateAction,
 } from "react";
 
-import { MarkdownMessage } from "@/components/ai-chat/markdown-message";
+import {
+  LARGE_TECHNICAL_TEXT_THRESHOLD,
+  TechnicalTextViewer,
+} from "@/components/ai-chat/code-viewer";
+import { StandaloneCodeBlock } from "@/components/ai-chat/markdown-message";
 import { CodeEditor } from "@/components/code-editor";
 import { Button } from "@/components/ui/button";
 import {
@@ -82,11 +86,15 @@ const MCP_INFO_CODE_BLOCK_CLASS_NAME =
   "chat-markdown-compact chat-tool-info-codeblock";
 
 function renderJsonCodeBlock(value: unknown) {
+  const code = JSON.stringify(value ?? {}, null, 2) ?? "{}";
   return (
-    <MarkdownMessage
-      className={MCP_INFO_CODE_BLOCK_CLASS_NAME}
-      content={`~~~json\n${JSON.stringify(value ?? {}, null, 2)}\n~~~`}
-    />
+    <div className={MCP_INFO_CODE_BLOCK_CLASS_NAME}>
+      <StandaloneCodeBlock
+        code={code}
+        language="json"
+        syntaxHighlight={code.length <= LARGE_TECHNICAL_TEXT_THRESHOLD}
+      />
+    </div>
   );
 }
 
@@ -910,9 +918,11 @@ export const McpDialog = memo(function McpDialog({
                               )}
                               {testResult.title}
                             </div>
-                            <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-foreground/80 select-text">
-                              {testResult.message}
-                            </pre>
+                            <TechnicalTextViewer
+                              text={testResult.message}
+                              className="chat-mcp-test-output"
+                              ariaLabel="MCP connection test output"
+                            />
                             <button
                               type="button"
                               onClick={() => setTestResult(null)}

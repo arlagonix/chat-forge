@@ -1,5 +1,7 @@
 import { ReactNode } from "react";
 
+import { ReadOnlyCodeViewer } from "@/components/ai-chat/code-viewer";
+
 import { HtmlPreview } from "@/components/ai-chat/html-preview";
 import { MarkdownPreview } from "@/components/ai-chat/markdown-preview";
 import { MermaidPreview } from "@/components/ai-chat/mermaid-preview";
@@ -23,10 +25,11 @@ type RenderablePreviewProps = {
 };
 
 type CodeBlockSourceViewProps = {
-  children: ReactNode;
+  code: string;
   wrapped: boolean;
   className?: string;
   language?: string;
+  syntaxHighlight?: boolean;
 };
 
 type CodeBlockPreviewDialogProps = {
@@ -71,28 +74,20 @@ export function RenderablePreview({
 }
 
 export function CodeBlockSourceView({
-  children,
+  code,
   wrapped,
   className,
   language,
+  syntaxHighlight = true,
 }: CodeBlockSourceViewProps) {
   return (
-    <div
-      className={cn(
-        "chat-code-scroll",
-        wrapped ? "chat-code-scroll-wrap" : "chat-code-scroll-nowrap",
-        className,
-      )}
-    >
-      <pre
-        className={cn(
-          "chat-code-pre",
-          wrapped ? "chat-code-pre-wrap" : "chat-code-pre-nowrap",
-        )}
-        data-language={language || undefined}
-      >
-        {children}
-      </pre>
+    <div className={cn("chat-code-scroll", className)}>
+      <ReadOnlyCodeViewer
+        code={code}
+        language={language}
+        wrapped={wrapped}
+        syntaxHighlight={syntaxHighlight}
+      />
     </div>
   );
 }

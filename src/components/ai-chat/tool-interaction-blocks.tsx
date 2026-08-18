@@ -13,6 +13,7 @@ import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import { memo, useEffect, useMemo, useState } from "react";
 import { flushSync } from "react-dom";
 
+import { TechnicalTextViewer } from "@/components/ai-chat/code-viewer";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
@@ -1065,11 +1066,7 @@ export const AskUserBlock = memo(function AskUserBlock({
 function renderTerminalTextBlock(value: string, emptyLabel = "No output yet.") {
   const text = value.length ? value : emptyLabel;
 
-  return (
-    <pre className="max-h-[min(50rem,50dvh)] overflow-auto rounded-sm border bg-background/80 px-3 py-2 font-mono text-xs leading-5 text-foreground whitespace-pre-wrap [overflow-wrap:anywhere]">
-      {text}
-    </pre>
-  );
+  return <TechnicalTextViewer text={text} ariaLabel="Terminal output" />;
 }
 
 function renderApprovalTerminalOutput(toolResult?: ChatToolResult) {

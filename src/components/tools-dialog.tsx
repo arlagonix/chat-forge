@@ -23,7 +23,8 @@ import {
 import type { Dispatch, ReactNode, SetStateAction } from "react";
 import { memo, useEffect, useMemo, useState } from "react";
 
-import { MarkdownMessage } from "@/components/ai-chat/markdown-message";
+import { LARGE_TECHNICAL_TEXT_THRESHOLD } from "@/components/ai-chat/code-viewer";
+import { StandaloneCodeBlock } from "@/components/ai-chat/markdown-message";
 import { CodeEditor } from "@/components/code-editor";
 import { Button } from "@/components/ui/button";
 import {
@@ -873,14 +874,25 @@ function saveToolTestStates(states: Record<string, ToolTestState>) {
   );
 }
 
-function formatJsonLikeCodeBlock(value: string) {
+function getJsonLikeCodeBlock(value: string) {
+  if (value.length > LARGE_TECHNICAL_TEXT_THRESHOLD) {
+    return { code: value, language: "json", syntaxHighlight: false };
+  }
+
   const trimmed = value.trim();
-  if (!trimmed) return "{}";
+  if (!trimmed) {
+    return { code: "{}", language: "json", syntaxHighlight: true };
+  }
 
   try {
-    return JSON.stringify(JSON.parse(trimmed), null, 2);
+    const formatted = JSON.stringify(JSON.parse(trimmed), null, 2) ?? trimmed;
+    return {
+      code: formatted,
+      language: "json",
+      syntaxHighlight: formatted.length <= LARGE_TECHNICAL_TEXT_THRESHOLD,
+    };
   } catch {
-    return trimmed;
+    return { code: trimmed, language: "json", syntaxHighlight: false };
   }
 }
 
@@ -888,12 +900,15 @@ function renderJsonCodeBlock(
   value: string,
   className = TOOL_INFO_CODE_BLOCK_CLASS_NAME,
 ) {
-  const normalized = formatJsonLikeCodeBlock(value);
+  const block = getJsonLikeCodeBlock(value);
   return (
-    <MarkdownMessage
-      className={className}
-      content={`~~~json\n${normalized}\n~~~`}
-    />
+    <div className={className}>
+      <StandaloneCodeBlock
+        code={block.code}
+        language={block.language}
+        syntaxHighlight={block.syntaxHighlight}
+      />
+    </div>
   );
 }
 
@@ -902,11 +917,17 @@ function renderCodeBlock(
   language = "text",
   className = TOOL_INFO_CODE_BLOCK_CLASS_NAME,
 ) {
+  const syntaxHighlight =
+    language !== "text" && value.length <= LARGE_TECHNICAL_TEXT_THRESHOLD;
+
   return (
-    <MarkdownMessage
-      className={className}
-      content={`~~~${language}\n${value}\n~~~`}
-    />
+    <div className={className}>
+      <StandaloneCodeBlock
+        code={value}
+        language={language}
+        syntaxHighlight={syntaxHighlight}
+      />
+    </div>
   );
 }
 

@@ -12,7 +12,11 @@ import {
 import { memo, type ReactNode, useMemo } from "react";
 import { toast } from "sonner";
 
-import { MarkdownMessage } from "@/components/ai-chat/markdown-message";
+import {
+  LARGE_TECHNICAL_TEXT_THRESHOLD,
+  TechnicalTextViewer,
+} from "@/components/ai-chat/code-viewer";
+import { StandaloneCodeBlock } from "@/components/ai-chat/markdown-message";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { formatAgentDisplayName } from "@/lib/ai-chat/builtin-agents";
@@ -87,14 +91,25 @@ const BUILTIN_TOOL_DESCRIPTIONS: Record<string, string> = {
     "Delegate a focused subtask to one configured agent and return the result to the current chat.",
 };
 
-function formatJsonLikeCodeBlock(value: string) {
+function getJsonLikeCodeBlock(value: string) {
+  if (value.length > LARGE_TECHNICAL_TEXT_THRESHOLD) {
+    return { code: value, language: "json", syntaxHighlight: false };
+  }
+
   const trimmed = value.trim();
-  if (!trimmed) return "{}";
+  if (!trimmed) {
+    return { code: "{}", language: "json", syntaxHighlight: true };
+  }
 
   try {
-    return JSON.stringify(JSON.parse(trimmed), null, 2);
+    const formatted = JSON.stringify(JSON.parse(trimmed), null, 2) ?? trimmed;
+    return {
+      code: formatted,
+      language: "json",
+      syntaxHighlight: formatted.length <= LARGE_TECHNICAL_TEXT_THRESHOLD,
+    };
   } catch {
-    return trimmed;
+    return { code: trimmed, language: "json", syntaxHighlight: false };
   }
 }
 
@@ -102,12 +117,15 @@ function renderJsonCodeBlock(
   value: string,
   className = TOOL_INFO_CODE_BLOCK_CLASS_NAME,
 ) {
-  const normalized = formatJsonLikeCodeBlock(value);
+  const block = getJsonLikeCodeBlock(value);
   return (
-    <MarkdownMessage
-      className={className}
-      content={`~~~json\n${normalized}\n~~~`}
-    />
+    <div className={className}>
+      <StandaloneCodeBlock
+        code={block.code}
+        language={block.language}
+        syntaxHighlight={block.syntaxHighlight}
+      />
+    </div>
   );
 }
 
@@ -116,11 +134,17 @@ function renderCodeBlock(
   language = "text",
   className = TOOL_INFO_CODE_BLOCK_CLASS_NAME,
 ) {
+  const syntaxHighlight =
+    language !== "text" && value.length <= LARGE_TECHNICAL_TEXT_THRESHOLD;
+
   return (
-    <MarkdownMessage
-      className={className}
-      content={`~~~${language}\n${value}\n~~~`}
-    />
+    <div className={className}>
+      <StandaloneCodeBlock
+        code={value}
+        language={language}
+        syntaxHighlight={syntaxHighlight}
+      />
+    </div>
   );
 }
 
@@ -201,6 +225,7 @@ function renderToolExecutionPreview(execution?: ToolExecutionPreview) {
 }
 
 function stripAnsi(value: string) {
+  if (!value.includes("\x1B")) return value;
   return value.replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, "");
 }
 
@@ -208,11 +233,7 @@ function renderTerminalTextBlock(value: string) {
   const text = stripAnsi(value);
   if (!text.trim()) return null;
 
-  return (
-    <pre className="max-h-[min(50rem,50dvh)] overflow-auto rounded-sm border bg-background/80 px-3 py-2 font-mono text-xs leading-5 text-foreground whitespace-pre-wrap [overflow-wrap:anywhere]">
-      {text}
-    </pre>
-  );
+  return <TechnicalTextViewer text={text} ariaLabel="Terminal output" />;
 }
 
 function renderTerminalOutput(toolResult?: ChatToolResult) {
@@ -618,7 +639,12 @@ function compactPathLabel(value: string) {
 
 function readResultPath(toolResult?: ChatToolResult) {
   if (toolResult?.changePreview?.path) return toolResult.changePreview.path;
-  const content = toolResult?.content.trim();
+  const rawContent = toolResult?.content;
+  if (!rawContent || rawContent.length > LARGE_TECHNICAL_TEXT_THRESHOLD) {
+    return "";
+  }
+
+  const content = rawContent.trim();
   if (!content) return "";
 
   try {

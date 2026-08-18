@@ -26,19 +26,20 @@ function selectionIsFullyInsideElement(selection: Selection, element: HTMLElemen
 function copyRangeIsInsideSingleCodeBlock(range: Range) {
   const startElement = nodeAsElement(range.startContainer);
   const endElement = nodeAsElement(range.endContainer);
-  const startPre = startElement?.closest("pre.chat-code-pre");
-  const endPre = endElement?.closest("pre.chat-code-pre");
+  const selector = ".chat-code-viewer, pre.chat-code-pre";
+  const startCode = startElement?.closest(selector);
+  const endCode = endElement?.closest(selector);
 
-  if (!startPre || startPre !== endPre) return null;
+  if (!startCode || startCode !== endCode) return null;
 
-  return startPre as HTMLPreElement;
+  return startCode as HTMLElement;
 }
 
-function getCodeLanguage(pre: HTMLPreElement) {
-  const dataLanguage = pre.getAttribute("data-language")?.trim();
+function getCodeLanguage(element: HTMLElement) {
+  const dataLanguage = element.getAttribute("data-language")?.trim();
   if (dataLanguage) return dataLanguage;
 
-  const codeLanguage = pre
+  const codeLanguage = element
     .querySelector("code")
     ?.className.split(/\s+/)
     .find((className) => className.startsWith("language-"))
@@ -169,10 +170,18 @@ function nodeToMarkdown(node: Node): string {
     case "p":
       return block(children);
     case "div": {
-      const pre = element.matches("pre.chat-code-pre")
+      const codeContainer = element.matches(".chat-code-viewer")
         ? element
-        : element.querySelector("pre.chat-code-pre");
+        : element.querySelector<HTMLElement>(".chat-code-viewer");
 
+      if (codeContainer) {
+        return `${markdownCodeFence(
+          codeContainer.textContent ?? "",
+          getCodeLanguage(codeContainer),
+        )}\n\n`;
+      }
+
+      const pre = element.querySelector("pre.chat-code-pre");
       if (pre instanceof HTMLPreElement) {
         return `${markdownCodeFence(pre.textContent ?? "", getCodeLanguage(pre))}\n\n`;
       }
@@ -198,7 +207,7 @@ function nodeToMarkdown(node: Node): string {
     case "s":
       return `~~${inline(children)}~~`;
     case "code": {
-      if (element.closest("pre.chat-code-pre")) return children;
+      if (element.closest("pre.chat-code-pre, .chat-code-viewer")) return children;
       return escapeInlineCode(element.textContent ?? children);
     }
     case "pre": {

@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/components/ai-chat/markdown-message", () => ({
   MarkdownMessage: ({ content }: { content: string }) => <pre>{content}</pre>,
+  StandaloneCodeBlock: ({ code }: { code: string }) => <pre>{code}</pre>,
 }));
 
 vi.mock("@/lib/ai-chat/tool-preview", () => ({

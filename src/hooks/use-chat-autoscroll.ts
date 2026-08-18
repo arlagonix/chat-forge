@@ -286,6 +286,7 @@ export function useChatAutoscroll({
           "[data-message-content]",
           "[data-markdown-block-id]",
           ".chat-code-block",
+          ".chat-code-viewer",
           ".chat-code-pre",
           "blockquote",
           "details",
