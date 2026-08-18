@@ -681,7 +681,8 @@ export default function Home() {
     chatId: string;
     agentCallId: string;
   } | null>(null);
-  const mainChatScrollTopBeforeAgentRef = useRef<number | null>(null);
+  const agentChatScrollSnapshotsRef = useRef<Record<string, number>>({});
+  const saveCurrentScrollViewSnapshotRef = useRef<() => void>(() => {});
   const [chatSwitchLoadingChatId, setChatSwitchLoadingChatId] = useState<
     string | null
   >(null);
@@ -762,6 +763,7 @@ export default function Home() {
   >(null);
 
   const openSettingsSection = useCallback((section: SettingsSection) => {
+    saveCurrentScrollViewSnapshotRef.current();
     setSettingsSection(section);
     setSettingsPageDirty(false);
     setIsSettingsSidebarCollapsed(false);
@@ -776,6 +778,7 @@ export default function Home() {
           ? nextValue(currentOpen)
           : nextValue;
       if (nextOpen) {
+        if (!currentOpen) saveCurrentScrollViewSnapshotRef.current();
         setIsSettingsSidebarCollapsed(false);
         setAppView("settings");
       } else {
@@ -1601,6 +1604,8 @@ export default function Home() {
     [availableAgents],
   );
 
+  const isMainChatViewActive = appView === "chat" && !selectedAgentChatId;
+
   const {
     chatScrollRef,
     chatContentRef,
@@ -1632,45 +1637,96 @@ export default function Home() {
     setVisualStreamingMessageIds,
     messageOffsetResolverRef,
     persistActiveChatScroll: !isTemporaryChatActive,
+    isChatViewActive: isMainChatViewActive,
   });
 
-  useLayoutEffect(() => {
+  const agentChatScrollViewKey =
+    activeChatId && selectedAgentChatId
+      ? `${activeChatId}:${selectedAgentChatId}`
+      : undefined;
+  const selectedAgentChatStatusRef = useRef(selectedAgentChat?.status);
+  selectedAgentChatStatusRef.current = selectedAgentChat?.status;
+
+  function saveCurrentScrollViewSnapshot() {
+    if (appView !== "chat") return;
+
     const scrollElement = chatScrollRef.current;
     if (!scrollElement) return;
 
-    if (selectedAgentChatId) {
-      const shouldOpenAtBottom =
-        selectedAgentChat?.status === "running" ||
-        selectedAgentChat?.status === "pending";
-      const nextScrollTop = shouldOpenAtBottom
-        ? Math.max(0, scrollElement.scrollHeight - scrollElement.clientHeight)
-        : 0;
-      scrollElement.scrollTop = nextScrollTop;
-      window.requestAnimationFrame(() => {
-        const currentScrollElement = chatScrollRef.current;
-        if (!currentScrollElement) return;
-        currentScrollElement.scrollTop = shouldOpenAtBottom
-          ? Math.max(
-              0,
-              currentScrollElement.scrollHeight -
-                currentScrollElement.clientHeight,
-            )
-          : 0;
-      });
+    if (agentChatScrollViewKey) {
+      agentChatScrollSnapshotsRef.current[agentChatScrollViewKey] =
+        scrollElement.scrollTop;
       return;
     }
 
-    const mainChatScrollTop = mainChatScrollTopBeforeAgentRef.current;
-    if (mainChatScrollTop === null) return;
+    saveCurrentChatScrollSnapshot();
+  }
 
-    scrollElement.scrollTop = mainChatScrollTop;
-    window.requestAnimationFrame(() => {
+  function handleCurrentScrollViewScroll() {
+    const scrollElement = chatScrollRef.current;
+
+    if (scrollElement && agentChatScrollViewKey) {
+      agentChatScrollSnapshotsRef.current[agentChatScrollViewKey] =
+        scrollElement.scrollTop;
+    }
+
+    handleChatScroll();
+  }
+
+  function selectAgentChatView(agentCallId?: string) {
+    if (agentCallId === selectedAgentChatId) return;
+    saveCurrentScrollViewSnapshot();
+    setSelectedAgentChatId(agentCallId);
+  }
+
+  saveCurrentScrollViewSnapshotRef.current = saveCurrentScrollViewSnapshot;
+
+  useLayoutEffect(() => {
+    if (appView !== "chat" || !agentChatScrollViewKey) return;
+
+    const scrollElement = chatScrollRef.current;
+    if (!scrollElement) return;
+
+    const hasSavedPosition = Object.prototype.hasOwnProperty.call(
+      agentChatScrollSnapshotsRef.current,
+      agentChatScrollViewKey,
+    );
+    const savedScrollTop =
+      agentChatScrollSnapshotsRef.current[agentChatScrollViewKey] ?? 0;
+    const status = selectedAgentChatStatusRef.current;
+    const shouldOpenAtBottom = status === "running" || status === "pending";
+    let remainingFrames = 6;
+    let frameId: number | null = null;
+
+    const restoreAgentScrollPosition = () => {
+      frameId = null;
       const currentScrollElement = chatScrollRef.current;
-      if (currentScrollElement)
-        currentScrollElement.scrollTop = mainChatScrollTop;
-    });
-    mainChatScrollTopBeforeAgentRef.current = null;
-  }, [chatScrollRef, selectedAgentChat?.status, selectedAgentChatId]);
+      if (!currentScrollElement) return;
+
+      const maxScrollTop = Math.max(
+        0,
+        currentScrollElement.scrollHeight - currentScrollElement.clientHeight,
+      );
+      const nextScrollTop = hasSavedPosition
+        ? Math.min(Math.max(0, savedScrollTop), maxScrollTop)
+        : shouldOpenAtBottom
+          ? maxScrollTop
+          : 0;
+
+      currentScrollElement.scrollTop = nextScrollTop;
+
+      remainingFrames -= 1;
+      if (remainingFrames > 0) {
+        frameId = window.requestAnimationFrame(restoreAgentScrollPosition);
+      }
+    };
+
+    restoreAgentScrollPosition();
+
+    return () => {
+      if (frameId !== null) window.cancelAnimationFrame(frameId);
+    };
+  }, [agentChatScrollViewKey, appView, chatScrollRef]);
 
   useEffect(() => {
     let cancelled = false;
@@ -3120,6 +3176,7 @@ export default function Home() {
   });
 
   function createNewChatWithEmptyDraftState() {
+    saveCurrentScrollViewSnapshot();
     setNewChatDraftWorkspaceRoots([]);
     setNewChatDraftFolderId(undefined);
     setNewChatDraftModeId(DEFAULT_MODE_ID);
@@ -3128,6 +3185,7 @@ export default function Home() {
   }
 
   function resetChatDetailViews() {
+    saveCurrentScrollViewSnapshot();
     setSelectedAgentChatId(undefined);
     setSelectedAgentSidebarId(undefined);
     setSelectedAgentSidebarStack([]);
@@ -4065,11 +4123,7 @@ export default function Home() {
     setSelectedAgentSidebarId(agentCallId);
   });
   const stableOpenAgentChat = useStableCallback((agentCallId: string) => {
-    if (!selectedAgentChatId) {
-      mainChatScrollTopBeforeAgentRef.current =
-        chatScrollRef.current?.scrollTop ?? null;
-    }
-    setSelectedAgentChatId(agentCallId);
+    selectAgentChatView(agentCallId);
   });
   const stableOpenAgentSubchat = useStableCallback(
     (chatId: string, agentCallId: string) => {
@@ -4080,6 +4134,7 @@ export default function Home() {
       setIsContextUsageSidebarOpen(false);
       setIsChatCapabilitiesSidebarOpen(false);
       if (chatId !== activeChat?.id) {
+        saveCurrentScrollViewSnapshot();
         pendingAgentSubchatSwitchRef.current = { chatId, agentCallId };
         setSelectedAgentChatId(undefined);
         setCompletedGenerationChatIds((currentChatIds) =>
@@ -4089,11 +4144,7 @@ export default function Home() {
         return;
       }
       pendingAgentSubchatSwitchRef.current = null;
-      if (!selectedAgentChatId) {
-        mainChatScrollTopBeforeAgentRef.current =
-          chatScrollRef.current?.scrollTop ?? null;
-      }
-      setSelectedAgentChatId(agentCallId);
+      selectAgentChatView(agentCallId);
     },
   );
   const selectedAgentParentId = selectedAgentChatItem?.parentId;
@@ -4774,6 +4825,7 @@ export default function Home() {
         titleGenerationChatIds={titleGenerationChatIds}
         onCollapsedChange={setIsSidebarCollapsed}
         onSwitchChat={(chatId) => {
+          saveCurrentScrollViewSnapshot();
           setSelectedAgentChatId(undefined);
           setSelectedAgentSidebarId(undefined);
           setSelectedAgentSidebarStack([]);
@@ -4893,9 +4945,7 @@ export default function Home() {
                   size="icon-sm"
                   className="shrink-0"
                   onClick={() =>
-                    selectedAgentParent
-                      ? setSelectedAgentChatId(selectedAgentParent.id)
-                      : setSelectedAgentChatId(undefined)
+                    selectAgentChatView(selectedAgentParent?.id)
                   }
                   title={
                     selectedAgentParent
@@ -5010,7 +5060,7 @@ export default function Home() {
 
           <div
             ref={chatScrollRef}
-            onScroll={handleChatScroll}
+            onScroll={handleCurrentScrollViewScroll}
             onWheel={handleChatWheel}
             onPointerDown={handleChatPointerDown}
             className={cn(
@@ -5299,7 +5349,7 @@ export default function Home() {
                   : undefined
               }
               onOpenAsChat={(agentCallId) => {
-                setSelectedAgentChatId(agentCallId);
+                selectAgentChatView(agentCallId);
                 setSelectedAgentSidebarId(undefined);
                 setSelectedAgentSidebarStack([]);
                 setSelectedToolSidebarDetails(undefined);

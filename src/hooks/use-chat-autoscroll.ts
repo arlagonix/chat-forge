@@ -118,11 +118,13 @@ export function useChatAutoscroll({
   setVisualStreamingMessageIds,
   messageOffsetResolverRef,
   persistActiveChatScroll = true,
+  isChatViewActive = true,
 }: {
   activeChatId?: string;
   generatingChatIds: string[];
   messages: unknown[];
   persistActiveChatScroll?: boolean;
+  isChatViewActive?: boolean;
   closeMessageContextMenu: () => void;
   setVisualStreamingMessageIds: Dispatch<SetStateAction<string[]>>;
   // Optional resolver published by the virtualized message list: maps a
@@ -161,6 +163,8 @@ export function useChatAutoscroll({
   const activeChatIdRef = useRef(activeChatId);
   const generatingChatIdsRef = useRef(generatingChatIds);
   const persistActiveChatScrollRef = useRef(persistActiveChatScroll);
+  const isChatViewActiveRef = useRef(isChatViewActive);
+  const wasChatViewActiveRef = useRef(isChatViewActive);
   const readerScrollLockRef = useRef<{
     chatId: string;
     anchor: ReaderScrollAnchor | null;
@@ -168,12 +172,19 @@ export function useChatAutoscroll({
   const chatScrollSnapshotsRef = useRef<Record<string, ChatScrollSnapshot>>(
     readChatScrollSnapshots(),
   );
+  // Temporary chats intentionally never persist their scroll position to
+  // localStorage, but they still need an in-memory snapshot while navigating
+  // to Settings or an agent subchat during the current app session.
+  const transientChatScrollSnapshotsRef = useRef<
+    Record<string, ChatScrollSnapshot>
+  >({});
   const persistChatScrollSnapshotsTimeoutRef = useRef<number | null>(null);
   const restoreScrollFrameRef = useRef<number | null>(null);
 
   activeChatIdRef.current = activeChatId;
   generatingChatIdsRef.current = generatingChatIds;
   persistActiveChatScrollRef.current = persistActiveChatScroll;
+  isChatViewActiveRef.current = isChatViewActive;
 
   function getChatDistanceFromBottom() {
     const scrollElement = chatScrollRef.current;
@@ -398,6 +409,8 @@ export function useChatAutoscroll({
   }
 
   function enterReaderScrollLock() {
+    if (!isChatViewActiveRef.current) return;
+
     const chatId = activeChatIdRef.current;
     if (!chatId || !isActiveChatGenerating(chatId)) return;
 
@@ -409,6 +422,8 @@ export function useChatAutoscroll({
   }
 
   function updateReaderScrollLock() {
+    if (!isChatViewActiveRef.current) return;
+
     const chatId = activeChatIdRef.current;
     if (!chatId || !isActiveChatGenerating(chatId)) return;
 
@@ -420,6 +435,8 @@ export function useChatAutoscroll({
   }
 
   function restoreReaderScrollLockPosition() {
+    if (!isChatViewActiveRef.current) return false;
+
     const scrollElement = chatScrollRef.current;
     const lock = readerScrollLockRef.current;
     if (!scrollElement || !lock || lock.chatId !== activeChatIdRef.current) {
@@ -540,6 +557,8 @@ export function useChatAutoscroll({
   }
 
   function suppressStickyScroll() {
+    if (!isChatViewActiveRef.current) return;
+
     manualScrollSuppressedUntilRef.current =
       Date.now() + STICKY_SCROLL_SUPPRESSION_MS;
     setChatAutoScrollEnabled(false);
@@ -566,6 +585,7 @@ export function useChatAutoscroll({
 
   function shouldStickToChatBottom() {
     return (
+      isChatViewActiveRef.current &&
       isActiveChatGenerating() &&
       autoScrollEnabledRef.current &&
       !isStickyScrollSuppressed() &&
@@ -595,6 +615,8 @@ export function useChatAutoscroll({
   }
 
   function scrollToBottomInstant() {
+    if (!isChatViewActiveRef.current) return;
+
     const scrollElement = chatScrollRef.current;
     if (!scrollElement) return;
 
@@ -617,6 +639,8 @@ export function useChatAutoscroll({
   }
 
   function scrollTowardBottom() {
+    if (!isChatViewActiveRef.current) return true;
+
     const scrollElement = chatScrollRef.current;
     if (!scrollElement) return true;
 
@@ -643,6 +667,13 @@ export function useChatAutoscroll({
   }
 
   function syncChatScrollState() {
+    if (!isChatViewActiveRef.current) {
+      return {
+        distanceFromBottom: getChatDistanceFromBottom(),
+        isNearBottom: isNearChatBottomRef.current,
+      };
+    }
+
     syncChatScrollableState();
 
     const distanceFromBottom = getChatDistanceFromBottom();
@@ -683,34 +714,46 @@ export function useChatAutoscroll({
     }, CHAT_SCROLL_SNAPSHOT_PERSIST_DEBOUNCE_MS);
   }
 
-  function saveChatScrollSnapshot(chatId: string) {
+  function buildCurrentChatScrollSnapshot(): ChatScrollSnapshot | null {
     const scrollElement = chatScrollRef.current;
-    if (!scrollElement) return;
+    if (!scrollElement) return null;
 
     const anchor = getCurrentChatScrollAnchor();
-
-    // Mutate the ref in place: this runs on every scroll frame, and the
-    // snapshot map is only read lazily (getChatScrollSnapshot) or cloned when
-    // persisted, so there is no need to allocate a fresh copy of up to
-    // MAX_STORED_CHAT_SCROLL_SNAPSHOTS entries here.
-    chatScrollSnapshotsRef.current[chatId] = {
+    return {
       scrollTop: scrollElement.scrollTop,
       anchorMessageId: anchor?.messageId,
       anchorOffset: anchor?.offset,
       isNearBottom: isNearChatBottomRef.current,
       updatedAt: Date.now(),
     };
-    schedulePersistChatScrollSnapshots();
   }
 
   function saveCurrentChatScrollSnapshot() {
     const chatId = activeChatIdRef.current;
-    if (!chatId || !persistActiveChatScrollRef.current) return;
+    if (!chatId || !isChatViewActiveRef.current) return;
 
-    saveChatScrollSnapshot(chatId);
+    const snapshot = buildCurrentChatScrollSnapshot();
+    if (!snapshot) return;
+
+    if (!persistActiveChatScrollRef.current) {
+      transientChatScrollSnapshotsRef.current[chatId] = snapshot;
+      return;
+    }
+
+    // Once a temporary chat becomes persistent, prefer its newly captured
+    // persistent position over any older in-memory-only snapshot.
+    delete transientChatScrollSnapshotsRef.current[chatId];
+
+    // Mutate the ref in place: this runs on every scroll frame, and the
+    // snapshot map is only cloned when persisted, so there is no need to
+    // allocate a fresh copy of up to MAX_STORED_CHAT_SCROLL_SNAPSHOTS entries.
+    chatScrollSnapshotsRef.current[chatId] = snapshot;
+    schedulePersistChatScrollSnapshots();
   }
 
   function forgetChatScrollSnapshot(chatId: string) {
+    delete transientChatScrollSnapshotsRef.current[chatId];
+
     if (!(chatId in chatScrollSnapshotsRef.current)) return;
 
     delete chatScrollSnapshotsRef.current[chatId];
@@ -718,7 +761,10 @@ export function useChatAutoscroll({
   }
 
   const getChatScrollSnapshot = useCallback((chatId: string) => {
-    return chatScrollSnapshotsRef.current[chatId];
+    return (
+      transientChatScrollSnapshotsRef.current[chatId] ??
+      chatScrollSnapshotsRef.current[chatId]
+    );
   }, []);
 
   function cancelRestoreScrollPosition() {
@@ -758,7 +804,12 @@ export function useChatAutoscroll({
 
     const applyScrollTop = () => {
       restoreScrollFrameRef.current = null;
-      if (activeChatIdRef.current !== chatId) return;
+      if (
+        activeChatIdRef.current !== chatId ||
+        !isChatViewActiveRef.current
+      ) {
+        return;
+      }
 
       const scrollElement = chatScrollRef.current;
       if (!scrollElement) return;
@@ -789,21 +840,25 @@ export function useChatAutoscroll({
     applyScrollTop();
   }
 
-  function restoreActiveChatScrollSnapshot() {
+  function restoreActiveChatScrollSnapshot({
+    exactPosition = false,
+  }: { exactPosition?: boolean } = {}) {
     const chatId = activeChatIdRef.current;
     const scrollElement = chatScrollRef.current;
-    if (!chatId || !scrollElement) return;
+    if (!chatId || !scrollElement || !isChatViewActiveRef.current) return;
 
     cancelStickyScrollToBottom();
     cancelRestoreScrollPosition();
     clearStickyScrollSuppression();
     clearReaderScrollLock();
 
-    const snapshot = chatScrollSnapshotsRef.current[chatId];
+    const snapshot =
+      transientChatScrollSnapshotsRef.current[chatId] ??
+      chatScrollSnapshotsRef.current[chatId];
     const activeChatIsGenerating = isActiveChatGenerating(chatId);
 
     if (!snapshot) {
-      if (activeChatIsGenerating) {
+      if (activeChatIsGenerating && !exactPosition) {
         setChatAutoScrollEnabled(true);
         scheduleStickyScrollToBottom({ force: true, settleFrames: 6 });
         return;
@@ -814,7 +869,10 @@ export function useChatAutoscroll({
       return;
     }
 
-    if (snapshot.isNearBottom && activeChatIsGenerating) {
+    // Returning from Settings or an agent subchat is a temporary view switch,
+    // not a request to catch up to newly generated content. Restore the saved
+    // anchor exactly even when the chat was near the bottom when it was left.
+    if (!exactPosition && snapshot.isNearBottom && activeChatIsGenerating) {
       setChatAutoScrollEnabled(true);
       scheduleStickyScrollToBottom({ force: true, settleFrames: 6 });
       return;
@@ -847,6 +905,12 @@ export function useChatAutoscroll({
 
     const runStickyScrollFrame = () => {
       stickyScrollFrameRef.current = null;
+
+      if (!isChatViewActiveRef.current) {
+        stickyScrollForceRef.current = false;
+        stickyScrollSettleFramesRef.current = 0;
+        return;
+      }
 
       const shouldForce = stickyScrollForceRef.current;
 
@@ -922,6 +986,8 @@ export function useChatAutoscroll({
   }
 
   function armStickyScrollToBottom() {
+    if (!isChatViewActiveRef.current) return;
+
     clearStickyScrollSuppression();
     cancelRestoreScrollPosition();
     setChatAutoScrollEnabled(true);
@@ -937,7 +1003,7 @@ export function useChatAutoscroll({
 
   const handleAssistantVisualProgress = useCallback(
     (chatId: string) => {
-      if (chatId !== activeChatId) return;
+      if (!isChatViewActiveRef.current || chatId !== activeChatId) return;
 
       if (isReaderScrollLocked(chatId)) {
         restoreReaderScrollLockPosition();
@@ -974,6 +1040,7 @@ export function useChatAutoscroll({
       });
 
       if (
+        isChatViewActiveRef.current &&
         activeChatId &&
         !isReaderScrollLocked(activeChatId) &&
         shouldStickToChatBottom()
@@ -987,6 +1054,8 @@ export function useChatAutoscroll({
   );
 
   const handleAskUserLayoutChange = useCallback(() => {
+    if (!isChatViewActiveRef.current) return;
+
     if (isReaderScrollLocked()) {
       restoreReaderScrollLockPosition();
       syncChatScrollState();
@@ -1001,13 +1070,27 @@ export function useChatAutoscroll({
     syncChatScrollState();
   }, [activeChatId, generatingChatIds]);
 
-  // --- Concern: restore persisted position when switching chats ---
+  // --- Concern: restore persisted position when switching chats/views ---
   useLayoutEffect(() => {
-    restoreActiveChatScrollSnapshot();
-  }, [activeChatId]);
+    const becameVisible =
+      isChatViewActive && !wasChatViewActiveRef.current;
+    wasChatViewActiveRef.current = isChatViewActive;
+
+    if (!isChatViewActive) {
+      cancelStickyScrollToBottom();
+      cancelRestoreScrollPosition();
+      clearReaderScrollLock();
+      setChatAutoScrollEnabled(false);
+      return;
+    }
+
+    restoreActiveChatScrollSnapshot({ exactPosition: becameVisible });
+  }, [activeChatId, isChatViewActive]);
 
   // --- Concern: react to message/content changes (sticky-to-bottom) ---
   useLayoutEffect(() => {
+    if (!isChatViewActive) return;
+
     syncChatScrollableState();
 
     if (isReaderScrollLocked()) {
@@ -1028,10 +1111,12 @@ export function useChatAutoscroll({
     }
 
     syncChatScrollState();
-  }, [messages]);
+  }, [isChatViewActive, messages]);
 
   // --- Concern: keep sticky/near-bottom state correct as layout resizes ---
   useLayoutEffect(() => {
+    if (!isChatViewActive) return;
+
     const scrollElement = chatScrollRef.current;
     const contentElement = chatContentRef.current;
     if (!scrollElement) return;
@@ -1064,7 +1149,7 @@ export function useChatAutoscroll({
     return () => {
       resizeObserver.disconnect();
     };
-  }, [activeChatId, messages.length]);
+  }, [activeChatId, isChatViewActive, messages.length]);
 
   // --- Concern: reconcile sticky/auto-scroll on chat or generation changes ---
   // Sticking to the bottom requires the active chat to be generating, so the
@@ -1076,6 +1161,12 @@ export function useChatAutoscroll({
     const activeChatIsGenerating = isActiveChatGenerating();
     const wasActiveChatGenerating = wasActiveChatGeneratingRef.current;
     wasActiveChatGeneratingRef.current = activeChatIsGenerating;
+
+    // Keep the generation transition ref current while another transcript or
+    // Settings owns the shared viewport, but never let background generation
+    // move that viewport. This also prevents a generation that finished while
+    // away from snapping the main chat to the bottom when it becomes visible.
+    if (!isChatViewActive) return;
 
     if (shouldStickToChatBottom()) {
       scheduleStickyScrollToBottom({
@@ -1094,11 +1185,12 @@ export function useChatAutoscroll({
       setChatAutoScrollEnabled(false);
     }
     syncChatScrollState();
-  }, [activeChatId, generatingChatIds, messages]);
+  }, [activeChatId, generatingChatIds, isChatViewActive, messages]);
 
   // --- Concern: manual scroll intent (keyboard) suppresses sticky scroll ---
   useEffect(() => {
     function handleDocumentKeyDown(event: KeyboardEvent) {
+      if (!isChatViewActiveRef.current) return;
       if (event.defaultPrevented) return;
 
       const target = event.target instanceof HTMLElement ? event.target : null;
@@ -1191,11 +1283,14 @@ export function useChatAutoscroll({
 
   function handleChatScroll() {
     closeMessageContextMenu();
+    if (!isChatViewActiveRef.current) return;
 
     if (scrollFrameRef.current !== null) return;
 
     scrollFrameRef.current = window.requestAnimationFrame(() => {
       scrollFrameRef.current = null;
+      if (!isChatViewActiveRef.current) return;
+
       const scrollElement = chatScrollRef.current;
       if (!scrollElement) return;
 
@@ -1241,6 +1336,8 @@ export function useChatAutoscroll({
 
   function handleChatWheel(event: ReactWheelEvent<HTMLDivElement>) {
     closeMessageContextMenu();
+    if (!isChatViewActiveRef.current) return;
+
     markManualScrollInput();
 
     if (event.deltaY < 0) {
@@ -1252,7 +1349,10 @@ export function useChatAutoscroll({
     const target = event.target instanceof Element ? event.target : null;
     const scrollElement = chatScrollRef.current;
 
-    if (event.pointerType === "touch" || event.pointerType === "pen") {
+    if (
+      isChatViewActiveRef.current &&
+      (event.pointerType === "touch" || event.pointerType === "pen")
+    ) {
       markManualScrollInput(1000);
     }
 
@@ -1262,6 +1362,7 @@ export function useChatAutoscroll({
         scrollElement.offsetWidth - scrollElement.clientWidth;
 
       if (
+        isChatViewActiveRef.current &&
         scrollbarGutterWidth > 0 &&
         event.clientX >= rect.right - scrollbarGutterWidth - 2
       ) {

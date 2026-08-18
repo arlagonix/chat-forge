@@ -78,10 +78,7 @@ export const SystemPromptDialog = memo(function SystemPromptDialog({
     <>
       <Dialog embedded={embedded} open={open} onOpenChange={requestOpenChange}>
         <DialogContent
-          className={cn(
-            "flex h-[min(1000px,calc(100dvh-2rem))] max-h-none flex-col gap-0 overflow-hidden p-0 sm:max-w-6xl",
-            embedded ? "app-glass-panel-strong" : undefined,
-          )}
+          className="flex h-[min(1000px,calc(100dvh-2rem))] max-h-none flex-col gap-0 overflow-hidden p-0 sm:max-w-6xl"
         >
           {!embedded ? (
             <DialogHeader className="shrink-0 border-b px-5 py-4 pr-12">
@@ -89,7 +86,12 @@ export const SystemPromptDialog = memo(function SystemPromptDialog({
             </DialogHeader>
           ) : null}
 
-          <div className="flex min-h-0 flex-1 flex-col">
+          <div
+            className={cn(
+              "flex min-h-0 flex-1 flex-col",
+              embedded && "app-glass-panel-strong",
+            )}
+          >
             <div
               className={cn(
                 "mx-auto flex min-h-0 w-full min-w-0 flex-1 flex-col px-4",
@@ -105,7 +107,9 @@ export const SystemPromptDialog = memo(function SystemPromptDialog({
             </div>
           </div>
 
-          <footer className="shrink-0 border-t">
+          <footer
+            className={cn("shrink-0 border-t", embedded && "app-glass-card")}
+          >
             <DialogFooter
               className={cn(
                 "mx-auto w-full min-w-0 px-4 py-2",
