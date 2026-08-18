@@ -35,7 +35,7 @@ function copyRangeIsInsideSingleCodeBlock(range: Range) {
   return startCode as HTMLElement;
 }
 
-function getCodeLanguage(element: HTMLElement) {
+function getCodeLanguage(element: Element) {
   const dataLanguage = element.getAttribute("data-language")?.trim();
   if (dataLanguage) return dataLanguage;
 
